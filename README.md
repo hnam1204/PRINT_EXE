@@ -158,6 +158,7 @@ PRINTEXE/
 
 - [Hướng dẫn người dùng](docs/USER_MANUAL.md)
 - [Hướng dẫn triển khai và vận hành](docs/DEPLOYMENT_AND_OPERATIONS.md)
+- [Remote Print Server](REMOTE_PRINT_SERVER/README.md) — API điều phối độc lập, không chứa logic Windows Spooler.
 
 ## GitHub workflow
 

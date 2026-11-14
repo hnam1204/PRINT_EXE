@@ -90,3 +90,26 @@ class PrintJobResponse(BaseModel):
     printerId: str
     status: str
     metadata: dict
+
+
+class PairingCodeIssueRequest(BaseModel):
+    sessionId: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+
+
+class PairingCodeResponse(BaseModel):
+    sessionId: str
+    code: str | None
+    issuedAt: datetime
+    expiresAt: datetime
+    status: Literal["ACTIVE", "EXPIRED", "REVOKED"]
+
+
+class PairingCodeResolveRequest(BaseModel):
+    code: str = Field(min_length=6, max_length=6, pattern=r"^[A-Z0-9]{6}$")
+
+
+class PairingCodeResolveResponse(BaseModel):
+    pairingId: str
+    hostId: str
+    clientId: str
+    status: str
