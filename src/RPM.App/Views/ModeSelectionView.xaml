@@ -11,7 +11,7 @@
                 </Border>
                 <TextBlock Text="REMOTE PRINT MANAGER" 
                            FontSize="24" FontWeight="Bold" 
-                           Foreground="{StaticResource TextMainBrush}" 
+                           Foreground="{StaticResource NavyMainBrush}" 
                            HorizontalAlignment="Center" Margin="0,0,0,6"/>
                 
                 <TextBlock Text="Giải pháp kết nối &amp; chia sẻ máy in qua Internet an toàn cho doanh nghiệp" 

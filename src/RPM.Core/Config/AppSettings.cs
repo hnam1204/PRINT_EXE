@@ -6,7 +6,7 @@ namespace RPM.Core.Config;
 
 public class AppSettings
 {
-    public string AppVersion { get; set; } = "1.0.0";
+    public string AppVersion { get; set; } = "1.0.1";
     public AppRole Role { get; set; } = AppRole.Unconfigured;
     public string DeviceId { get; set; } = Guid.NewGuid().ToString("N");
     public string DeviceName { get; set; } = Environment.MachineName;
@@ -26,7 +26,7 @@ public class AppSettings
     // Auto-update & upgrade configuration
     public string UpdateFeedUrl { get; set; } = "http://127.0.0.1:9090/version.json";
     public bool AutoCheckUpdates { get; set; } = true;
-    public string UpdateChannel { get; set; } = "Stable"; // "Stable" (Chính thức) hoặc "Beta" (Thử nghiệm trước)
+    public string UpdateChannel { get; set; } = "Beta"; // "Stable" (Chính thức) hoặc "Beta" (Thử nghiệm trước)
     public bool AutoInstallUpdates { get; set; } = false; // Tự động cài đặt hoặc hiển thị nút cho người dùng bấm
     public int CheckIntervalMinutes { get; set; } = 60;   // Chu kỳ kiểm tra định kỳ (phút)
     public List<UpdateHistoryItem> UpdateHistory { get; set; } = new();

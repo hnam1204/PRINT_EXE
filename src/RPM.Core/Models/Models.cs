@@ -78,5 +78,25 @@ public class PrintJob
     public long FileSizeBytes { get; set; }
     public string ContentSha256 { get; set; } = string.Empty;
     public string? LocalTempFilePath { get; set; }
+
+    public string FormattedFileSize => FileSizeBytes switch
+    {
+        >= 1024 * 1024 => $"{(double)FileSizeBytes / (1024 * 1024):F1} MB",
+        >= 1024 => $"{(double)FileSizeBytes / 1024:F0} KB",
+        _ => $"{FileSizeBytes} B"
+    };
+
+    public string StatusText => Status switch
+    {
+        PrintJobStatus.Pending => "Đang chờ",
+        PrintJobStatus.Printing => "Đang in",
+        PrintJobStatus.Completed => "Hoàn tất",
+        PrintJobStatus.Failed => "Lỗi",
+        PrintJobStatus.Cancelled => "Đã hủy",
+        _ => Status.ToString()
+    };
+
+    public string ClientDeviceName => !string.IsNullOrEmpty(SenderDeviceName) ? SenderDeviceName : (!string.IsNullOrEmpty(SenderDeviceId) ? SenderDeviceId : "Máy con");
+    public string ErrorMessage => StatusMessage;
 }
 

@@ -32,15 +32,21 @@
             <converters:DataSourceToTextConverter x:Key="DataSourceToText"/>
 
             <!-- ========================================================= -->
-            <!-- COLORS: REMOTE PRINT MANAGER OFFICIAL ORANGE PALETTE      -->
+            <!-- NHN BRAND BLUE COLOR PALETTE                              -->
             <!-- ========================================================= -->
-            <!-- Cam chính: #FF7900 -->
-            <SolidColorBrush x:Key="PrimaryBrush" Color="#FF7900"/>
-            <!-- Cam nhấn: #FF821F -->
-            <SolidColorBrush x:Key="PrimaryHoverBrush" Color="#FF821F"/>
-            <!-- Cam phụ: #F3781D -->
-            <SolidColorBrush x:Key="PrimaryPressedBrush" Color="#F3781D"/>
-            <SolidColorBrush x:Key="PrimaryLightBrush" Color="#FFF2E8"/>
+            <!-- Navy chính: #001947 -->
+            <SolidColorBrush x:Key="NavyMainBrush" Color="#001947"/>
+            <!-- Xanh điện (Primary Action): #0078F9 -->
+            <SolidColorBrush x:Key="PrimaryBrush" Color="#0078F9"/>
+            <SolidColorBrush x:Key="ElectricBlueBrush" Color="#0078F9"/>
+            <!-- Xanh nhấn (Hover / Accent): #0061E6 -->
+            <SolidColorBrush x:Key="PrimaryHoverBrush" Color="#0061E6"/>
+            <!-- Xanh nhấn sâu (Pressed): #001947 -->
+            <SolidColorBrush x:Key="PrimaryPressedBrush" Color="#001947"/>
+            <!-- Xanh Cyan: #0095FB -->
+            <SolidColorBrush x:Key="CyanBlueBrush" Color="#0095FB"/>
+            <!-- Nền xanh nhạt -->
+            <SolidColorBrush x:Key="PrimaryLightBrush" Color="#EBF4FF"/>
 
             <!-- Xanh lá thành công: #15B84A -->
             <SolidColorBrush x:Key="SuccessBrush" Color="#15B84A"/>
@@ -57,14 +63,14 @@
             <SolidColorBrush x:Key="DangerHoverBrush" Color="#AD342B"/>
             <SolidColorBrush x:Key="DangerLightBrush" Color="#FAECEB"/>
 
-            <!-- Nền trắng kem & Card -->
-            <SolidColorBrush x:Key="BgBrush" Color="#FFFBF8"/>
+            <!-- Nền ứng dụng & Card: Light Mode NHN -->
+            <SolidColorBrush x:Key="BgBrush" Color="#F6F9FF"/>
             <SolidColorBrush x:Key="CardBgBrush" Color="#FFFFFF"/>
-            <SolidColorBrush x:Key="BorderBrush" Color="#F0E5DC"/>
-            <SolidColorBrush x:Key="BorderLightBrush" Color="#F7EFEB"/>
+            <SolidColorBrush x:Key="BorderBrush" Color="#E2E8F0"/>
+            <SolidColorBrush x:Key="BorderLightBrush" Color="#EEF2F6"/>
 
-            <!-- Chữ chính: #131926 -->
-            <SolidColorBrush x:Key="TextMainBrush" Color="#131926"/>
+            <!-- Chữ chính: #14233B -->
+            <SolidColorBrush x:Key="TextMainBrush" Color="#14233B"/>
             <SolidColorBrush x:Key="TextMutedBrush" Color="#64748B"/>
             <SolidColorBrush x:Key="TextSubtleBrush" Color="#94A3B8"/>
 
@@ -76,17 +82,17 @@
                 <Setter Property="Background" Value="{StaticResource CardBgBrush}"/>
                 <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="CornerRadius" Value="12"/>
-                <Setter Property="Padding" Value="18"/>
+                <Setter Property="CornerRadius" Value="10"/>
+                <Setter Property="Padding" Value="16"/>
                 <Setter Property="Effect">
                     <Setter.Value>
-                        <DropShadowEffect BlurRadius="12" ShadowDepth="2" Direction="270" Color="#131926" Opacity="0.04"/>
+                        <DropShadowEffect BlurRadius="10" ShadowDepth="2" Direction="270" Color="#001947" Opacity="0.04"/>
                     </Setter.Value>
                 </Setter>
             </Style>
 
             <!-- ========================================================= -->
-            <!-- MODERN BUTTONS (ORANGE PRIMARY & HIGH CONTRAST)            -->
+            <!-- MODERN BUTTONS (NHN ELECTRIC BLUE & MINIMALIST SYSTEM)    -->
             <!-- ========================================================= -->
             <Style x:Key="PrimaryBtn" TargetType="Button">
                 <Setter Property="FontFamily" Value="{StaticResource SegoeFont}"/>
@@ -95,7 +101,7 @@
                 <Setter Property="Foreground" Value="White"/>
                 <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
                 <Setter Property="BorderThickness" Value="0"/>
-                <Setter Property="Padding" Value="18,9"/>
+                <Setter Property="Padding" Value="16,8"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="Template">
                     <Setter.Value>
@@ -202,11 +208,11 @@
                 <Setter Property="FontFamily" Value="{StaticResource SegoeFont}"/>
                 <Setter Property="FontSize" Value="13"/>
                 <Setter Property="FontWeight" Value="Medium"/>
-                <Setter Property="Foreground" Value="#334155"/>
+                <Setter Property="Foreground" Value="{StaticResource TextMainBrush}"/>
                 <Setter Property="Background" Value="#FFFFFF"/>
-                <Setter Property="BorderBrush" Value="#E2E8F0"/>
+                <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="Padding" Value="16,8"/>
+                <Setter Property="Padding" Value="14,7"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="Template">
                     <Setter.Value>
@@ -220,12 +226,12 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="btnBorder" Property="Background" Value="#F8FAFC"/>
-                                    <Setter TargetName="btnBorder" Property="BorderBrush" Value="#CBD5E1"/>
-                                    <Setter Property="Foreground" Value="#0F172A"/>
+                                    <Setter TargetName="btnBorder" Property="Background" Value="#F0F7FF"/>
+                                    <Setter TargetName="btnBorder" Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/>
+                                    <Setter Property="Foreground" Value="{StaticResource PrimaryHoverBrush}"/>
                                 </Trigger>
                                 <Trigger Property="IsPressed" Value="True">
-                                    <Setter TargetName="btnBorder" Property="Background" Value="#F1F5F9"/>
+                                    <Setter TargetName="btnBorder" Property="Background" Value="#E0EFFF"/>
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter TargetName="btnBorder" Property="Background" Value="#F8FAFC"/>
@@ -247,7 +253,7 @@
                 <Setter Property="Background" Value="#FEF2F2"/>
                 <Setter Property="BorderBrush" Value="#FECACA"/>
                 <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="Padding" Value="16,8"/>
+                <Setter Property="Padding" Value="14,7"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="Template">
                     <Setter.Value>
@@ -283,7 +289,7 @@
             <Style x:Key="ModernTextBox" TargetType="TextBox">
                 <Setter Property="FontFamily" Value="{StaticResource SegoeFont}"/>
                 <Setter Property="FontSize" Value="13"/>
-                <Setter Property="Padding" Value="12,8"/>
+                <Setter Property="Padding" Value="10,7"/>
                 <Setter Property="Foreground" Value="{StaticResource TextMainBrush}"/>
                 <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
@@ -308,75 +314,7 @@
                 </Setter>
             </Style>
 
-            <!-- ========================================================= -->
-            <!-- MODERN SEGMENTED PILL TAB CONTROL (HORIZONTAL TOP BAR)    -->
-            <!-- ========================================================= -->
-            <Style TargetType="TabControl">
-                <Setter Property="Background" Value="Transparent"/>
-                <Setter Property="BorderThickness" Value="0"/>
-                <Setter Property="Padding" Value="0"/>
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="TabControl">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
-                                
-                                <!-- Segmented Pill Header Bar (Warm Cream Container) -->
-                                <Border Grid.Row="0" Background="#F4ECE5" CornerRadius="10" Padding="4" HorizontalAlignment="Left" Margin="0,0,0,16">
-                                    <TabPanel IsItemsHost="True" KeyboardNavigation.TabIndex="1"/>
-                                </Border>
-
-                                <!-- Tab Content Area -->
-                                <Border Grid.Row="1" Background="Transparent">
-                                    <ContentPresenter ContentSource="SelectedContent"/>
-                                </Border>
-                            </Grid>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
-
-            <!-- Modern Segmented Pill TabItem -->
-            <Style TargetType="TabItem">
-                <Setter Property="FontFamily" Value="{StaticResource SegoeFont}"/>
-                <Setter Property="FontSize" Value="13"/>
-                <Setter Property="FontWeight" Value="SemiBold"/>
-                <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
-                <Setter Property="Padding" Value="16,8"/>
-                <Setter Property="Cursor" Value="Hand"/>
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="TabItem">
-                            <Border x:Name="tabPill" Background="Transparent" CornerRadius="8" Padding="{TemplateBinding Padding}" Margin="2,0">
-                                <ContentPresenter x:Name="tabContent" ContentSource="Header" 
-                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="tabPill" Property="Background" Value="#EBE0D7"/>
-                                    <Setter Property="Foreground" Value="{StaticResource TextMainBrush}"/>
-                                </Trigger>
-                                <Trigger Property="IsSelected" Value="True">
-                                    <Setter TargetName="tabPill" Property="Background" Value="#FFFFFF"/>
-                                    <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}"/>
-                                    <Setter TargetName="tabPill" Property="Effect">
-                                        <Setter.Value>
-                                            <DropShadowEffect BlurRadius="6" ShadowDepth="1" Direction="270" Color="#131926" Opacity="0.08"/>
-                                        </Setter.Value>
-                                    </Setter>
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
-
-            <!-- ========================================================= -->
-            <!-- MODERN FLAT DATAGRID STYLES (Soft Borders & Orange Active) -->
-            <!-- ========================================================= -->
+            <!-- Modern Flat DataGrid Styles -->
             <Style TargetType="DataGrid">
                 <Setter Property="Background" Value="#FFFFFF"/>
                 <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
@@ -389,9 +327,9 @@
                 <Setter Property="CanUserAddRows" Value="False"/>
                 <Setter Property="CanUserDeleteRows" Value="False"/>
                 <Setter Property="CanUserResizeRows" Value="False"/>
-                <Setter Property="RowHeight" Value="44"/>
+                <Setter Property="RowHeight" Value="42"/>
                 <Setter Property="RowBackground" Value="#FFFFFF"/>
-                <Setter Property="AlternatingRowBackground" Value="#FFFDFB"/>
+                <Setter Property="AlternatingRowBackground" Value="#F8FAFC"/>
                 <Setter Property="SelectionMode" Value="Single"/>
                 <Setter Property="FontFamily" Value="{StaticResource SegoeFont}"/>
                 <Setter Property="FontSize" Value="13"/>
@@ -400,7 +338,7 @@
 
             <!-- Modern Column Header -->
             <Style TargetType="DataGridColumnHeader">
-                <Setter Property="Background" Value="#FFFBF8"/>
+                <Setter Property="Background" Value="#F8FAFC"/>
                 <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
                 <Setter Property="FontFamily" Value="{StaticResource SegoeFont}"/>
                 <Setter Property="FontSize" Value="11"/>
@@ -417,11 +355,11 @@
                 <Setter Property="Foreground" Value="{StaticResource TextMainBrush}"/>
                 <Style.Triggers>
                     <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Background" Value="#FFF7ED"/>
+                        <Setter Property="Background" Value="#F0F7FF"/>
                         <Setter Property="Foreground" Value="{StaticResource TextMainBrush}"/>
                     </Trigger>
                     <Trigger Property="IsSelected" Value="True">
-                        <Setter Property="Background" Value="#FFEDD5"/>
+                        <Setter Property="Background" Value="#E0EFFF"/>
                         <Setter Property="Foreground" Value="{StaticResource TextMainBrush}"/>
                     </Trigger>
                 </Style.Triggers>

@@ -52,10 +52,10 @@ public partial class MainWindow : Window
 
     private void NavigateToCurrentRole()
     {
-        // Cleanup old services
-        _serverService?.Dispose();
+        // Cleanup old services safely
+        try { _serverService?.Dispose(); } catch { }
         _serverService = null;
-        _clientService?.Dispose();
+        try { _clientService?.Dispose(); } catch { }
         _clientService = null;
 
         switch (_settings.Role)
@@ -74,7 +74,7 @@ public partial class MainWindow : Window
 
     private void LoadModeSelection()
     {
-        Title = "Remote Print Manager - Chọn Vai Trò";
+        Title = "Remote Print Manager - Chọn Vai Trò Thiết Bị";
         var selectionView = new ModeSelectionView();
         selectionView.OnRoleSelected += (s, role) =>
         {
@@ -102,11 +102,11 @@ public partial class MainWindow : Window
             }
         };
 
-        var serverView = new ServerView(_serverService, _settings);
-        serverView.OnSwitchToClientModeRequested += (s, e) => NavigateToCurrentRole();
-        serverView.OnMinimizeRequested += (s, e) => _trayService?.HideMainWindow();
+        var dashboard = new MainDashboardView(_settings, _serverService, null);
+        dashboard.OnMinimizeRequested += (s, e) => _trayService?.HideMainWindow();
+        dashboard.OnRoleChangeRequested += (s, e) => NavigateToCurrentRole();
 
-        MainContentArea.Content = serverView;
+        MainContentArea.Content = dashboard;
         _ = _serverService.StartAsync();
     }
 
@@ -115,11 +115,11 @@ public partial class MainWindow : Window
         Title = $"Remote Print Manager [MÁY CON] - {_settings.DeviceName}";
         _clientService = new ClientService(_settings);
 
-        var clientView = new ClientView(_clientService, _settings);
-        clientView.OnSwitchToServerModeRequested += (s, e) => NavigateToCurrentRole();
-        clientView.OnMinimizeRequested += (s, e) => _trayService?.HideMainWindow();
+        var dashboard = new MainDashboardView(_settings, null, _clientService);
+        dashboard.OnMinimizeRequested += (s, e) => _trayService?.HideMainWindow();
+        dashboard.OnRoleChangeRequested += (s, e) => NavigateToCurrentRole();
 
-        MainContentArea.Content = clientView;
+        MainContentArea.Content = dashboard;
         _ = _clientService.StartAsync();
     }
 

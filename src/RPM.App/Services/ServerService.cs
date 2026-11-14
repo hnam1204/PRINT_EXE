@@ -688,6 +688,15 @@ public class ServerService : IDisposable
         await _relayClient.SendPacketAsync(packet);
     }
 
+    public void ClearCompletedJobs()
+    {
+        var completed = PrintJobs.Where(j => j.Status == PrintJobStatus.Completed || j.Status == PrintJobStatus.Failed).ToList();
+        foreach (var job in completed)
+        {
+            PrintJobs.Remove(job);
+        }
+    }
+
     public void Dispose()
     {
         _relayClient.Dispose();

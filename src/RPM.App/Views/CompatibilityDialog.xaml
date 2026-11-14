@@ -5,7 +5,7 @@
         Height="760" Width="1060"
         MinHeight="620" MinWidth="900"
         WindowStartupLocation="CenterOwner"
-        Icon="/Assets/logo.png"
+        Icon="pack://application:,,,/RPM.App;component/Assets/app.ico"
         Background="{StaticResource BgBrush}">
 
     <Grid Margin="24">
@@ -27,11 +27,11 @@
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0" Width="48" Height="48" Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="12" Margin="0,0,14,0" Padding="4">
-                <Image Source="/Assets/logo.png" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+                <Image Source="pack://application:,,,/RPM.App;component/Assets/logo.png" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
             </Border>
 
             <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                <TextBlock Text="ĐÁNH GIÁ MỨC ĐỘ HOẠT ĐỘNG THỰC TẾ &amp; CHẨN ĐOÁN HỆ THỐNG" FontSize="16" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
+                <TextBlock Text="ĐÁNH GIÁ MỨC ĐỘ HOẠT ĐỘNG THỰC TẾ &amp; CHẨN ĐOÁN HỆ THỐNG" FontSize="16" FontWeight="Bold" Foreground="{StaticResource NavyMainBrush}"/>
                 <TextBlock Text="Kiểm tra kết nối máy thật, cổng USB máy in, phân loại REAL/MOCK DATA và đo lường tỷ lệ hoạt động thực tế" FontSize="12" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
             </StackPanel>
 
@@ -73,7 +73,7 @@
                             <StackPanel>
                                 <TextBlock Text="TỶ LỆ HOẠT ĐỘNG XÁC MINH" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0" VerticalAlignment="Bottom">
-                                    <TextBlock x:Name="TxtScorePercent" Text="82.0%" FontSize="24" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
+                                    <TextBlock x:Name="TxtScorePercent" Text="77.0%" FontSize="24" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
                                     <TextBlock Text=" / 100%" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" Margin="4,0,0,4"/>
                                 </StackPanel>
                                 <TextBlock Text="Đạt bằng chứng trên máy thật" FontSize="11" Foreground="{StaticResource SuccessBrush}" Margin="0,2,0,0"/>
@@ -86,7 +86,7 @@
                                 <TextBlock Text="TIẾN ĐỘ KIỂM THỬ" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0" VerticalAlignment="Bottom">
                                     <TextBlock x:Name="TxtExecutionRate" Text="100%" FontSize="24" FontWeight="Bold" Foreground="{StaticResource SuccessBrush}"/>
-                                    <TextBlock Text=" (24/24 bài)" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" Margin="4,0,0,4"/>
+                                    <TextBlock Text=" (27/27 bài)" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" Margin="4,0,0,4"/>
                                 </StackPanel>
                                 <TextBlock Text="Đã hoàn thành toàn bộ bài test" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
                             </StackPanel>
@@ -96,7 +96,7 @@
                         <Border Grid.Column="4" Style="{StaticResource CardBorder}" Padding="14">
                             <StackPanel>
                                 <TextBlock Text="KẾT QUẢ KIỂM TRA" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
-                                <TextBlock x:Name="TxtPassFailSummary" Text="19 PASS • 5 BLOCKED" FontSize="16" FontWeight="Bold" Foreground="{StaticResource TextMainBrush}" Margin="0,6,0,0"/>
+                                <TextBlock x:Name="TxtPassFailSummary" Text="22 PASS • 5 BLOCKED" FontSize="16" FontWeight="Bold" Foreground="{StaticResource TextMainBrush}" Margin="0,6,0,0"/>
                                 <TextBlock Text="0 bài FAIL • 0 lỗi nghiêm trọng" FontSize="11" Foreground="{StaticResource SuccessBrush}" Margin="0,4,0,0"/>
                             </StackPanel>
                         </Border>

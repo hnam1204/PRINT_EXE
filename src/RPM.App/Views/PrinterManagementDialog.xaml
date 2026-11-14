@@ -1,0 +1,114 @@
+<Window x:Class="RPM.App.Views.PrinterManagementDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Quản Lý Máy In - Remote Print Manager" 
+        Height="540" Width="880"
+        MinHeight="460" MinWidth="740"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResizeWithGrip"
+        Icon="pack://application:,,,/RPM.App;component/Assets/app.ico"
+        Background="{StaticResource BgBrush}">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Margin="0,0,0,16" Padding="14,12" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="QUẢN LÝ VÀ CHIA SẺ MÁY IN WINDOWS" FontSize="15" FontWeight="Bold" Foreground="{StaticResource NavyMainBrush}"/>
+                    <TextBlock Text="Phần mềm tự động nhận diện máy in cắm cáp USB, máy in mạng và máy in ảo trên máy tính." FontSize="12" Foreground="{StaticResource TextMutedBrush}" Margin="0,4,0,0"/>
+                </StackPanel>
+                <Button Grid.Column="1" x:Name="BtnRescan" Style="{StaticResource SecondaryBtn}" Click="BtnRescan_Click" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Data="{StaticResource GeoRefresh}" Fill="{StaticResource PrimaryBrush}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,8,0"/>
+                        <TextBlock Text="Quét lại máy in" FontWeight="SemiBold"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- Printer List DataGrid -->
+        <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="2" ClipToBounds="True">
+            <DataGrid x:Name="DgPrinters" SelectionMode="Single">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="TÊN MÁY IN" Binding="{Binding Name}" Width="2*" FontWeight="SemiBold"/>
+                    <DataGridTextColumn Header="DRIVER WINDOWS" Binding="{Binding DriverName}" Width="2*"/>
+                    <DataGridTemplateColumn Header="CỔNG / LOẠI" Width="1.5*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left"
+                                        Background="{Binding IsUsb, Converter={StaticResource BoolToBadgeBg}}">
+                                    <TextBlock Text="{Binding PortName}" FontSize="11" FontWeight="SemiBold"
+                                               Foreground="{Binding IsUsb, Converter={StaticResource BoolToBadgeFg}}"/>
+                                </Border>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTemplateColumn Header="CHIA SẺ" Width="1.2*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Border CornerRadius="4" Padding="8,2" HorizontalAlignment="Left"
+                                        Background="{Binding IsShared, Converter={StaticResource BoolToBadgeBg}}">
+                                    <TextBlock Text="{Binding IsShared, Converter={StaticResource BoolToSharingText}}" FontSize="11" FontWeight="SemiBold"
+                                               Foreground="{Binding IsShared, Converter={StaticResource BoolToBadgeFg}}"/>
+                                </Border>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTemplateColumn Header="MẶC ĐỊNH" Width="1.1*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding IsDefault, Converter={StaticResource BoolToDefaultText}}" FontSize="12"
+                                           Foreground="{Binding IsDefault, Converter={StaticResource BoolToBadgeFg}}" FontWeight="Medium"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTemplateColumn Header="TRẠNG THÁI" Width="1.1*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left"
+                                        Background="{Binding IsOnline, Converter={StaticResource OnlineBadgeBg}}">
+                                    <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold"
+                                               Foreground="{Binding IsOnline, Converter={StaticResource OnlineBadgeFg}}"/>
+                                </Border>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Border>
+
+        <!-- Footer Actions -->
+        <Border Grid.Row="2" Margin="0,16,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <Button x:Name="BtnToggleShare" Style="{StaticResource SuccessBtn}" Click="BtnToggleShare_Click" Margin="0,0,10,0">
+                        <TextBlock Text="Bật / Tắt chia sẻ máy in đã chọn"/>
+                    </Button>
+                    <Button x:Name="BtnSetDefault" Style="{StaticResource SecondaryBtn}" Click="BtnSetDefault_Click" Margin="0,0,10,0">
+                        <TextBlock Text="★ Đặt làm máy in chính"/>
+                    </Button>
+                    <Button x:Name="BtnPrintTest" Style="{StaticResource SecondaryBtn}" Click="BtnPrintTest_Click">
+                        <TextBlock Text="In trang kiểm tra"/>
+                    </Button>
+                </StackPanel>
+                <Button Grid.Column="1" Style="{StaticResource SecondaryBtn}" Click="BtnClose_Click" Width="90">
+                    <TextBlock Text="Đóng"/>
+                </Button>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

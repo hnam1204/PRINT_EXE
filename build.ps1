@@ -1,17 +1,18 @@
 param(
-    [string]$Version = "1.0.0",
+    [string]$Version = "1.0.1",
+    [string]$Channel = "Beta",
     [string[]]$Changelog = @(
-        "Thiet ke lai toan bo giao dien sang chuan Fluent UI Windows 11",
-        "Tu dong khoi dong Relay Cloud noi bo tren may chu",
-        "Nang cap bang DataGrid khong con duong vien tho, bo sung huy hieu mau sac",
-        "Thay the toan bo emoji bang Vector Icon SVG sac net",
-        "Bao toan 100% cau hinh va thiet lap in an"
+        "Toi uu hoa giao dien One-Screen Minimal Desktop mo hinh UltraViewer",
+        "Chuan hoa bo nhan dien thuong hieu NHN Blue (#001947, #0078F9, #F6F9FF)",
+        "Tach cac tinh nang quan tri chuyen sau vao Dialog: May In, Thiet Bi, Hang Doi",
+        "Toi uu hoa hieu nang: khong con load lai toan bo du lieu Windows lien tuc",
+        "Tu dong bao toan 100% cau hinh va thiet lap in an"
     )
 )
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "   REMOTE PRINT MANAGER (RPM) - BUILD & DISTRIBUTION      " -ForegroundColor Yellow
-Write-Host "   Version: V$Version" -ForegroundColor Green
+Write-Host "   Version: V$Version ($Channel)" -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -69,22 +70,24 @@ $fileHash = (Get-FileHash -Path "publish/RemotePrintManager.exe" -Algorithm SHA2
 
 $manifestObj = [ordered]@{
     version = $Version
-    channel = "Stable"
+    channel = $Channel
     releaseDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     downloadUrl = "http://127.0.0.1:9090/download/RemotePrintManager.exe"
     sha256 = $fileHash
     minSupportedVersion = "1.0.0"
     changelog = $Changelog
-    releaseNotes = "Phien ban V$Version voi giao dien Fluent UI va khoi dong Relay tu dong."
+    releaseNotes = "Phien ban V$Version ($Channel) voi giao dien One-Screen Minimal Desktop va nhan dien NHN Blue."
 }
 
 $manifestJson = $manifestObj | ConvertTo-Json -Depth 5
 $manifestJson | Set-Content -Path "publish/version.json" -Encoding UTF8
+$manifestJson | Set-Content -Path "publish/version_beta.json" -Encoding UTF8
 
 # Prepare relay server staging for immediate local/network update hosting
 $relayUpdatesDir = "publish/relay/updates"
 New-Item -ItemType Directory -Force -Path $relayUpdatesDir | Out-Null
 Copy-Item "publish/version.json" -Destination "publish/relay/version.json" -Force
+Copy-Item "publish/version_beta.json" -Destination "publish/relay/version_beta.json" -Force
 Copy-Item "publish/RemotePrintManager.exe" -Destination "$relayUpdatesDir/RemotePrintManager.exe" -Force
 
 # Create clean portable zip distribution (only executable + manifest, no debug symbols)
@@ -97,6 +100,6 @@ Write-Host "   DONG GOI THANH CONG! TEP PHAN PHOI SAN SANG:           " -Foregro
 Write-Host "   1. Ung dung chay truc tiep: publish/RemotePrintManager.exe" -ForegroundColor White
 Write-Host "   2. Goi Portable Zip:        publish/RemotePrintManager_v$Version`_Portable.zip" -ForegroundColor White
 Write-Host "   3. Relay Broker:            publish/relay/RPM.Relay.exe" -ForegroundColor White
-Write-Host "   4. Update Manifest:         publish/version.json" -ForegroundColor White
+Write-Host "   4. Update Manifest:         publish/version.json & version_beta.json" -ForegroundColor White
 Write-Host "      (SHA-256: $fileHash)" -ForegroundColor DarkGray
 Write-Host "==========================================================" -ForegroundColor Green

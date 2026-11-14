@@ -362,6 +362,24 @@ public class ClientService : IDisposable
         );
     }
 
+    public async Task DisconnectAsync()
+    {
+        _connectionStatus = "Đã ngắt kết nối";
+        _isApproved = false;
+        _remotePrinter = null;
+        await _relayClient.StopAsync();
+        OnStateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void ClearCompletedHistory()
+    {
+        var completed = PrintHistory.Where(j => j.Status == PrintJobStatus.Completed || j.Status == PrintJobStatus.Failed).ToList();
+        foreach (var job in completed)
+        {
+            PrintHistory.Remove(job);
+        }
+    }
+
     public void Dispose()
     {
         _relayClient.Dispose();
