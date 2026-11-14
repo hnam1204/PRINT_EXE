@@ -6,6 +6,8 @@ Independent coordination API for Remote Print Manager. This service stores devic
 
 Vercel is pinned to Python 3.12. Use Python 3.12 locally for an identical runtime; Python 3.11 remains usable for the current test suite when 3.12 is not installed.
 
+Vercel detects `api/index.py` as the FastAPI function. The `vercel.json` file configures only the function duration, rewrite, and Cron; Python selection comes from `pyproject.toml`, not a custom Vercel runtime string.
+
 ```powershell
 cd "D:\ĐỒ ÁN WEBSITE\GITHUB\PRINTEXE\REMOTE_PRINT_SERVER"
 py -3.12 -m venv .venv
@@ -14,7 +16,7 @@ $env:ENROLLMENT_SECRET = "replace-with-a-long-random-secret"
 .\.venv\Scripts\python.exe -m uvicorn api.index:app --reload
 ```
 
-Health check: `GET http://127.0.0.1:8000/api/v1/health`
+Health/readiness check: `GET http://127.0.0.1:8000/api/v1/health`. It executes `SELECT 1` and returns HTTP 503 with a generic database status when PostgreSQL is unavailable.
 
 API docs are available at `/api/v1/docs` in development only.
 

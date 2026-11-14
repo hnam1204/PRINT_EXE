@@ -47,7 +47,7 @@ class Settings:
                 raise ConfigurationError("Production requires PostgreSQL persistence.")
 
         parsed = urlparse(database_url)
-        if parsed.scheme not in {"sqlite", "postgresql", "postgres"}:
+        if parsed.scheme not in {"sqlite", "postgresql", "postgres", "postgresql+psycopg"}:
             raise ConfigurationError("DATABASE_URL must be SQLite for local development or PostgreSQL for deployment.")
 
         return cls(

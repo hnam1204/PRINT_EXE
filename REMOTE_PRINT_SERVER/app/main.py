@@ -7,7 +7,8 @@ import time
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from .config import ConfigurationError, Settings
 from .database import AuditEvent, Device, Pairing, PairingCode, PrintJob, Printer, as_utc, create_session_factory, utcnow
@@ -74,12 +75,26 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
 
     @app.get("/api/v1/health", tags=["Health"])
     def health():
+        try:
+            with app.state.engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+        except SQLAlchemyError:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "degraded",
+                    "apiVersion": settings.api_version,
+                    "environment": settings.environment,
+                    "dependencies": {"database": "unavailable"},
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            )
         return {
             "status": "ok",
             "apiVersion": settings.api_version,
             "environment": settings.environment,
             "uptimeSeconds": round(time.monotonic() - app.state.started_at, 3),
-            "dependencies": {"database": "configured"},
+            "dependencies": {"database": "ready"},
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 

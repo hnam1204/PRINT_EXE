@@ -111,9 +111,21 @@ class CleanupRun(Base):
     summary: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
+def normalize_database_url(database_url: str) -> str:
+    """Use psycopg 3 for provider URLs while leaving SQLite unchanged."""
+    if database_url.startswith("postgres://"):
+        return "postgresql+psycopg://" + database_url.removeprefix("postgres://")
+    if database_url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + database_url.removeprefix("postgresql://")
+    if database_url.startswith("postgresql+psycopg://"):
+        return database_url
+    return database_url
+
+
 def make_engine(database_url: str):
-    connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
-    return create_engine(database_url, connect_args=connect_args, pool_pre_ping=True)
+    normalized_url = normalize_database_url(database_url)
+    connect_args = {"check_same_thread": False} if normalized_url.startswith("sqlite") else {}
+    return create_engine(normalized_url, connect_args=connect_args, pool_pre_ping=True)
 
 
 def create_session_factory(database_url: str, create_schema: bool = True):

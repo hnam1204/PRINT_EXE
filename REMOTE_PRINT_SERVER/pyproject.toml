@@ -9,3 +9,8 @@ dependencies = [
   "SQLAlchemy==2.0.36",
   "cryptography==44.0.0",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+  "integration: requires an explicitly configured external service",
+]
