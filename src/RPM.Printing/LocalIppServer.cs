@@ -1,0 +1,313 @@
+using System.Net;
+using System.Text;
+using System.IO;
+using RPM.Core.Models;
+
+namespace RPM.Printing;
+
+public class PrintJobReceivedEventArgs : EventArgs
+{
+    public PrintJob Job { get; set; } = new();
+    public byte[] Data { get; set; } = Array.Empty<byte>();
+}
+
+public class LocalIppServer : IDisposable
+{
+    private HttpListener? _listener;
+    private CancellationTokenSource? _cts;
+    private bool _isRunning;
+    public int Port { get; private set; }
+    public string PrinterName { get; set; } = "Remote Office Printer";
+
+    public event EventHandler<PrintJobReceivedEventArgs>? OnJobReceived;
+    public event EventHandler<string>? OnLog;
+
+    public bool IsRunning => _isRunning;
+
+    public void Start(int port = 9199)
+    {
+        if (_isRunning) return;
+        Port = port;
+
+        try
+        {
+            _listener = new HttpListener();
+            _listener.Prefixes.Add($"http://127.0.0.1:{Port}/");
+            _listener.Prefixes.Add($"http://localhost:{Port}/");
+            _listener.Start();
+
+            _cts = new CancellationTokenSource();
+            _isRunning = true;
+            Task.Run(() => ListenLoopAsync(_cts.Token));
+            OnLog?.Invoke(this, $"[IPP] Dịch vụ máy in ảo đã khởi động trên cổng {Port}.");
+        }
+        catch (Exception ex)
+        {
+            OnLog?.Invoke(this, $"[IPP Error] Không thể khởi động cổng {Port}: {ex.Message}");
+            _isRunning = false;
+        }
+    }
+
+    public void Stop()
+    {
+        _isRunning = false;
+        _cts?.Cancel();
+        try
+        {
+            _listener?.Stop();
+            _listener?.Close();
+        }
+        catch { }
+    }
+
+    private async Task ListenLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested && _listener != null && _listener.IsListening)
+        {
+            try
+            {
+                var context = await _listener.GetContextAsync();
+                _ = Task.Run(() => HandleRequest(context));
+            }
+            catch (HttpListenerException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke(this, $"[IPP] Lỗi tiếp nhận request: {ex.Message}");
+            }
+        }
+    }
+
+    private void HandleRequest(HttpListenerContext ctx)
+    {
+        try
+        {
+            var req = ctx.Request;
+            var res = ctx.Response;
+
+            res.Headers.Add("Server", "RPM-IPP/1.0");
+
+            if (req.HttpMethod.Equals("POST", StringComparison.OrdinalIgnoreCase))
+            {
+                using var ms = new MemoryStream();
+                req.InputStream.CopyTo(ms);
+                byte[] requestBytes = ms.ToArray();
+
+                byte[] responseBytes = ProcessIppPacket(requestBytes, out var capturedJob, out var documentData);
+
+                if (capturedJob != null && documentData != null && documentData.Length > 0)
+                {
+                    OnLog?.Invoke(this, $"[IPP] Nhận lệnh in: {capturedJob.DocumentName} ({documentData.Length} bytes)");
+                    OnJobReceived?.Invoke(this, new PrintJobReceivedEventArgs
+                    {
+                        Job = capturedJob,
+                        Data = documentData
+                    });
+                }
+
+                res.ContentType = "application/ipp";
+                res.StatusCode = 200;
+                res.ContentLength64 = responseBytes.Length;
+                res.OutputStream.Write(responseBytes, 0, responseBytes.Length);
+                res.OutputStream.Flush();
+                res.Close();
+                return;
+            }
+
+            // Simple GET status probe
+            res.StatusCode = 200;
+            res.ContentType = "text/html; charset=utf-8";
+            byte[] statusHtml = Encoding.UTF8.GetBytes($"<html><body><h2>Remote Print Manager (RPM) IPP Service</h2><p>Printer: {PrinterName} is Online</p></body></html>");
+            res.ContentLength64 = statusHtml.Length;
+            res.OutputStream.Write(statusHtml, 0, statusHtml.Length);
+            res.Close();
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                ctx.Response.StatusCode = 500;
+                ctx.Response.Close();
+            }
+            catch { }
+            OnLog?.Invoke(this, $"[IPP] Xử lý lỗi: {ex.Message}");
+        }
+    }
+
+    private byte[] ProcessIppPacket(byte[] data, out PrintJob? capturedJob, out byte[]? documentData)
+    {
+        capturedJob = null;
+        documentData = null;
+
+        if (data.Length < 8)
+        {
+            return CreateSimpleIppResponse(0x01, 0x01, 0x0500, 1); // client-error-bad-request
+        }
+
+        byte major = data[0];
+        byte minor = data[1];
+        short opCode = (short)((data[2] << 8) | data[3]);
+        int reqId = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
+
+        // Locate End of attributes tag (0x03)
+        int endTagIndex = -1;
+        for (int i = 8; i < data.Length; i++)
+        {
+            if (data[i] == 0x03) // End of attributes tag
+            {
+                endTagIndex = i;
+                break;
+            }
+        }
+
+        // Operation 0x0002 = Print-Job
+        if (opCode == 0x0002)
+        {
+            string docName = "RemoteDocument_" + DateTime.Now.ToString("HHmmss");
+
+            // Look for job-name inside attributes if possible
+            string reqString = Encoding.ASCII.GetString(data, 0, endTagIndex > 8 ? endTagIndex : data.Length);
+            int jobNameIdx = reqString.IndexOf("job-name", StringComparison.OrdinalIgnoreCase);
+            if (jobNameIdx > 0 && jobNameIdx + 20 < reqString.Length)
+            {
+                // Simple heuristic to extract friendly doc name
+                string snippet = reqString.Substring(jobNameIdx + 8, Math.Min(50, reqString.Length - (jobNameIdx + 8)));
+                string cleaned = new string(snippet.Where(c => char.IsLetterOrDigit(c) || c == '.' || c == '_' || c == '-').ToArray());
+                if (!string.IsNullOrWhiteSpace(cleaned))
+                {
+                    docName = cleaned;
+                }
+            }
+
+            if (endTagIndex != -1 && endTagIndex + 1 < data.Length)
+            {
+                int payloadLength = data.Length - (endTagIndex + 1);
+                documentData = new byte[payloadLength];
+                Buffer.BlockCopy(data, endTagIndex + 1, documentData, 0, payloadLength);
+
+                capturedJob = new PrintJob
+                {
+                    JobId = Guid.NewGuid().ToString("N"),
+                    DocumentName = docName,
+                    FileSizeBytes = payloadLength,
+                    SubmittedAt = DateTime.UtcNow,
+                    Status = PrintJobStatus.Pending,
+                    StatusMessage = "Captured via Ctrl+P"
+                };
+            }
+
+            return CreatePrintJobResponse(major, minor, reqId, 1);
+        }
+
+        // Operation 0x000B = Get-Printer-Attributes, 0x0004 = Validate-Job
+        return CreatePrinterAttributesResponse(major, minor, reqId);
+    }
+
+    private byte[] CreateSimpleIppResponse(byte major, byte minor, short statusCode, int reqId)
+    {
+        using var ms = new MemoryStream();
+        ms.WriteByte(major);
+        ms.WriteByte(minor);
+        ms.WriteByte((byte)(statusCode >> 8));
+        ms.WriteByte((byte)(statusCode & 0xFF));
+        ms.WriteByte((byte)(reqId >> 24));
+        ms.WriteByte((byte)(reqId >> 16));
+        ms.WriteByte((byte)(reqId >> 8));
+        ms.WriteByte((byte)(reqId & 0xFF));
+        ms.WriteByte(0x03); // end-of-attributes
+        return ms.ToArray();
+    }
+
+    private byte[] CreatePrinterAttributesResponse(byte major, byte minor, int reqId)
+    {
+        using var ms = new MemoryStream();
+        ms.WriteByte(major);
+        ms.WriteByte(minor);
+        ms.WriteByte(0x00); // 0x0000 = successful-ok
+        ms.WriteByte(0x00);
+        ms.WriteByte((byte)(reqId >> 24));
+        ms.WriteByte((byte)(reqId >> 16));
+        ms.WriteByte((byte)(reqId >> 8));
+        ms.WriteByte((byte)(reqId & 0xFF));
+
+        // Operation attributes group
+        ms.WriteByte(0x01);
+        WriteAttribute(ms, 0x47, "attributes-charset", "utf-8");
+        WriteAttribute(ms, 0x48, "attributes-natural-language", "en-us");
+
+        // Printer attributes group
+        ms.WriteByte(0x02);
+        WriteAttribute(ms, 0x42, "printer-name", PrinterName);
+        WriteAttributeInt(ms, 0x23, "printer-state", 3); // 3 = idle / ready
+        WriteAttribute(ms, 0x44, "printer-state-reasons", "none");
+        WriteAttribute(ms, 0x49, "document-format-supported", "application/pdf");
+        WriteAttribute(ms, 0x49, "document-format-supported", "application/octet-stream");
+        WriteAttribute(ms, 0x49, "document-format-supported", "application/postscript");
+        WriteAttribute(ms, 0x49, "document-format-supported", "image/pwg-raster");
+
+        ms.WriteByte(0x03); // end of attributes
+        return ms.ToArray();
+    }
+
+    private byte[] CreatePrintJobResponse(byte major, byte minor, int reqId, int jobId)
+    {
+        using var ms = new MemoryStream();
+        ms.WriteByte(major);
+        ms.WriteByte(minor);
+        ms.WriteByte(0x00); // successful-ok
+        ms.WriteByte(0x00);
+        ms.WriteByte((byte)(reqId >> 24));
+        ms.WriteByte((byte)(reqId >> 16));
+        ms.WriteByte((byte)(reqId >> 8));
+        ms.WriteByte((byte)(reqId & 0xFF));
+
+        ms.WriteByte(0x01); // operation attributes
+        WriteAttribute(ms, 0x47, "attributes-charset", "utf-8");
+        WriteAttribute(ms, 0x48, "attributes-natural-language", "en-us");
+
+        ms.WriteByte(0x02); // job attributes
+        WriteAttributeInt(ms, 0x21, "job-id", jobId);
+        WriteAttributeInt(ms, 0x23, "job-state", 3); // 3 = pending
+        WriteAttribute(ms, 0x44, "job-state-reasons", "job-incoming");
+
+        ms.WriteByte(0x03);
+        return ms.ToArray();
+    }
+
+    private void WriteAttribute(MemoryStream ms, byte tag, string name, string value)
+    {
+        ms.WriteByte(tag);
+        byte[] nameBytes = Encoding.ASCII.GetBytes(name);
+        ms.WriteByte((byte)(nameBytes.Length >> 8));
+        ms.WriteByte((byte)(nameBytes.Length & 0xFF));
+        ms.Write(nameBytes, 0, nameBytes.Length);
+
+        byte[] valBytes = Encoding.UTF8.GetBytes(value);
+        ms.WriteByte((byte)(valBytes.Length >> 8));
+        ms.WriteByte((byte)(valBytes.Length & 0xFF));
+        ms.Write(valBytes, 0, valBytes.Length);
+    }
+
+    private void WriteAttributeInt(MemoryStream ms, byte tag, string name, int value)
+    {
+        ms.WriteByte(tag);
+        byte[] nameBytes = Encoding.ASCII.GetBytes(name);
+        ms.WriteByte((byte)(nameBytes.Length >> 8));
+        ms.WriteByte((byte)(nameBytes.Length & 0xFF));
+        ms.Write(nameBytes, 0, nameBytes.Length);
+
+        ms.WriteByte(0x00);
+        ms.WriteByte(0x04); // 4-byte int
+        ms.WriteByte((byte)(value >> 24));
+        ms.WriteByte((byte)(value >> 16));
+        ms.WriteByte((byte)(value >> 8));
+        ms.WriteByte((byte)(value & 0xFF));
+    }
+
+    public void Dispose()
+    {
+        Stop();
+    }
+}

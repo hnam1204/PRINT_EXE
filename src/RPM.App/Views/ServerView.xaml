@@ -1,0 +1,273 @@
+<UserControl x:Class="RPM.App.Views.ServerView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgBrush}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <!-- Top App Bar -->
+            <RowDefinition Height="64"/>
+            <!-- Content Area with Tabs -->
+            <RowDefinition Height="*"/>
+            <!-- Bottom Status Bar -->
+            <RowDefinition Height="32"/>
+        </Grid.RowDefinitions>
+
+        <!-- Top App Bar -->
+        <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="20,0">
+            <Grid VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="🖨️" FontSize="24" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                    <StackPanel>
+                        <TextBlock Text="REMOTE PRINT MANAGER" FontSize="15" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
+                        <TextBlock Text="MÁY CHỦ IN ẤN (SERVER)" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Status Badge -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border x:Name="ServerStatusIndicator" Background="#DFF6DD" CornerRadius="12" Padding="10,4" Margin="0,0,10,0">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="8" Height="8" Fill="{StaticResource SuccessBrush}" Margin="0,0,6,0"/>
+                            <TextBlock x:Name="TxtServerStatus" Text="Máy chủ đang hoạt động" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SuccessBrush}"/>
+                        </StackPanel>
+                    </Border>
+                    <Button Style="{StaticResource SecondaryBtn}" Content="Thu nhỏ" Click="BtnMinimize_Click" Padding="12,6"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Main Tab Control -->
+        <TabControl Grid.Row="1" Margin="20" Background="Transparent" BorderThickness="0">
+            <!-- 1. TỔNG QUAN -->
+            <TabItem Header="📊 Tổng Quan" FontSize="14" FontWeight="SemiBold">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,15,0,0">
+                    <StackPanel>
+                        <!-- Top Stat Cards -->
+                        <Grid Margin="0,0,0,20">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="15"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="15"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Card 1: Shared Printer -->
+                            <Border Grid.Column="0" Style="{StaticResource CardBorder}">
+                                <StackPanel>
+                                    <TextBlock Text="MÁY IN ĐANG CHIA SẺ" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock x:Name="TxtOverviewPrinterName" Text="Chưa chọn máy in" FontSize="16" FontWeight="Bold" Foreground="{StaticResource TextMainBrush}" Margin="0,8,0,4" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock x:Name="TxtOverviewPrinterStatus" Text="Trạng thái: Đang chờ thiết lập" FontSize="12" Foreground="{StaticResource TextMutedBrush}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Card 2: Connected Clients -->
+                            <Border Grid.Column="2" Style="{StaticResource CardBorder}">
+                                <StackPanel>
+                                    <TextBlock Text="MÁY CON TRỰC TUYẾN" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock x:Name="TxtOverviewClientsCount" Text="0 / 3 Thiết bị" FontSize="20" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,6,0,2"/>
+                                    <TextBlock x:Name="TxtOverviewPendingClients" Text="0 máy con đang chờ phê duyệt" FontSize="12" Foreground="{StaticResource TextMutedBrush}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Card 3: Print Jobs Today -->
+                            <Border Grid.Column="4" Style="{StaticResource CardBorder}">
+                                <StackPanel>
+                                    <TextBlock Text="LỆNH IN HÔM NAY" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock x:Name="TxtOverviewJobsCount" Text="0 Hoàn tất" FontSize="20" FontWeight="Bold" Foreground="{StaticResource SuccessBrush}" Margin="0,6,0,2"/>
+                                    <TextBlock x:Name="TxtOverviewQueueStatus" Text="Hàng đợi: 0 đang chờ xử lý" FontSize="12" Foreground="{StaticResource TextMutedBrush}"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <!-- Pairing Code Card -->
+                        <Border Style="{StaticResource CardBorder}" Margin="0,0,0,20" Background="#FFFFFF">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="THÔNG TIN GHÉP ĐÔI (DÀNH CHO 3 MÁY CON)" FontSize="12" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
+                                    <TextBlock Text="Cung cấp mã này cho các máy con trong bán kính 1km để gửi yêu cầu kết nối in ấn:" FontSize="13" Foreground="{StaticResource TextMainBrush}" Margin="0,4,0,10"/>
+                                    
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Border Background="#F0F6FF" BorderBrush="{StaticResource PrimaryBrush}" BorderThickness="1.5" CornerRadius="6" Padding="16,8" Margin="0,0,12,0">
+                                            <TextBlock x:Name="TxtPairingCode" Text="RPM-8821" FontSize="22" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
+                                        </Border>
+                                        <Button Style="{StaticResource SecondaryBtn}" Content="📋 Sao chép mã" Click="BtnCopyPairingCode_Click" VerticalAlignment="Center" Height="40"/>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="20,0,0,0">
+                                    <TextBlock Text="Trạng thái Relay Cloud:" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock x:Name="TxtRelayStatus" Text="Đã kết nối ổn định (WSS)" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource SuccessBrush}" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <!-- Recent Activity Log -->
+                        <Border Style="{StaticResource CardBorder}">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,10">
+                                    <TextBlock Text="NHẬT KÝ HOẠT ĐỘNG THỜI GIAN THỰC" FontSize="12" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <Button Style="{StaticResource SecondaryBtn}" Content="Xóa nhật ký" Click="BtnClearLog_Click" HorizontalAlignment="Right" Padding="8,4" FontSize="11"/>
+                                </Grid>
+                                <ListBox x:Name="LstActivityLog" Height="220" BorderThickness="0" Background="#FAFAFA" FontFamily="Consolas, Segoe UI" FontSize="12"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- 2. MÁY IN -->
+            <TabItem Header="🖨️ Máy In" FontSize="14" FontWeight="SemiBold">
+                <Grid Margin="0,15,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
+                        <Button Style="{StaticResource PrimaryBtn}" Content="🔄 Quét máy in trên máy tính" Click="BtnRescanPrinters_Click" Margin="0,0,10,0"/>
+                        <TextBlock Text="Chọn máy in kết nối qua dây USB để chia sẻ cho các máy con." VerticalAlignment="Center" Foreground="{StaticResource TextMutedBrush}" FontSize="12"/>
+                    </StackPanel>
+
+                    <DataGrid Grid.Row="1" x:Name="DgPrinters" AutoGenerateColumns="False" IsReadOnly="True" 
+                              SelectionMode="Single" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                              Background="White" BorderBrush="{StaticResource BorderBrush}" RowHeight="36">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Tên Máy In" Binding="{Binding Name}" Width="2*"/>
+                            <DataGridTextColumn Header="Mặc định" Binding="{Binding IsDefault}" Width="100"/>
+                            <DataGridTextColumn Header="Đang chia sẻ" Binding="{Binding IsShared}" Width="120"/>
+                            <DataGridTextColumn Header="Hỗ trợ màu" Binding="{Binding SupportsColor}" Width="100"/>
+                            <DataGridTextColumn Header="In 2 mặt" Binding="{Binding SupportsDuplex}" Width="100"/>
+                            <DataGridTextColumn Header="Trạng thái" Binding="{Binding Status}" Width="120"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
+                        <Button Style="{StaticResource SuccessBtn}" Content="✔ Chọn làm máy in chia sẻ" Click="BtnSetSharedPrinter_Click" Margin="0,0,10,0"/>
+                        <Button Style="{StaticResource SecondaryBtn}" Content="📄 In trang kiểm tra (Test Print)" Click="BtnTestPrint_Click" Margin="0,0,10,0"/>
+                        <Button Style="{StaticResource DangerBtn}" Content="Tạm dừng chia sẻ" Click="BtnPauseSharing_Click"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <!-- 3. THIẾT BỊ KẾT NỐI -->
+            <TabItem Header="💻 Thiết Bị Kết Nối" FontSize="14" FontWeight="SemiBold">
+                <Grid Margin="0,15,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="Danh sách máy con gửi yêu cầu kết nối sử dụng máy in:" Margin="0,0,0,12" FontSize="13" Foreground="{StaticResource TextMainBrush}"/>
+
+                    <DataGrid Grid.Row="1" x:Name="DgClients" AutoGenerateColumns="False" IsReadOnly="True" 
+                              SelectionMode="Single" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                              Background="White" BorderBrush="{StaticResource BorderBrush}" RowHeight="36">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Tên Máy Con" Binding="{Binding DeviceName}" Width="1.5*"/>
+                            <DataGridTextColumn Header="Mã Thiết Bị" Binding="{Binding DeviceId}" Width="2*"/>
+                            <DataGridTextColumn Header="Hệ Điều Hành" Binding="{Binding OperatingSystem}" Width="1.5*"/>
+                            <DataGridTextColumn Header="Trực tuyến" Binding="{Binding IsOnline}" Width="100"/>
+                            <DataGridTextColumn Header="Đã Phê Duyệt" Binding="{Binding IsApproved}" Width="110"/>
+                            <DataGridTextColumn Header="Bị Chặn" Binding="{Binding IsBlocked}" Width="90"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
+                        <Button Style="{StaticResource SuccessBtn}" Content="✔ Phê duyệt (Approve)" Click="BtnApproveClient_Click" Margin="0,0,10,0"/>
+                        <Button Style="{StaticResource DangerBtn}" Content="🚫 Thu hồi quyền (Revoke)" Click="BtnRevokeClient_Click"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <!-- 4. HÀNG ĐỢI IN -->
+            <TabItem Header="📑 Hàng Đợi In" FontSize="14" FontWeight="SemiBold">
+                <Grid Margin="0,15,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="Các tài liệu gửi từ máy con được điều phối in lần lượt (FIFO):" Margin="0,0,0,12" FontSize="13" Foreground="{StaticResource TextMainBrush}"/>
+
+                    <DataGrid Grid.Row="1" x:Name="DgQueue" AutoGenerateColumns="False" IsReadOnly="True" 
+                              SelectionMode="Single" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                              Background="White" BorderBrush="{StaticResource BorderBrush}" RowHeight="36">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Tên Tài Liệu" Binding="{Binding DocumentName}" Width="2*"/>
+                            <DataGridTextColumn Header="Máy Con Gửi" Binding="{Binding SenderDeviceName}" Width="1.5*"/>
+                            <DataGridTextColumn Header="Kích Thước" Binding="{Binding FileSizeBytes}" Width="100"/>
+                            <DataGridTextColumn Header="Thời Gian Gửi" Binding="{Binding SubmittedAt, StringFormat='HH:mm:ss dd/MM'}" Width="130"/>
+                            <DataGridTextColumn Header="Trạng Thái" Binding="{Binding Status}" Width="110"/>
+                            <DataGridTextColumn Header="Chi Tiết" Binding="{Binding StatusMessage}" Width="2*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
+                        <Button Style="{StaticResource SecondaryBtn}" Content="Làm mới danh sách" Click="BtnRefreshQueue_Click" Margin="0,0,10,0"/>
+                        <Button Style="{StaticResource DangerBtn}" Content="Xóa lịch sử hoàn tất" Click="BtnClearHistory_Click"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <!-- 5. CÀI ĐẶT -->
+            <TabItem Header="⚙️ Cài Đặt" FontSize="14" FontWeight="SemiBold">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,15,0,0">
+                    <Border Style="{StaticResource CardBorder}" MaxWidth="700" HorizontalAlignment="Left">
+                        <StackPanel Margin="10">
+                            <TextBlock Text="Cấu Hình Máy Chủ" FontSize="16" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,0,0,16"/>
+
+                            <TextBlock Text="Tên hiển thị của máy chủ:" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                            <TextBox x:Name="TxtServerName" Style="{StaticResource ModernTextBox}" Margin="0,0,0,16"/>
+
+                            <TextBlock Text="Mã kết nối (Pairing Code):" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                            <Grid Margin="0,0,0,16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="10"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0" x:Name="TxtSettingPairingCode" Style="{StaticResource ModernTextBox}"/>
+                                <Button Grid.Column="2" Style="{StaticResource SecondaryBtn}" Content="Sinh mã mới" Click="BtnRegenerateCode_Click"/>
+                            </Grid>
+
+                            <TextBlock Text="Địa chỉ Relay Broker (WebSocket URL):" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                            <TextBox x:Name="TxtRelayUrl" Style="{StaticResource ModernTextBox}" Margin="0,0,0,20"/>
+
+                            <CheckBox x:Name="ChkAutoStart" Content="Tự động khởi động cùng Windows" FontSize="13" Margin="0,0,0,10" IsChecked="True"/>
+                            <CheckBox x:Name="ChkMinimizeTray" Content="Thu nhỏ xuống Khay hệ thống (System Tray) khi tắt ứng dụng" FontSize="13" Margin="0,0,0,10" IsChecked="True"/>
+                            <CheckBox x:Name="ChkNotifications" Content="Hiện thông báo Desktop khi có máy con xin kết nối hoặc có lệnh in" FontSize="13" Margin="0,0,0,24" IsChecked="True"/>
+
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource PrimaryBtn}" Content="Lưu Cài Đặt" Click="BtnSaveSettings_Click" Margin="0,0,15,0"/>
+                                <Button Style="{StaticResource SecondaryBtn}" Content="🔄 Đổi sang Chế Độ Máy Con" Click="BtnSwitchToClient_Click"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+
+        <!-- Bottom Status Bar -->
+        <Border Grid.Row="2" Background="#EFEFF0" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="15,0">
+            <Grid VerticalAlignment="Center">
+                <TextBlock x:Name="TxtBottomStatus" Text="Remote Print Manager v1.0.0 - Bán kính phục vụ 1 km qua Internet độc lập" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                <TextBlock Text="Mã hóa AES-256-GCM E2EE" HorizontalAlignment="Right" FontSize="11" Foreground="{StaticResource SuccessBrush}" FontWeight="SemiBold"/>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

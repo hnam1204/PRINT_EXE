@@ -1,0 +1,471 @@
+using System.Collections.ObjectModel;
+using System.Text.Json;
+using System.Windows;
+using RPM.Core.Config;
+using RPM.Core.Models;
+using RPM.Core.Protocol;
+using RPM.Networking;
+using RPM.Printing;
+
+namespace RPM.App.Services;
+
+public class ServerService : IDisposable
+{
+    private readonly AppSettings _settings;
+    private readonly RelayClient _relayClient = new();
+    private readonly PrinterService _printerService = new();
+    private readonly Queue<PrintJob> _printQueue = new();
+    private readonly SemaphoreSlim _queueLock = new(1, 1);
+    private readonly HashSet<string> _recentlyPrintedHashes = new();
+    private bool _isProcessingQueue;
+
+    public RelayClient Relay => _relayClient;
+    public PrinterService PrinterService => _printerService;
+
+    public ObservableCollection<DeviceInfo> ConnectedClients { get; } = new();
+    public ObservableCollection<PrintJob> PrintJobs { get; } = new();
+    public SharedPrinterInfo? ActiveSharedPrinter { get; private set; }
+
+    public event EventHandler<string>? OnLog;
+    public event EventHandler<DeviceInfo>? OnClientRequestedApproval;
+    public event EventHandler? OnStatusChanged;
+
+    public ServerService(AppSettings settings)
+    {
+        _settings = settings;
+
+        // Restore known approved clients
+        foreach (var client in _settings.ApprovedClients)
+        {
+            client.IsOnline = false;
+            ConnectedClients.Add(client);
+        }
+
+        // Restore recent jobs
+        foreach (var job in _settings.PrintHistory.Take(50))
+        {
+            PrintJobs.Add(job);
+        }
+
+        _relayClient.OnConnected += Relay_OnConnected;
+        _relayClient.OnDisconnected += Relay_OnDisconnected;
+        _relayClient.OnPacketReceived += Relay_OnPacketReceived;
+        _relayClient.OnLog += (s, msg) => OnLog?.Invoke(this, msg);
+    }
+
+    public async Task StartAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_settings.PairingCode))
+        {
+            _settings.PairingCode = Core.Security.RPMCrypto.GeneratePairingCode();
+            ConfigManager.Save(_settings);
+        }
+
+        if (string.IsNullOrWhiteSpace(_settings.EncryptionSecret))
+        {
+            _settings.EncryptionSecret = Guid.NewGuid().ToString("N");
+            ConfigManager.Save(_settings);
+        }
+
+        // Detect default printer if not set
+        var installed = _printerService.GetInstalledPrinters();
+        if (string.IsNullOrEmpty(_settings.SelectedPrinterName) && installed.Count > 0)
+        {
+            var def = installed.FirstOrDefault(p => p.IsDefault) ?? installed[0];
+            _settings.SelectedPrinterName = def.Name;
+            ConfigManager.Save(_settings);
+        }
+
+        if (!string.IsNullOrEmpty(_settings.SelectedPrinterName))
+        {
+            ActiveSharedPrinter = installed.FirstOrDefault(p => p.Name == _settings.SelectedPrinterName);
+            if (ActiveSharedPrinter != null)
+            {
+                ActiveSharedPrinter.IsShared = true;
+            }
+        }
+
+        await _relayClient.StartAsync(_settings.RelayServerUrl);
+    }
+
+    public void SetSharedPrinter(string printerName)
+    {
+        var installed = _printerService.GetInstalledPrinters();
+        var target = installed.FirstOrDefault(p => p.Name == printerName);
+        if (target != null)
+        {
+            ActiveSharedPrinter = target;
+            ActiveSharedPrinter.IsShared = true;
+            _settings.SelectedPrinterName = printerName;
+            ConfigManager.Save(_settings);
+
+            BroadcastPrinterStatus();
+            OnStatusChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    public void PauseSharing()
+    {
+        if (ActiveSharedPrinter != null)
+        {
+            ActiveSharedPrinter.IsShared = false;
+            BroadcastPrinterStatus();
+            OnStatusChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    public void ResumeSharing()
+    {
+        if (ActiveSharedPrinter != null)
+        {
+            ActiveSharedPrinter.IsShared = true;
+            BroadcastPrinterStatus();
+            OnStatusChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    public async Task ApproveClientAsync(DeviceInfo client)
+    {
+        client.IsApproved = true;
+        client.IsBlocked = false;
+        SaveClientList();
+
+        // Send approval back to client
+        var response = new ClientJoinResponsePayload
+        {
+            Approved = true,
+            IsPending = false,
+            Message = "Máy chủ đã chấp thuận thiết bị của bạn.",
+            EncryptionSecret = _settings.EncryptionSecret,
+            SharedPrinter = ActiveSharedPrinter
+        };
+
+        var packet = new NetworkPacket
+        {
+            Type = MessageType.ClientJoinResponse,
+            SenderId = _settings.DeviceId,
+            TargetId = client.DeviceId,
+            PairingCode = _settings.PairingCode,
+            PayloadJson = JsonSerializer.Serialize(response)
+        };
+
+        await _relayClient.SendPacketAsync(packet);
+        OnLog?.Invoke(this, $"[Duyệt] Đã chấp thuận máy con: {client.DeviceName} ({client.DeviceId})");
+    }
+
+    public async Task RevokeClientAsync(DeviceInfo client)
+    {
+        client.IsApproved = false;
+        client.IsBlocked = true;
+        SaveClientList();
+
+        var packet = new NetworkPacket
+        {
+            Type = MessageType.DeviceRevoked,
+            SenderId = _settings.DeviceId,
+            TargetId = client.DeviceId,
+            PairingCode = _settings.PairingCode,
+            PayloadJson = "{\"status\":\"revoked\"}"
+        };
+
+        await _relayClient.SendPacketAsync(packet);
+        OnLog?.Invoke(this, $"[Thu hồi] Đã thu hồi quyền máy con: {client.DeviceName}");
+    }
+
+    private void SaveClientList()
+    {
+        _settings.ApprovedClients = ConnectedClients.ToList();
+        ConfigManager.Save(_settings);
+        OnStatusChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private async void Relay_OnConnected(object? sender, EventArgs e)
+    {
+        OnLog?.Invoke(this, "Đã kết nối Relay Broker. Đang đăng ký mã Pairing Code...");
+
+        // Register Server room
+        var reg = new RegisterServerPayload
+        {
+            ServerDeviceId = _settings.DeviceId,
+            ServerDeviceName = _settings.DeviceName,
+            PairingCode = _settings.PairingCode,
+            SharedPrinter = ActiveSharedPrinter
+        };
+
+        var packet = new NetworkPacket
+        {
+            Type = MessageType.RegisterServer,
+            SenderId = _settings.DeviceId,
+            PairingCode = _settings.PairingCode,
+            PayloadJson = JsonSerializer.Serialize(reg)
+        };
+
+        await _relayClient.SendPacketAsync(packet);
+        OnStatusChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void Relay_OnDisconnected(object? sender, string reason)
+    {
+        foreach (var client in ConnectedClients)
+        {
+            client.IsOnline = false;
+        }
+        OnStatusChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private async void Relay_OnPacketReceived(object? sender, NetworkPacket packet)
+    {
+        try
+        {
+            switch (packet.Type)
+            {
+                case MessageType.RegisterServerAck:
+                    OnLog?.Invoke(this, $"[Máy Chủ] Sẵn sàng nhận lệnh in với mã kết nối: {_settings.PairingCode}");
+                    break;
+
+                case MessageType.ClientJoin:
+                    HandleClientJoin(packet);
+                    break;
+
+                case MessageType.SubmitPrintJob:
+                    await HandleSubmitPrintJobAsync(packet);
+                    break;
+
+                case MessageType.Heartbeat:
+                    // Reply pong
+                    await _relayClient.SendPacketAsync(new NetworkPacket
+                    {
+                        Type = MessageType.HeartbeatAck,
+                        SenderId = _settings.DeviceId,
+                        TargetId = packet.SenderId,
+                        PairingCode = _settings.PairingCode
+                    });
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            OnLog?.Invoke(this, $"[Lỗi xử lý gói tin] {ex.Message}");
+        }
+    }
+
+    private void HandleClientJoin(NetworkPacket packet)
+    {
+        var joinPayload = JsonSerializer.Deserialize<ClientJoinPayload>(packet.PayloadJson);
+        if (joinPayload == null) return;
+
+        var client = joinPayload.ClientDevice;
+        var existing = ConnectedClients.FirstOrDefault(c => c.DeviceId == client.DeviceId);
+
+        Application.Current?.Dispatcher.Invoke(() =>
+        {
+            if (existing == null)
+            {
+                client.IsOnline = true;
+                client.LastSeen = DateTime.UtcNow;
+                ConnectedClients.Add(client);
+                existing = client;
+            }
+            else
+            {
+                existing.DeviceName = client.DeviceName;
+                existing.IpAddress = client.IpAddress;
+                existing.OperatingSystem = client.OperatingSystem;
+                existing.LastSeen = DateTime.UtcNow;
+                existing.IsOnline = true;
+            }
+        });
+
+        if (existing != null && existing.IsApproved && !existing.IsBlocked)
+        {
+            // Auto approve recognized client
+            _ = ApproveClientAsync(existing);
+        }
+        else if (existing != null && !existing.IsBlocked)
+        {
+            OnLog?.Invoke(this, $"[Yêu cầu kết nối] Máy con '{existing.DeviceName}' xin kết nối.");
+            OnClientRequestedApproval?.Invoke(this, existing);
+        }
+    }
+
+    private async Task HandleSubmitPrintJobAsync(NetworkPacket packet)
+    {
+        // Find sender
+        var senderDevice = ConnectedClients.FirstOrDefault(c => c.DeviceId == packet.SenderId);
+        if (senderDevice == null || !senderDevice.IsApproved || senderDevice.IsBlocked)
+        {
+            OnLog?.Invoke(this, $"[Cảnh báo] Từ chối lệnh in từ thiết bị chưa được cấp quyền: {packet.SenderId}");
+            return;
+        }
+
+        PrintJobPayload? payload = null;
+        if (!string.IsNullOrEmpty(packet.EncryptedPayloadBase64))
+        {
+            payload = _relayClient.DecryptPayload<PrintJobPayload>(packet, _settings.EncryptionSecret);
+        }
+        else if (!string.IsNullOrEmpty(packet.PayloadJson))
+        {
+            payload = JsonSerializer.Deserialize<PrintJobPayload>(packet.PayloadJson);
+        }
+
+        if (payload == null || payload.JobInfo == null)
+        {
+            OnLog?.Invoke(this, "[Lỗi] Dữ liệu tài liệu in không hợp lệ.");
+            return;
+        }
+
+        var job = payload.JobInfo;
+        job.SenderDeviceId = senderDevice.DeviceId;
+        job.SenderDeviceName = senderDevice.DeviceName;
+
+        // Anti-duplicate protection: check content hash within last 10 minutes
+        if (!string.IsNullOrEmpty(job.ContentSha256) && _recentlyPrintedHashes.Contains(job.ContentSha256))
+        {
+            OnLog?.Invoke(this, $"[Chống in trùng] Đã phát hiện tài liệu trùng lặp gần đây ({job.DocumentName}). Bỏ qua.");
+            return;
+        }
+
+        byte[] rawBytes = Convert.FromBase64String(payload.DataBase64);
+
+        // Save to temporary print job cache
+        string tempFile = Path.Combine(ConfigManager.GetTempJobsFolder(), $"{job.JobId}_{job.DocumentName}");
+        await File.WriteAllBytesAsync(tempFile, rawBytes);
+        job.LocalTempFilePath = tempFile;
+
+        Application.Current?.Dispatcher.Invoke(() =>
+        {
+            PrintJobs.Insert(0, job);
+            _settings.PrintHistory.Insert(0, job);
+            if (_settings.PrintHistory.Count > 100)
+            {
+                _settings.PrintHistory.RemoveAt(_settings.PrintHistory.Count - 1);
+            }
+            ConfigManager.Save(_settings);
+        });
+
+        // Enqueue job
+        await _queueLock.WaitAsync();
+        try
+        {
+            _printQueue.Enqueue(job);
+        }
+        finally
+        {
+            _queueLock.Release();
+        }
+
+        _ = ProcessPrintQueueAsync();
+    }
+
+    private async Task ProcessPrintQueueAsync()
+    {
+        if (_isProcessingQueue) return;
+        _isProcessingQueue = true;
+
+        while (true)
+        {
+            PrintJob? job = null;
+            await _queueLock.WaitAsync();
+            try
+            {
+                if (_printQueue.Count > 0)
+                {
+                    job = _printQueue.Dequeue();
+                }
+            }
+            finally
+            {
+                _queueLock.Release();
+            }
+
+            if (job == null) break;
+
+            if (ActiveSharedPrinter == null || !ActiveSharedPrinter.IsShared)
+            {
+                job.Status = PrintJobStatus.Failed;
+                job.StatusMessage = "Máy in đang tạm dừng chia sẻ.";
+                await NotifyJobProgressAsync(job);
+                continue;
+            }
+
+            job.Status = PrintJobStatus.Printing;
+            job.StatusMessage = "Đang gửi dữ liệu tới máy in USB...";
+            await NotifyJobProgressAsync(job);
+
+            bool printed = false;
+            string errMsg = string.Empty;
+
+            if (!string.IsNullOrEmpty(job.LocalTempFilePath) && File.Exists(job.LocalTempFilePath))
+            {
+                printed = _printerService.PrintFileDirectly(
+                    ActiveSharedPrinter.Name,
+                    job.LocalTempFilePath,
+                    job.DocumentName,
+                    out errMsg
+                );
+            }
+
+            if (printed)
+            {
+                job.Status = PrintJobStatus.Completed;
+                job.CompletedAt = DateTime.UtcNow;
+                job.StatusMessage = "Đã xuất tài liệu ra máy in thành công!";
+                if (!string.IsNullOrEmpty(job.ContentSha256))
+                {
+                    _recentlyPrintedHashes.Add(job.ContentSha256);
+                }
+                OnLog?.Invoke(this, $"[In thành công] {job.DocumentName} từ máy {job.SenderDeviceName}");
+            }
+            else
+            {
+                job.Status = PrintJobStatus.Failed;
+                job.StatusMessage = $"Lỗi máy in: {errMsg}";
+                OnLog?.Invoke(this, $"[Lỗi in] {job.DocumentName}: {errMsg}");
+            }
+
+            await NotifyJobProgressAsync(job);
+            OnStatusChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        _isProcessingQueue = false;
+    }
+
+    private async Task NotifyJobProgressAsync(PrintJob job)
+    {
+        var progress = new PrintJobProgressPayload
+        {
+            JobId = job.JobId,
+            Status = job.Status,
+            Message = job.StatusMessage
+        };
+
+        var packet = new NetworkPacket
+        {
+            Type = MessageType.PrintJobProgress,
+            SenderId = _settings.DeviceId,
+            TargetId = job.SenderDeviceId,
+            PairingCode = _settings.PairingCode,
+            PayloadJson = JsonSerializer.Serialize(progress)
+        };
+
+        await _relayClient.SendPacketAsync(packet);
+    }
+
+    private void BroadcastPrinterStatus()
+    {
+        var packet = new NetworkPacket
+        {
+            Type = MessageType.PrinterStatusUpdate,
+            SenderId = _settings.DeviceId,
+            PairingCode = _settings.PairingCode,
+            PayloadJson = JsonSerializer.Serialize(ActiveSharedPrinter)
+        };
+        _ = _relayClient.SendPacketAsync(packet);
+    }
+
+    public void Dispose()
+    {
+        _relayClient.Dispose();
+        _queueLock.Dispose();
+    }
+}

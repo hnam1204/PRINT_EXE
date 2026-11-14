@@ -1,0 +1,132 @@
+﻿using System.ComponentModel;
+using System.Windows;
+using System.Windows.Forms;
+using RPM.App.Services;
+using RPM.App.Views;
+using RPM.Core.Config;
+using RPM.Core.Models;
+
+namespace RPM.App;
+
+public partial class MainWindow : Window
+{
+    private AppSettings _settings;
+    private TrayService? _trayService;
+    private ServerService? _serverService;
+    private ClientService? _clientService;
+    private bool _isExplicitExit;
+
+    public MainWindow()
+    {
+        InitializeComponent();
+        _settings = ConfigManager.Load();
+
+        Loaded += MainWindow_Loaded;
+        Closing += MainWindow_Closing;
+    }
+
+    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        _trayService = new TrayService(this);
+        NavigateToCurrentRole();
+    }
+
+    private void NavigateToCurrentRole()
+    {
+        // Cleanup old services
+        _serverService?.Dispose();
+        _serverService = null;
+        _clientService?.Dispose();
+        _clientService = null;
+
+        switch (_settings.Role)
+        {
+            case AppRole.Server:
+                LoadServerMode();
+                break;
+            case AppRole.Client:
+                LoadClientMode();
+                break;
+            default:
+                LoadModeSelection();
+                break;
+        }
+    }
+
+    private void LoadModeSelection()
+    {
+        Title = "Remote Print Manager - Chọn Vai Trò";
+        var selectionView = new ModeSelectionView();
+        selectionView.OnRoleSelected += (s, role) =>
+        {
+            _settings.Role = role;
+            ConfigManager.Save(_settings);
+            NavigateToCurrentRole();
+        };
+        MainContentArea.Content = selectionView;
+    }
+
+    private void LoadServerMode()
+    {
+        Title = $"Remote Print Manager [MÁY CHỦ] - {_settings.DeviceName}";
+        _serverService = new ServerService(_settings);
+
+        _serverService.OnClientRequestedApproval += (s, client) =>
+        {
+            if (_settings.ShowDesktopNotifications)
+            {
+                _trayService?.ShowNotification(
+                    "Yêu cầu kết nối in ấn mới",
+                    $"Máy con '{client.DeviceName}' đang xin phép sử dụng máy in.",
+                    ToolTipIcon.Info
+                );
+            }
+        };
+
+        var serverView = new ServerView(_serverService, _settings);
+        serverView.OnSwitchToClientModeRequested += (s, e) => NavigateToCurrentRole();
+        serverView.OnMinimizeRequested += (s, e) => _trayService?.HideMainWindow();
+
+        MainContentArea.Content = serverView;
+        _ = _serverService.StartAsync();
+    }
+
+    private void LoadClientMode()
+    {
+        Title = $"Remote Print Manager [MÁY CON] - {_settings.DeviceName}";
+        _clientService = new ClientService(_settings);
+
+        var clientView = new ClientView(_clientService, _settings);
+        clientView.OnSwitchToServerModeRequested += (s, e) => NavigateToCurrentRole();
+        clientView.OnMinimizeRequested += (s, e) => _trayService?.HideMainWindow();
+
+        MainContentArea.Content = clientView;
+        _ = _clientService.StartAsync();
+    }
+
+    public void ExitApplication()
+    {
+        _isExplicitExit = true;
+        Close();
+    }
+
+    private void MainWindow_Closing(object? sender, CancelEventArgs e)
+    {
+        if (!_isExplicitExit && _settings.MinimizeToSystemTray)
+        {
+            e.Cancel = true;
+            _trayService?.HideMainWindow();
+            _trayService?.ShowNotification(
+                "Remote Print Manager",
+                "Phần mềm đang chạy ngầm trong khay hệ thống để duy trì kết nối in ấn.",
+                ToolTipIcon.Info
+            );
+        }
+        else
+        {
+            _trayService?.Dispose();
+            _serverService?.Dispose();
+            _clientService?.Dispose();
+        }
+    }
+}

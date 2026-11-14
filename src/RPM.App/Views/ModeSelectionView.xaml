@@ -1,0 +1,98 @@
+<UserControl x:Class="RPM.App.Views.ModeSelectionView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgBrush}">
+    <Grid VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="850">
+        <StackPanel Margin="20">
+            <!-- Header -->
+            <TextBlock Text="REMOTE PRINT MANAGER" 
+                       FontSize="26" FontWeight="Bold" 
+                       Foreground="{StaticResource PrimaryBrush}" 
+                       HorizontalAlignment="Center" Margin="0,0,0,6"/>
+            
+            <TextBlock Text="Giải pháp chia sẻ máy in qua Internet độc lập trong bán kính văn phòng 1 km" 
+                       FontSize="14" Foreground="{StaticResource TextMutedBrush}" 
+                       HorizontalAlignment="Center" Margin="0,0,0,36"/>
+
+            <TextBlock Text="Vui lòng lựa chọn vai trò cho máy tính này:" 
+                       FontSize="16" FontWeight="SemiBold" 
+                       Foreground="{StaticResource TextMainBrush}" 
+                       HorizontalAlignment="Center" Margin="0,0,0,24"/>
+
+            <!-- Cards Container -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="380"/>
+                    <ColumnDefinition Width="30"/>
+                    <ColumnDefinition Width="380"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Server Card -->
+                <Border Grid.Column="0" Style="{StaticResource CardBorder}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Grid.Row="0">
+                            <TextBlock Text="🖥️" FontSize="44" HorizontalAlignment="Center" Margin="0,10,0,10"/>
+                            <TextBlock Text="CHẾ ĐỘ MÁY CHỦ" FontSize="18" FontWeight="Bold" 
+                                       Foreground="{StaticResource PrimaryBrush}" HorizontalAlignment="Center"/>
+                            <TextBlock Text="(Máy tính cắm cáp USB vào máy in)" FontSize="12" 
+                                       Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Center" Margin="0,2,0,16"/>
+                        </StackPanel>
+
+                        <TextBlock Grid.Row="1" TextWrapping="Wrap" LineHeight="20" FontSize="13" 
+                                   Foreground="{StaticResource TextMainBrush}" Margin="10,0,10,20">
+                            • Tự động quét và phát hiện các máy in USB đang kết nối.<LineBreak/>
+                            • Tạo mã kết nối (Pairing Code) cho 3 máy con.<LineBreak/>
+                            • Kiểm soát, phê duyệt và thu hồi quyền in của từng máy.<LineBreak/>
+                            • Điều phối hàng đợi in FIFO, bảo vệ chống in trùng lặp.
+                        </TextBlock>
+
+                        <Button Grid.Row="2" Style="{StaticResource PrimaryBtn}" 
+                                Content="Thiết Lập Làm Máy Chủ →" 
+                                Click="BtnSelectServer_Click" Height="42" FontSize="14"/>
+                    </Grid>
+                </Border>
+
+                <!-- Client Card -->
+                <Border Grid.Column="2" Style="{StaticResource CardBorder}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Grid.Row="0">
+                            <TextBlock Text="💻" FontSize="44" HorizontalAlignment="Center" Margin="0,10,0,10"/>
+                            <TextBlock Text="CHẾ ĐỘ MÁY CON" FontSize="18" FontWeight="Bold" 
+                                       Foreground="{StaticResource SuccessBrush}" HorizontalAlignment="Center"/>
+                            <TextBlock Text="(3 máy tính văn phòng in từ xa)" FontSize="12" 
+                                       Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Center" Margin="0,2,0,16"/>
+                        </StackPanel>
+
+                        <TextBlock Grid.Row="1" TextWrapping="Wrap" LineHeight="20" FontSize="13" 
+                                   Foreground="{StaticResource TextMainBrush}" Margin="10,0,10,20">
+                            • Nhập mã kết nối để liên kết an toàn tới máy chủ.<LineBreak/>
+                            • Tự động tích hợp máy in ảo vào hệ thống Windows.<LineBreak/>
+                            • In trực tiếp bằng <Bold>Ctrl + P</Bold> trong Word, Excel, Chrome...<LineBreak/>
+                            • Mã hóa tài liệu đầu cuối (AES-256) an toàn tuyệt đối.
+                        </TextBlock>
+
+                        <Button Grid.Row="2" Style="{StaticResource SuccessBtn}" 
+                                Content="Thiết Lập Làm Máy Con →" 
+                                Click="BtnSelectClient_Click" Height="42" FontSize="14"/>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <TextBlock Text="* Bạn có thể đổi lại vai trò bất cứ lúc nào trong mục Cài đặt." 
+                       FontSize="11" FontStyle="Italic" Foreground="{StaticResource TextMutedBrush}" 
+                       HorizontalAlignment="Center" Margin="0,28,0,0"/>
+        </StackPanel>
+    </Grid>
+</UserControl>

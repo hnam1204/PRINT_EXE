@@ -1,0 +1,234 @@
+using System.Net.WebSockets;
+using System.Text;
+using System.Text.Json;
+using RPM.Core.Models;
+using RPM.Core.Protocol;
+using RPM.Core.Security;
+
+namespace RPM.Networking;
+
+public class PacketReceivedEventArgs : EventArgs
+{
+    public NetworkPacket Packet { get; set; } = new();
+}
+
+public class RelayClient : IDisposable
+{
+    private ClientWebSocket? _ws;
+    private CancellationTokenSource? _cts;
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private bool _isDisposed;
+    private string _relayUrl = string.Empty;
+    private bool _shouldAutoReconnect = true;
+
+    public bool IsConnected => _ws != null && _ws.State == WebSocketState.Open;
+
+    public event EventHandler? OnConnected;
+    public event EventHandler<string>? OnDisconnected;
+    public event EventHandler<NetworkPacket>? OnPacketReceived;
+    public event EventHandler<string>? OnLog;
+
+    public Task StartAsync(string relayUrl)
+    {
+        _relayUrl = relayUrl;
+        _shouldAutoReconnect = true;
+        _ = Task.Run(ConnectInternalAsync);
+        return Task.CompletedTask;
+    }
+
+    public async Task StopAsync()
+    {
+        _shouldAutoReconnect = false;
+        _cts?.Cancel();
+
+        if (_ws != null)
+        {
+            try
+            {
+                if (_ws.State == WebSocketState.Open)
+                {
+                    await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Client shutting down", CancellationToken.None);
+                }
+            }
+            catch { }
+            finally
+            {
+                _ws.Dispose();
+                _ws = null;
+            }
+        }
+    }
+
+    private async Task ConnectInternalAsync()
+    {
+        while (_shouldAutoReconnect && !_isDisposed)
+        {
+            try
+            {
+                _cts = new CancellationTokenSource();
+                _ws = new ClientWebSocket();
+                _ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
+
+                OnLog?.Invoke(this, $"Đang kết nối tới Relay: {_relayUrl}...");
+                await _ws.ConnectAsync(new Uri(_relayUrl), _cts.Token);
+
+                if (_ws.State == WebSocketState.Open)
+                {
+                    OnLog?.Invoke(this, "Kết nối Relay thành công!");
+                    OnConnected?.Invoke(this, EventArgs.Empty);
+
+                    await ReceiveLoopAsync(_cts.Token);
+                }
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke(this, $"Lỗi kết nối Relay: {ex.Message}");
+            }
+
+            OnDisconnected?.Invoke(this, "Mất kết nối tới Relay.");
+
+            if (!_shouldAutoReconnect || _isDisposed) break;
+
+            // Wait 5 seconds before retrying
+            try
+            {
+                await Task.Delay(5000, _cts?.Token ?? CancellationToken.None);
+            }
+            catch
+            {
+                break;
+            }
+        }
+    }
+
+    private async Task ReceiveLoopAsync(CancellationToken ct)
+    {
+        var buffer = new byte[64 * 1024]; // 64KB chunk buffer
+
+        while (!ct.IsCancellationRequested && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            using var ms = new MemoryStream();
+            WebSocketReceiveResult result;
+
+            do
+            {
+                result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
+                if (result.MessageType == WebSocketMessageType.Close)
+                {
+                    await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closed by server", ct);
+                    return;
+                }
+                ms.Write(buffer, 0, result.Count);
+            } while (!result.EndOfMessage);
+
+            byte[] fullBytes = ms.ToArray();
+            string json = Encoding.UTF8.GetString(fullBytes);
+
+            try
+            {
+                var packet = JsonSerializer.Deserialize<NetworkPacket>(json);
+                if (packet != null)
+                {
+                    OnPacketReceived?.Invoke(this, packet);
+                }
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke(this, $"Lỗi giải mã gói tin: {ex.Message}");
+            }
+        }
+    }
+
+    public async Task<bool> SendPacketAsync(NetworkPacket packet)
+    {
+        if (!IsConnected || _ws == null) return false;
+
+        await _sendLock.WaitAsync();
+        try
+        {
+            string json = JsonSerializer.Serialize(packet);
+            byte[] bytes = Encoding.UTF8.GetBytes(json);
+
+            await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            OnLog?.Invoke(this, $"Lỗi gửi gói tin: {ex.Message}");
+            return false;
+        }
+        finally
+        {
+            _sendLock.Release();
+        }
+    }
+
+    public async Task<bool> SendEncryptedPayloadAsync(
+        MessageType type,
+        string senderId,
+        string targetId,
+        string pairingCode,
+        object payloadObject,
+        string secretKey)
+    {
+        string payloadJson = JsonSerializer.Serialize(payloadObject);
+        byte[] payloadBytes = Encoding.UTF8.GetBytes(payloadJson);
+
+        byte[] key = RPMCrypto.DeriveKey(secretKey);
+        var (cipher, nonce, tag) = RPMCrypto.Encrypt(payloadBytes, key);
+
+        var packet = new NetworkPacket
+        {
+            Type = type,
+            SenderId = senderId,
+            TargetId = targetId,
+            PairingCode = pairingCode,
+            Timestamp = DateTime.UtcNow,
+            EncryptedPayloadBase64 = Convert.ToBase64String(cipher),
+            NonceBase64 = Convert.ToBase64String(nonce),
+            TagBase64 = Convert.ToBase64String(tag)
+        };
+
+        return await SendPacketAsync(packet);
+    }
+
+    public T? DecryptPayload<T>(NetworkPacket packet, string secretKey)
+    {
+        if (string.IsNullOrEmpty(packet.EncryptedPayloadBase64) ||
+            string.IsNullOrEmpty(packet.NonceBase64) ||
+            string.IsNullOrEmpty(packet.TagBase64))
+        {
+            if (!string.IsNullOrEmpty(packet.PayloadJson))
+            {
+                return JsonSerializer.Deserialize<T>(packet.PayloadJson);
+            }
+            return default;
+        }
+
+        try
+        {
+            byte[] key = RPMCrypto.DeriveKey(secretKey);
+            byte[] cipher = Convert.FromBase64String(packet.EncryptedPayloadBase64);
+            byte[] nonce = Convert.FromBase64String(packet.NonceBase64);
+            byte[] tag = Convert.FromBase64String(packet.TagBase64);
+
+            byte[] plainBytes = RPMCrypto.Decrypt(cipher, nonce, tag, key);
+            string json = Encoding.UTF8.GetString(plainBytes);
+            return JsonSerializer.Deserialize<T>(json);
+        }
+        catch (Exception ex)
+        {
+            OnLog?.Invoke(this, $"Lỗi giải mã payload E2EE: {ex.Message}");
+            return default;
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_isDisposed) return;
+        _isDisposed = true;
+        _cts?.Cancel();
+        _ws?.Dispose();
+        _sendLock.Dispose();
+    }
+}
