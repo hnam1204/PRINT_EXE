@@ -62,3 +62,4 @@ public class PrintJob
     public string ContentSha256 { get; set; } = string.Empty;
     public string? LocalTempFilePath { get; set; }
 }
+

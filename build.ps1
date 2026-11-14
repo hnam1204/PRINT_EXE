@@ -1,10 +1,11 @@
-﻿param(
+param(
     [string]$Version = "1.0.0",
     [string[]]$Changelog = @(
-        "Tự động kết nối lại máy chủ khi mạng Internet phục hồi",
-        "Tối ưu hóa hàng đợi in và bảo vệ chống in trùng lặp",
-        "Bổ sung chức năng Cập nhật & Nâng cấp phần mềm trực tiếp trong ứng dụng",
-        "Cải tiến tốc độ nhận diện máy in USB và trạng thái trực tuyến"
+        "Thiet ke lai toan bo giao dien sang chuan Fluent UI Windows 11",
+        "Tu dong khoi dong Relay Cloud noi bo tren may chu (khong con loi mat ket noi)",
+        "Nang cap bang DataGrid khong con duong vien tho, bo sung huy hieu mau sac",
+        "Thay the toan bo emoji bang Vector Icon SVG sac net",
+        "Bao toan 100% cau hinh va thiet lap in an"
     )
 )
 
@@ -18,6 +19,9 @@ Set-Location $scriptDir
 
 # 1. Clean previous build outputs
 Write-Host "`n[1/5] Dang don dep thu muc build cu..." -ForegroundColor Gray
+Get-Process -Name "*RemotePrintManager*", "*RPM*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 500
+
 if (Test-Path "publish") {
     Remove-Item -Recurse -Force "publish"
 }
@@ -61,7 +65,7 @@ $manifestObj = [ordered]@{
     sha256 = $fileHash
     minSupportedVersion = "1.0.0"
     changelog = $Changelog
-    releaseNotes = "Phien ban V$Version mang lai kha nang cap nhat tu dong va on dinh ket noi mang."
+    releaseNotes = "Phien ban V$Version voi giao dien moi va tinh nang khoi dong Relay tu dong."
 }
 
 $manifestJson = $manifestObj | ConvertTo-Json -Depth 5

@@ -70,3 +70,4 @@ public static class RPMCrypto
         return $"RPM-{number}";
     }
 }
+

@@ -1,4 +1,6 @@
-﻿namespace RPM.Relay;
+using RPM.Networking;
+
+namespace RPM.Relay;
 
 internal class Program
 {

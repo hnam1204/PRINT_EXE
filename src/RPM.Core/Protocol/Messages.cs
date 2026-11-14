@@ -85,3 +85,4 @@ public class PrintJobProgressPayload
     public PrintJobStatus Status { get; set; }
     public string Message { get; set; } = string.Empty;
 }
+

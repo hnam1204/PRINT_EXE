@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 using RPM.Core.Protocol;
 
-namespace RPM.Relay;
+namespace RPM.Networking;
 
 public class ClientSession
 {
@@ -42,7 +42,6 @@ public class RelayServer
         }
         catch (HttpListenerException)
         {
-            // If port already in use or prefix conflict
             _listener.Close();
             _listener = new HttpListener();
             _listener.Prefixes.Add($"http://127.0.0.1:{port}/");
@@ -241,12 +240,10 @@ public class RelayServer
                             room.Clients[packet.SenderId] = session;
 
                             Console.WriteLine($"[Relay] Máy con ({packet.SenderId}) gửi yêu cầu ghép đôi tới Room {packet.PairingCode}");
-                            // Forward packet to Server
                             await SendToSocketAsync(room.ServerSocket, packet);
                         }
                         else
                         {
-                            // Server not found or offline
                             var errorPkt = new NetworkPacket
                             {
                                 Type = MessageType.Error,
@@ -260,25 +257,21 @@ public class RelayServer
 
                     default:
                     {
-                        // Route packet based on TargetId
                         if (currentRoomCode != null && _rooms.TryGetValue(currentRoomCode, out var room))
                         {
                             if (!string.IsNullOrEmpty(packet.TargetId))
                             {
                                 if (packet.TargetId == room.ServerDeviceId && room.ServerSocket != null)
                                 {
-                                    // Forward to Server
                                     await SendToSocketAsync(room.ServerSocket, packet);
                                 }
                                 else if (room.Clients.TryGetValue(packet.TargetId, out var clientSession))
                                 {
-                                    // Forward to specific Client
                                     await SendToSocketAsync(clientSession.Socket, packet);
                                 }
                             }
                             else if (isServer)
                             {
-                                // Broadcast from Server to all room clients
                                 foreach (var client in room.Clients.Values)
                                 {
                                     await SendToSocketAsync(client.Socket, packet);
@@ -296,7 +289,6 @@ public class RelayServer
         }
         finally
         {
-            // Clean up session
             if (currentRoomCode != null && _rooms.TryGetValue(currentRoomCode, out var room))
             {
                 if (isServer)
@@ -327,3 +319,4 @@ public class RelayServer
         await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
     }
 }
+

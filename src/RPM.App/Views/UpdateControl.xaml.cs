@@ -246,3 +246,4 @@ public partial class UpdateControl : UserControl
     private static readonly SolidColorBrush LightYellowColor = new(Color.FromArgb(255, 255, 244, 206));
     private static readonly SolidColorBrush LightRedColor = new(Color.FromArgb(255, 253, 231, 233));
 }
+

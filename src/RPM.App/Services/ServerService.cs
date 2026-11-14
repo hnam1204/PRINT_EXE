@@ -17,6 +17,7 @@ public class ServerService : IDisposable
     private readonly Queue<PrintJob> _printQueue = new();
     private readonly SemaphoreSlim _queueLock = new(1, 1);
     private readonly HashSet<string> _recentlyPrintedHashes = new();
+    private RelayServer? _embeddedRelay;
     private bool _isProcessingQueue;
 
     public RelayClient Relay => _relayClient;
@@ -82,6 +83,26 @@ public class ServerService : IDisposable
             if (ActiveSharedPrinter != null)
             {
                 ActiveSharedPrinter.IsShared = true;
+            }
+        }
+
+        // Auto-start embedded relay if server is configured for local address
+        if (_settings.RelayServerUrl.Contains("127.0.0.1") || _settings.RelayServerUrl.Contains("localhost"))
+        {
+            try
+            {
+                int port = 9090;
+                if (Uri.TryCreate(_settings.RelayServerUrl, UriKind.Absolute, out var uri) && uri.Port > 0)
+                {
+                    port = uri.Port;
+                }
+                _embeddedRelay = new RelayServer();
+                _embeddedRelay.Start(port);
+                OnLog?.Invoke(this, $"[Relay] Đã tự động kích hoạt máy chủ trung chuyển nội bộ trên cổng {port}.");
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke(this, $"[Relay] Khởi động trung chuyển nội bộ: {ex.Message}");
             }
         }
 
@@ -467,5 +488,6 @@ public class ServerService : IDisposable
     {
         _relayClient.Dispose();
         _queueLock.Dispose();
+        _embeddedRelay?.Stop();
     }
 }

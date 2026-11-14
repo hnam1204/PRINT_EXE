@@ -7,7 +7,6 @@ using RPM.Core.Security;
 using RPM.Core.Update;
 using RPM.Networking;
 using RPM.Printing;
-using RPM.Relay;
 
 namespace RPM.Tests;
 

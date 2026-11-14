@@ -222,3 +222,4 @@ start """" ""{currentExePath}"" --updated
         return string.Compare(vNew, vCurrent, StringComparison.OrdinalIgnoreCase) > 0;
     }
 }
+

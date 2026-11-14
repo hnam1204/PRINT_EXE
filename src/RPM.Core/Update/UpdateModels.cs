@@ -29,3 +29,4 @@ public class UpdateCheckResult
     public UpdateManifest? Manifest { get; set; }
     public string? ErrorMessage { get; set; }
 }
+
