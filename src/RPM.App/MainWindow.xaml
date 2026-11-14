@@ -1,13 +1,14 @@
 <Window x:Class="RPM.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Remote Print Manager - In Ấn Từ Xa Văn Phòng" 
-        Height="720" Width="1050" 
-        MinHeight="600" MinWidth="850"
+        Title="Remote Print Manager - In Ấn Từ Xa Doanh Nghiệp" 
+        Height="760" Width="1180" 
+        MinHeight="640" MinWidth="960"
         WindowStartupLocation="CenterScreen"
-        Icon="/Assets/logo.png"
+        ResizeMode="CanResizeWithGrip"
+        Icon="pack://application:,,,/RPM.App;component/Assets/app.ico"
         Background="{StaticResource BgBrush}">
     <Grid>
-        <ContentControl x:Name="MainContentArea"/>
+        <ContentControl x:Name="MainContentArea" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
     </Grid>
 </Window>

@@ -14,7 +14,7 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <TextBlock Grid.Column="0" Text="🚀" FontSize="26" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                    <Path Grid.Column="0" Data="{StaticResource GeoRefresh}" Fill="{StaticResource PrimaryBrush}" Width="22" Height="22" Stretch="Uniform" VerticalAlignment="Center" Margin="0,0,14,0"/>
                     
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                         <TextBlock Text="CẬP NHẬT &amp; NÂNG CẤP PHẦN MỀM" FontSize="15" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>

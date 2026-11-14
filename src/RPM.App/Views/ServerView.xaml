@@ -25,8 +25,8 @@
 
                 <!-- App Branding -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Width="42" Height="42" Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Margin="0,0,14,0" Padding="3">
-                        <Image Source="/Assets/logo.png" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+                    <Border Width="40" Height="40" Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Margin="0,0,14,0" Padding="2" ClipToBounds="True">
+                        <Image Source="pack://application:,,,/RPM.App;component/Assets/logo.png" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
                     </Border>
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock Text="REMOTE PRINT MANAGER" FontSize="15" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
@@ -300,10 +300,10 @@
 
                     <!-- Bottom Actions -->
                     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-                        <Button Style="{StaticResource SuccessBtn}" Content="✔ Bật / Tắt chia sẻ máy in đã chọn" Click="BtnToggleSharedPrinter_Click" Margin="0,0,10,0"/>
-                        <Button Style="{StaticResource PrimaryBtn}" Content="★ Đặt làm máy in chính" Click="BtnSetDefaultPrinter_Click" Margin="0,0,10,0"/>
+                        <Button Style="{StaticResource PrimaryBtn}" Content="✔ Bật / Tắt chia sẻ máy in đã chọn" Click="BtnToggleSharedPrinter_Click" Margin="0,0,10,0"/>
+                        <Button Style="{StaticResource SecondaryBtn}" Content="★ Đặt làm máy in chính" Click="BtnSetDefaultPrinter_Click" Margin="0,0,10,0"/>
                         <Button Style="{StaticResource SecondaryBtn}" Content="📄 In trang kiểm tra" Click="BtnTestPrint_Click" Margin="0,0,10,0"/>
-                        <Button Style="{StaticResource DangerBtn}" Content="Tạm dừng chia sẻ tất cả" Click="BtnPauseSharing_Click"/>
+                        <Button Style="{StaticResource DestructiveBtn}" Content="Tạm dừng chia sẻ tất cả" Click="BtnPauseSharing_Click"/>
                     </StackPanel>
                 </Grid>
             </TabItem>
@@ -331,6 +331,7 @@
                             <ColumnDefinition Width="1.2*"/>
                             <ColumnDefinition Width="1.2*"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
                         <!-- Search Box -->
@@ -356,7 +357,8 @@
                             <ComboBoxItem Content="Tất cả phòng ban" IsSelected="True"/>
                         </ComboBox>
 
-                        <Button Grid.Column="3" Style="{StaticResource SecondaryBtn}" Content="Xóa bộ lọc" Click="BtnClearFilters_Click" Padding="12,6"/>
+                        <Button Grid.Column="3" Style="{StaticResource SecondaryBtn}" Content="Xóa bộ lọc" Click="BtnClearFilters_Click" Margin="0,0,8,0" Padding="12,6"/>
+                        <Button Grid.Column="4" Style="{StaticResource PrimaryBtn}" Content="+ Đăng ký máy con" Click="BtnAddPreapprovedClient_Click" Padding="14,6"/>
                     </Grid>
 
                     <!-- Subtitle & Fleet Counts -->
@@ -410,11 +412,11 @@
                     </Border>
 
                     <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-                        <Button Style="{StaticResource SuccessBtn}" Content="✔ Phê duyệt" Click="BtnApproveClient_Click" Margin="0,0,10,0"/>
-                        <Button Style="{StaticResource SecondaryBtn}" Content="🏢 Đổi phòng ban" Click="BtnChangeDepartment_Click" Margin="0,0,10,0"/>
-                        <Button Style="{StaticResource SecondaryBtn}" Content="🖨️ Phân quyền máy in" Click="BtnAssignPrinters_Click" Margin="0,0,10,0"/>
-                        <Button Style="{StaticResource DangerBtn}" Content="🚫 Thu hồi quyền" Click="BtnRevokeClient_Click" Margin="0,0,10,0"/>
-                        <Button Style="{StaticResource DangerBtn}" Content="🗑️ Xóa" Click="BtnDeleteClient_Click"/>
+                        <Button Style="{StaticResource PrimaryBtn}" Content="✔ Phê duyệt kết nối" Click="BtnApproveClient_Click" Margin="0,0,10,0"/>
+                        <Button Style="{StaticResource SecondaryBtn}" Content="Đổi phòng ban" Click="BtnChangeDepartment_Click" Margin="0,0,10,0"/>
+                        <Button Style="{StaticResource SecondaryBtn}" Content="Phân quyền máy in" Click="BtnAssignPrinters_Click" Margin="0,0,10,0"/>
+                        <Button Style="{StaticResource DestructiveBtn}" Content="Thu hồi quyền" Click="BtnRevokeClient_Click" Margin="0,0,10,0"/>
+                        <Button Style="{StaticResource DestructiveBtn}" Content="Xóa" Click="BtnDeleteClient_Click"/>
                     </StackPanel>
                 </Grid>
             </TabItem>
@@ -451,7 +453,7 @@
 
                     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
                         <Button Style="{StaticResource SecondaryBtn}" Content="Làm mới danh sách" Click="BtnRefreshQueue_Click" Margin="0,0,10,0"/>
-                        <Button Style="{StaticResource DangerBtn}" Content="Xóa lịch sử hoàn tất" Click="BtnClearHistory_Click"/>
+                        <Button Style="{StaticResource DestructiveBtn}" Content="Xóa lịch sử hoàn tất" Click="BtnClearHistory_Click"/>
                     </StackPanel>
                 </Grid>
             </TabItem>
@@ -465,7 +467,7 @@
                     </StackPanel>
                 </TabItem.Header>
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
-                    <StackPanel MaxWidth="740" HorizontalAlignment="Left">
+                    <StackPanel Margin="0,0,0,24">
                         <!-- Update & Upgrade Section -->
                         <views:UpdateControl x:Name="ServerUpdateControl" Margin="0,0,0,18"/>
 

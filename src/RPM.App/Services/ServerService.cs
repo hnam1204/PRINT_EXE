@@ -307,6 +307,27 @@ public class ServerService : IDisposable
         }
     }
 
+    public void AddPreapprovedClient(string deviceName, string department)
+    {
+        var client = new DeviceInfo
+        {
+            DeviceId = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(),
+            DeviceName = string.IsNullOrWhiteSpace(deviceName) ? "Máy con mới" : deviceName,
+            Department = string.IsNullOrWhiteSpace(department) ? "Văn phòng" : department,
+            IsApproved = true,
+            IsOnline = false,
+            FirstConnected = DateTime.UtcNow,
+            LastSeen = DateTime.UtcNow
+        };
+        Application.Current?.Dispatcher.Invoke(() =>
+        {
+            ConnectedClients.Add(client);
+        });
+        SaveClientList();
+        OnLog?.Invoke(this, $"[Thêm thiết bị] Đã đăng ký trước máy con: '{client.DeviceName}' (Phòng: {client.Department})");
+        OnStatusChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     private void SaveClientList()
     {
         _settings.ApprovedClients = ConnectedClients.ToList();

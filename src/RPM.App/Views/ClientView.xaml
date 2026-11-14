@@ -25,8 +25,8 @@
 
                 <!-- App Branding -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Width="42" Height="42" Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Margin="0,0,14,0" Padding="3">
-                        <Image Source="/Assets/logo.png" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+                    <Border Width="40" Height="40" Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Margin="0,0,14,0" Padding="2" ClipToBounds="True">
+                        <Image Source="pack://application:,,,/RPM.App;component/Assets/logo.png" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
                     </Border>
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock Text="REMOTE PRINT MANAGER" FontSize="15" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
@@ -134,7 +134,7 @@
                     </StackPanel>
                 </TabItem.Header>
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
-                    <Border Style="{StaticResource CardBorder}" MaxWidth="680" HorizontalAlignment="Left">
+                    <Border Style="{StaticResource CardBorder}">
                         <StackPanel>
                             <TextBlock Text="Ghép Đôi Với Máy Chủ In Ấn" FontSize="16" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,0,0,16"/>
 
@@ -167,7 +167,7 @@
                     </StackPanel>
                 </TabItem.Header>
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
-                    <StackPanel MaxWidth="720" HorizontalAlignment="Left">
+                    <StackPanel Margin="0,0,0,20">
                         <Border Style="{StaticResource CardBorder}" Margin="0,0,0,20">
                             <StackPanel>
                                 <TextBlock Text="Thiết Lập Máy In Ảo Windows (Chuẩn IPP)" FontSize="16" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,0,0,10"/>
@@ -175,8 +175,8 @@
                                            FontSize="13" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" LineHeight="19" Margin="0,0,0,16"/>
 
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
-                                    <Button x:Name="BtnInstallPrinter" Style="{StaticResource SuccessBtn}" Content="⚙️ Cài Đặt Máy In Ảo Vào Windows" Click="BtnInstallVirtualPrinter_Click" Height="42" Margin="0,0,12,0"/>
-                                    <Button Style="{StaticResource DangerBtn}" Content="Gỡ bỏ máy in ảo" Click="BtnRemoveVirtualPrinter_Click" Height="42" Margin="0,0,12,0"/>
+                                    <Button x:Name="BtnInstallPrinter" Style="{StaticResource PrimaryBtn}" Content="⚙️ Cài Đặt Máy In Ảo Vào Windows" Click="BtnInstallVirtualPrinter_Click" Height="42" Margin="0,0,12,0"/>
+                                    <Button Style="{StaticResource DestructiveBtn}" Content="Gỡ bỏ máy in ảo" Click="BtnRemoveVirtualPrinter_Click" Height="42" Margin="0,0,12,0"/>
                                     <Button Style="{StaticResource SecondaryBtn}" Content="In thử nghiệm" Click="BtnTestPrint_Click" Height="42"/>
                                 </StackPanel>
 
@@ -224,7 +224,7 @@
                     </Border>
 
                     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-                        <Button Style="{StaticResource DangerBtn}" Content="Xóa danh sách lịch sử" Click="BtnClearClientHistory_Click"/>
+                        <Button Style="{StaticResource DestructiveBtn}" Content="Xóa danh sách lịch sử" Click="BtnClearClientHistory_Click"/>
                     </StackPanel>
                 </Grid>
             </TabItem>
@@ -238,14 +238,14 @@
                     </StackPanel>
                 </TabItem.Header>
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
-                    <StackPanel MaxWidth="740" HorizontalAlignment="Left">
+                    <StackPanel Margin="0,0,0,24">
                         <!-- Update & Upgrade Section -->
                         <views:UpdateControl x:Name="ClientUpdateControl" Margin="0,0,0,18"/>
 
                         <!-- Client Configuration Card -->
                         <Border Style="{StaticResource CardBorder}" Margin="0,0,0,20">
                             <StackPanel>
-                                <TextBlock Text="Cấu Hình Máy Con" FontSize="16" FontWeight="Bold" Foreground="{StaticResource SuccessBrush}" Margin="0,0,0,16"/>
+                                <TextBlock Text="Cấu Hình Máy Con" FontSize="16" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,0,0,16"/>
 
                                 <TextBlock Text="Tên nhận diện máy tính này (VD: KeToan-PC, KinhDoanh-01):" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,6"/>
                                 <TextBox x:Name="TxtClientDeviceName" Style="{StaticResource ModernTextBox}" Margin="0,0,0,16"/>
@@ -258,7 +258,7 @@
                                 <CheckBox x:Name="ChkClientNotifications" Content="Hiện thông báo bong bóng khi lệnh in hoàn tất" FontSize="13" Margin="0,0,0,24" IsChecked="True"/>
 
                                 <StackPanel Orientation="Horizontal">
-                                    <Button Style="{StaticResource SuccessBtn}" Content="Lưu Cài Đặt" Click="BtnSaveClientSettings_Click" Margin="0,0,12,0"/>
+                                    <Button Style="{StaticResource PrimaryBtn}" Content="Lưu Cài Đặt" Click="BtnSaveClientSettings_Click" Margin="0,0,12,0"/>
                                     <Button Style="{StaticResource SecondaryBtn}" Content="🔍 Chẩn Đoán Thiết Bị" Click="BtnOpenDiagnostics_Click" Margin="0,0,12,0"/>
                                     <Button Style="{StaticResource SecondaryBtn}" Content="🔄 Đổi sang Chế Độ Máy Chủ" Click="BtnSwitchToServer_Click"/>
                                 </StackPanel>

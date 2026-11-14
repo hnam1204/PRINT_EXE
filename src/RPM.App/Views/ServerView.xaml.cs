@@ -343,6 +343,18 @@ public partial class ServerView : UserControl
         }
     }
 
+    private void BtnAddPreapprovedClient_Click(object sender, RoutedEventArgs e)
+    {
+        int nextNum = _serverService.ConnectedClients.Count + 1;
+        string defaultName = $"Máy con {nextNum:D2}";
+        string dept = _settings.Departments.FirstOrDefault() ?? "Văn phòng";
+
+        _serverService.AddPreapprovedClient(defaultName, dept);
+        ApplyClientFilters();
+        UpdateDashboardUI();
+        MessageBox.Show($"Đã đăng ký trước thiết bị '{defaultName}' thuộc phòng '{dept}'.\nKhi máy tính mới nhập mã ghép đôi {_settings.PairingCode}, máy con sẽ tự động được cấp quyền ngay lập tức!", "Đăng ký thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
     private void BtnDeleteClient_Click(object sender, RoutedEventArgs e)
     {
         if (DgClients.SelectedItem is DeviceInfo client)
