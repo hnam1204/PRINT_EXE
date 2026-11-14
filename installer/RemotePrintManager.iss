@@ -19,6 +19,7 @@ Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
+SetupIconFile=..\src\RPM.App\Assets\app.ico
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

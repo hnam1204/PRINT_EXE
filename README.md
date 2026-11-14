@@ -1,12 +1,13 @@
 # 🖨️ Remote Print Manager (RPM)
 
 <p align="center">
+  <img src="docs/assets/logo.png" width="160" alt="Remote Print Manager (RPM) Logo" /><br/>
   <img src="https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet&logoColor=white" alt=".NET 9.0" />
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white" alt="Windows" />
   <img src="https://img.shields.io/badge/Security-AES--256--GCM%20E2EE-059669?logo=lock&logoColor=white" alt="E2EE Security" />
   <img src="https://img.shields.io/badge/Design-Fluent%20UI%20SaaS-2563EB" alt="Fluent UI" />
   <img src="https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF?logo=github-actions&logoColor=white" alt="CI/CD" />
-  <img src="https://img.shields.io/badge/Tests-8%2F8%20Passed-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-11%2F11%20Passed-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/License-MIT-blue" alt="License" />
 </p>
 

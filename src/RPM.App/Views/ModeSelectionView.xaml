@@ -6,8 +6,8 @@
         <StackPanel Margin="24">
             <!-- Header -->
             <StackPanel HorizontalAlignment="Center" Margin="0,0,0,40">
-                <Border Width="56" Height="56" Background="{StaticResource PrimaryLightBrush}" CornerRadius="16" HorizontalAlignment="Center" Margin="0,0,0,16">
-                    <Path Data="{StaticResource GeoPrinter}" Fill="{StaticResource PrimaryBrush}" Width="28" Height="28" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <Border Width="72" Height="72" Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="20" HorizontalAlignment="Center" Margin="0,0,0,16" Padding="6">
+                    <Image Source="/Assets/logo.png" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
                 </Border>
                 <TextBlock Text="REMOTE PRINT MANAGER" 
                            FontSize="24" FontWeight="Bold" 

@@ -25,11 +25,11 @@
 
                 <!-- App Branding -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Width="42" Height="42" Background="{StaticResource SuccessLightBrush}" CornerRadius="10" Margin="0,0,14,0">
-                        <Path Data="{StaticResource GeoDevices}" Fill="{StaticResource SuccessBrush}" Width="20" Height="20" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <Border Width="42" Height="42" Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Margin="0,0,14,0" Padding="3">
+                        <Image Source="/Assets/logo.png" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
                     </Border>
                     <StackPanel VerticalAlignment="Center">
-                        <TextBlock Text="REMOTE PRINT MANAGER" FontSize="15" FontWeight="Bold" Foreground="{StaticResource SuccessBrush}"/>
+                        <TextBlock Text="REMOTE PRINT MANAGER" FontSize="15" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
                         <TextBlock Text="MÁY CON IN TỪ XA (CLIENT)" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
                     </StackPanel>
                 </StackPanel>

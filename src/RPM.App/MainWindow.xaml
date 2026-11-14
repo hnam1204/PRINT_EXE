@@ -5,6 +5,7 @@
         Height="720" Width="1050" 
         MinHeight="600" MinWidth="850"
         WindowStartupLocation="CenterScreen"
+        Icon="/Assets/logo.png"
         Background="{StaticResource BgBrush}">
     <Grid>
         <ContentControl x:Name="MainContentArea"/>
