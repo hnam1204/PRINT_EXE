@@ -2,6 +2,8 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using RPM.Core.Models;
+using RPM.Core.Config;
+using RPM.Core.Networking;
 using RPM.Core.Protocol;
 using RPM.Core.Security;
 using RPM.Core.Diagnostics;
@@ -13,6 +15,26 @@ namespace RPM.Tests;
 
 public class RPMTests
 {
+    [Fact]
+    public void RelayEndpointPolicy_ClientDoesNotUseItsOwnLoopback()
+    {
+        Assert.False(RelayEndpointPolicy.TryValidateForRole(AppRole.Client, "ws://127.0.0.1:9090", out var reason));
+        Assert.Contains("localhost", reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void RelayEndpointPolicy_HostMayUseEmbeddedLoopback()
+    {
+        Assert.True(RelayEndpointPolicy.TryValidateForRole(AppRole.Server, "ws://127.0.0.1:9090", out _));
+    }
+
+    [Fact]
+    public void RelayEndpointPolicy_RemotePlainWebSocketIsRejected()
+    {
+        Assert.False(RelayEndpointPolicy.TryValidateForRole(AppRole.Client, "ws://192.168.1.20:9090", out var reason));
+        Assert.Contains("wss", reason, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void Crypto_EncryptionDecryptionRoundtrip_Succeeds()
     {
@@ -484,6 +506,15 @@ public class RPMTests
         Assert.False(UpdateService.IsNewerVersion("1.0.1", "1.0.0"));
         Assert.False(UpdateService.IsNewerVersion("1.0.0", "1.0.0"));
         Assert.False(UpdateService.IsNewerVersion("2.0.0", "1.9.9"));
+    }
+
+    [Fact]
+    public void Update_Compatibility_RejectsInvalidOrTooOldVersions()
+    {
+        Assert.True(UpdateService.IsCompatibleVersion("1.0.1", "1.0.0"));
+        Assert.False(UpdateService.IsCompatibleVersion("1.0.0", "1.0.1"));
+        Assert.False(UpdateService.IsCompatibleVersion("1.0", "1.0.0"));
+        Assert.False(UpdateService.IsCompatibleVersion("1.0.0", "invalid"));
     }
 
     [Fact]

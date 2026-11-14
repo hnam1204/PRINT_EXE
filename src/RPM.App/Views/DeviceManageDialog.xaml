@@ -1,0 +1,30 @@
+<Window x:Class="RPM.App.Views.DeviceManageDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Quản lý thiết bị" Width="430" Height="520" WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize" Background="{StaticResource BgBrush}">
+    <Border Margin="12" Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="16">
+        <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <StackPanel Grid.Row="0">
+                <TextBlock Text="QUẢN LÝ THIẾT BỊ" FontSize="14" FontWeight="Bold" Foreground="{StaticResource NavyMainBrush}"/>
+                <TextBlock x:Name="TxtDeviceName" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}" Margin="0,8,0,0"/>
+                <TextBlock x:Name="TxtDeviceDetails" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+            <Border Grid.Row="1" Background="{StaticResource PrimaryLightBrush}" CornerRadius="7" Padding="10" Margin="0,14,0,12">
+                <StackPanel><TextBlock x:Name="TxtDeviceStatus" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource PrimaryBrush}"/><TextBlock x:Name="TxtLastSeen" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,3,0,0"/></StackPanel>
+            </Border>
+            <StackPanel Grid.Row="2">
+                <TextBlock Text="MÁY IN ĐƯỢC CẤP QUYỀN" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6"/>
+                <TextBlock x:Name="TxtAllPrintersHint" Text="Không chọn máy cụ thể = được dùng tất cả máy in chia sẻ." FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                <ListBox x:Name="LstPrinters" Height="150" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"/>
+            </StackPanel>
+            <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+                <Button Style="{StaticResource SuccessBtn}" x:Name="BtnApprove" Click="BtnApprove_Click" Padding="12,6" Margin="0,0,6,0"><TextBlock Text="Phê duyệt"/></Button>
+                <Button Style="{StaticResource DangerBtn}" x:Name="BtnRevoke" Click="BtnRevoke_Click" Padding="12,6" Margin="0,0,6,0"><TextBlock Text="Thu hồi"/></Button>
+                <Button Style="{StaticResource PrimaryBtn}" Click="BtnSave_Click" Padding="12,6" Margin="0,0,6,0"><TextBlock Text="Lưu quyền"/></Button>
+                <Button Style="{StaticResource SecondaryBtn}" Click="BtnCancel_Click" Padding="12,6"><TextBlock Text="Đóng"/></Button>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

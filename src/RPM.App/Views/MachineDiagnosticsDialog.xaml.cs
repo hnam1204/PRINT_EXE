@@ -60,6 +60,11 @@ public partial class MachineDiagnosticsDialog : Window
         bool relayConnected = _serverService?.Relay.IsConnected ?? _clientService?.Relay.IsConnected ?? false;
         rows.Add(new DiagnosticRow("Kênh kết nối ứng dụng", relayConnected ? "Relay đang kết nối thực tế." : "Relay chưa kết nối; chưa xác nhận được máy ở xa.", relayConnected ? DiagnosticState.Success : DiagnosticState.Warning));
 
+        bool endpointValid = RPM.Core.Networking.RelayEndpointPolicy.TryValidateForRole(_settings.Role, _settings.RelayServerUrl, out var endpointReason);
+        string endpointType = _settings.Role == AppRole.Server ? "Relay nội bộ của Host" : "Relay từ xa của Client";
+        rows.Add(new DiagnosticRow(endpointType, endpointValid ? _settings.RelayServerUrl : $"{_settings.RelayServerUrl} • {endpointReason}", endpointValid ? DiagnosticState.Success : DiagnosticState.Warning));
+        rows.Add(new DiagnosticRow("Cổng nhận lệnh in cục bộ", $"127.0.0.1:{_settings.LocalIppPort} (chỉ dùng trên máy này)", DiagnosticState.Success));
+
         bool paired = _serverService != null || (_clientService?.IsApproved == true);
         rows.Add(new DiagnosticRow("Quyền ghép nối", paired ? "Vai trò hoặc quyền ghép nối hiện có." : "Chưa được máy chủ cấp quyền.", paired ? DiagnosticState.Success : DiagnosticState.Warning));
         rows.Add(new DiagnosticRow("Phiên bản phần mềm", $"V{_settings.AppVersion}", DiagnosticState.Success));

@@ -29,13 +29,15 @@ public partial class MainDashboardView : UserControl
 
     // Collections for in-page views
     private readonly ObservableCollection<PrintJob> _recentJobs = new();
-    private readonly ObservableCollection<SharedPrinterInfo> _sharedPrinters = new();
+    private ObservableCollection<SharedPrinterInfo> _sharedPrinters = new();
     private readonly ObservableCollection<DeviceInfo> _filteredClients = new();
     private readonly ObservableCollection<PrintJob> _allJobs = new();
 
     private bool _isViewLoaded = false;
     private bool _isSettingsOpen = false;
     private SettingsTab _currentSettingsTab = SettingsTab.General;
+    private bool _restoringPrinterSelection;
+    private int _printerLoadVersion;
 
     public event EventHandler? OnMinimizeRequested;
     public event EventHandler? OnRoleChangeRequested;
@@ -50,7 +52,7 @@ public partial class MainDashboardView : UserControl
 
         // Bind in-page controls
         IcRecentJobs.ItemsSource = _recentJobs;
-        DgPrinters.ItemsSource = _sharedPrinters;
+        CmbPrinterSelection.ItemsSource = _sharedPrinters;
         DgClients.ItemsSource = _filteredClients;
         DgQueue.ItemsSource = _allJobs;
 
@@ -145,18 +147,18 @@ public partial class MainDashboardView : UserControl
     private void SelectSettingsTab(SettingsTab tab)
     {
         _currentSettingsTab = tab;
+        ViewSettingsContentRow.Height = tab == SettingsTab.General ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
 
         // Toggle content containers
         TabContentGeneral.Visibility = (tab == SettingsTab.General) ? Visibility.Visible : Visibility.Collapsed;
         TabContentPrinters.Visibility = (tab == SettingsTab.Printers) ? Visibility.Visible : Visibility.Collapsed;
         TabContentDevices.Visibility = (tab == SettingsTab.Devices) ? Visibility.Visible : Visibility.Collapsed;
-        TabContentQueue.Visibility = (tab == SettingsTab.Queue) ? Visibility.Visible : Visibility.Collapsed;
+        // Queue management is intentionally grouped into the printer screen.
 
         // Update Tab button active states with ZERO template recreation (Ultra-fast & butter smooth)
         BtnTabGeneral.Tag = (tab == SettingsTab.General) ? "Active" : "Inactive";
         BtnTabPrinters.Tag = (tab == SettingsTab.Printers) ? "Active" : "Inactive";
         BtnTabDevices.Tag = (tab == SettingsTab.Devices) ? "Active" : "Inactive";
-        BtnTabQueue.Tag = (tab == SettingsTab.Queue) ? "Active" : "Inactive";
 
         // Update Subtitle and trigger non-blocking asynchronous loads
         switch (tab)
@@ -174,8 +176,7 @@ public partial class MainDashboardView : UserControl
                 LoadDevicesView();
                 break;
             case SettingsTab.Queue:
-                TxtRoleSubtitle.Text = "CÀI ĐẶT: LỆNH IN";
-                LoadQueueView();
+                SelectSettingsTab(SettingsTab.Printers);
                 break;
         }
     }
@@ -195,6 +196,8 @@ public partial class MainDashboardView : UserControl
         TxtHeaderStatus.Foreground = (SolidColorBrush)Application.Current.Resources["SuccessBrush"];
 
         TxtServerConnectionStatus.Text = isOnline ? "Đã kết nối" : "Đang chạy cục bộ";
+        if (_isSettingsOpen && _currentSettingsTab == SettingsTab.General)
+            TxtSettingsConnectionStatus.Text = isOnline ? "Đã kết nối" : "Chưa kết nối";
 
         int sharedCount = _serverService.SharedPrinters.Count(p => p.IsShared);
         if (_serverService.ActiveSharedPrinter != null)
@@ -223,6 +226,8 @@ public partial class MainDashboardView : UserControl
 
         bool isApproved = _clientService.IsApproved;
         TxtHeaderStatus.Text = isApproved ? "Đã kết nối" : _clientService.ConnectionStatus;
+        if (_isSettingsOpen && _currentSettingsTab == SettingsTab.General)
+            TxtSettingsConnectionStatus.Text = isApproved && _clientService.Relay.IsConnected ? "Đã kết nối" : "Chưa kết nối";
 
         if (isApproved)
         {
@@ -294,8 +299,10 @@ public partial class MainDashboardView : UserControl
     private void LoadGeneralSettingsView()
     {
         TxtSettingsDeviceName.Text = _settings.DeviceName;
-        TxtSettingsPairingCode.Text = _settings.PairingCode;
-        TxtSettingsRelayUrl.Text = _settings.RelayServerUrl;
+        TxtSettingsRole.Text = _settings.Role == AppRole.Server ? "Máy chủ" : "Máy con";
+        TxtSettingsConnectionStatus.Text = GetActualConnectionStatus();
+        TxtSettingsVersion.Text = $"V{_settings.AppVersion}";
+        TxtSettingsUpdateVersion.Text = $"V{_settings.AppVersion}";
         ChkSettingsAutoStart.IsChecked = _settings.AutoStartWithWindows;
         ChkSettingsMinimizeTray.IsChecked = _settings.MinimizeToSystemTray;
         ChkSettingsNotifications.IsChecked = _settings.ShowDesktopNotifications;
@@ -304,18 +311,26 @@ public partial class MainDashboardView : UserControl
         ConfigureUpdateControl();
     }
 
-    private void BtnSettingsRegenerateCode_Click(object sender, RoutedEventArgs e)
+    private string GetActualConnectionStatus()
     {
-        _settings.PairingCode = RPMCrypto.GeneratePairingCode();
-        TxtSettingsPairingCode.Text = _settings.PairingCode;
-        MessageBox.Show($"Mã mới: {_settings.PairingCode}.\nBấm Lưu để dùng mã này.", "Mã mới", MessageBoxButton.OK, MessageBoxImage.Information);
+        if (_serverService != null)
+        {
+            return _serverService.Relay.IsConnected ? "Đã kết nối" : "Chưa kết nối";
+        }
+
+        if (_clientService != null)
+        {
+            return _clientService.IsApproved && _clientService.Relay.IsConnected
+                ? "Đã kết nối"
+                : "Chưa kết nối";
+        }
+
+        return "Chưa kết nối";
     }
 
     private void BtnSaveSettings_Click(object sender, RoutedEventArgs e)
     {
         _settings.DeviceName = TxtSettingsDeviceName.Text.Trim();
-        _settings.PairingCode = TxtSettingsPairingCode.Text.Trim();
-        _settings.RelayServerUrl = TxtSettingsRelayUrl.Text.Trim();
         _settings.AutoStartWithWindows = ChkSettingsAutoStart.IsChecked == true;
         _settings.MinimizeToSystemTray = ChkSettingsMinimizeTray.IsChecked == true;
         _settings.ShowDesktopNotifications = ChkSettingsNotifications.IsChecked == true;
@@ -362,92 +377,95 @@ public partial class MainDashboardView : UserControl
 
     private async void LoadPrintersViewAsync()
     {
-        // 1. Instantly display existing list so tab switch has zero visual lag
-        if (_serverService != null && _serverService.SharedPrinters.Count > 0)
-        {
-            _sharedPrinters.Clear();
-            foreach (var p in _serverService.SharedPrinters)
-            {
-                _sharedPrinters.Add(p);
-            }
-        }
+        int requestVersion = Interlocked.Increment(ref _printerLoadVersion);
+        string? selectedName = (CmbPrinterSelection.SelectedItem as SharedPrinterInfo)?.Name ?? _settings.SelectedPrinterName;
 
-        // 2. Refresh from Windows in background thread without blocking UI
-        await Task.Run(() =>
-        {
-            if (_serverService != null)
-            {
-                _serverService.LoadPrinters();
-            }
-        });
-
-        // 3. Update UI
-        _sharedPrinters.Clear();
+        var refreshed = new List<SharedPrinterInfo>();
         if (_serverService != null)
         {
-            foreach (var p in _serverService.SharedPrinters)
-            {
-                _sharedPrinters.Add(p);
-            }
+            refreshed.AddRange(await Task.Run(_serverService.ScanPrinters));
         }
         else
         {
             var printerService = new PrinterService();
             var list = await Task.Run(() => printerService.GetInstalledPrinters());
-            foreach (var p in list)
-            {
-                _sharedPrinters.Add(p);
-            }
+            refreshed.AddRange(list);
         }
+        if (requestVersion != _printerLoadVersion || !_isSettingsOpen || _currentSettingsTab != SettingsTab.Printers) return;
+        selectedName = (CmbPrinterSelection.SelectedItem as SharedPrinterInfo)?.Name ?? selectedName;
+        _serverService?.ApplyPrinterScan(refreshed);
+        ApplyPrinterList(refreshed, selectedName);
     }
 
     private async void BtnPrintersRescan_Click(object sender, RoutedEventArgs e)
     {
+        int requestVersion = Interlocked.Increment(ref _printerLoadVersion);
         var btn = sender as Button;
+        string? selectedName = (CmbPrinterSelection.SelectedItem as SharedPrinterInfo)?.Name ?? _settings.SelectedPrinterName;
         if (btn != null) btn.IsEnabled = false;
 
-        await Task.Run(() =>
+        var refreshed = _serverService == null
+            ? new List<SharedPrinterInfo>()
+            : await Task.Run(_serverService.ScanPrinters);
+        if (requestVersion != _printerLoadVersion)
         {
-            if (_serverService != null)
-            {
-                _serverService.LoadPrinters();
-            }
-        });
-
-        _sharedPrinters.Clear();
-        if (_serverService != null)
-        {
-            foreach (var p in _serverService.SharedPrinters)
-            {
-                _sharedPrinters.Add(p);
-            }
+            if (btn != null) btn.IsEnabled = true;
+            return;
         }
-
+        _serverService?.ApplyPrinterScan(refreshed);
+        ApplyPrinterList(refreshed, selectedName);
         if (btn != null) btn.IsEnabled = true;
         MessageBox.Show($"Đã tìm thấy {_sharedPrinters.Count} máy in.", "Máy in", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
-    private void BtnPrinterToggleRowShare_Click(object sender, RoutedEventArgs e)
+    private void ApplyPrinterList(IEnumerable<SharedPrinterInfo> printers, string? selectedName)
     {
-        if (_serverService == null || (sender as Button)?.DataContext is not SharedPrinterInfo printer) return;
+        var next = new ObservableCollection<SharedPrinterInfo>(printers);
+        _restoringPrinterSelection = true;
+        _sharedPrinters = next;
+        CmbPrinterSelection.ItemsSource = next;
+        CmbPrinterSelection.SelectedItem = next.FirstOrDefault(p => string.Equals(p.Name, selectedName, StringComparison.OrdinalIgnoreCase))
+            ?? next.FirstOrDefault(p => p.IsDefault)
+            ?? next.FirstOrDefault();
+        _restoringPrinterSelection = false;
 
-        _serverService.TogglePrinterSharing(printer.Name);
-        LoadPrintersViewAsync();
-        UpdateServerUI();
+        if (CmbPrinterSelection.SelectedItem is SharedPrinterInfo selected)
+            UpdateSelectedPrinterText(selected);
     }
 
-    private void BtnPrinterSetRowDefault_Click(object sender, RoutedEventArgs e)
+    private void CmbPrinterSelection_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_serverService == null || (sender as Button)?.DataContext is not SharedPrinterInfo printer) return;
+        if (CmbPrinterSelection.SelectedItem is not SharedPrinterInfo printer)
+        {
+            TxtSelectedPrinterInfo.Text = "Chưa chọn máy in";
+            TxtSelectedPrinterStatus.Text = "Chọn một máy in trong danh sách";
+            return;
+        }
 
-        _serverService.SetDefaultPrinter(printer.Name);
+        UpdateSelectedPrinterText(printer);
+        if (!_restoringPrinterSelection && _serverService != null && !string.Equals(_serverService.ActiveSharedPrinter?.Name, printer.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            _serverService.SetDefaultPrinter(printer.Name);
+        }
+    }
+
+    private void UpdateSelectedPrinterText(SharedPrinterInfo printer)
+    {
+        TxtSelectedPrinterInfo.Text = printer.Name;
+        TxtSelectedPrinterStatus.Text = $"{printer.DriverName} • {printer.PortName} • {(printer.IsShared ? "Đang chia sẻ" : "Chưa chia sẻ")}";
+    }
+
+    private void BtnPrinterToggleSelected_Click(object sender, RoutedEventArgs e)
+    {
+        if (_serverService == null || CmbPrinterSelection.SelectedItem is not SharedPrinterInfo printer) return;
+        _serverService.TogglePrinterSharing(printer.Name);
         LoadPrintersViewAsync();
         UpdateServerUI();
     }
 
     private async void BtnPrintersTestPrint_Click(object sender, RoutedEventArgs e)
     {
-        if (DgPrinters.SelectedItem is SharedPrinterInfo selected)
+        if (CmbPrinterSelection.SelectedItem is SharedPrinterInfo selected)
         {
             var btn = sender as Button;
             if (btn != null) btn.IsEnabled = false;
@@ -483,17 +501,7 @@ public partial class MainDashboardView : UserControl
 
     private void LoadDevicesView()
     {
-        if (CmbDepartmentFilter != null && CmbDepartmentFilter.Items.Count <= 1)
-        {
-            CmbDepartmentFilter.Items.Clear();
-            CmbDepartmentFilter.Items.Add(new ComboBoxItem { Content = "Tất cả phòng ban", IsSelected = true });
-            foreach (var dept in _settings.Departments)
-            {
-                CmbDepartmentFilter.Items.Add(new ComboBoxItem { Content = dept });
-            }
-        }
         if (CmbStatusFilter != null && CmbStatusFilter.SelectedIndex < 0) CmbStatusFilter.SelectedIndex = 0;
-        if (CmbDepartmentFilter != null && CmbDepartmentFilter.SelectedIndex < 0) CmbDepartmentFilter.SelectedIndex = 0;
         ApplyClientFilters();
     }
 
@@ -503,7 +511,6 @@ public partial class MainDashboardView : UserControl
 
         string searchText = TxtSearchClient?.Text?.Trim().ToLowerInvariant() ?? string.Empty;
         string statusFilter = (CmbStatusFilter?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Tất cả";
-        string deptFilter = (CmbDepartmentFilter?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Tất cả phòng ban";
 
         _filteredClients.Clear();
         int onlineCount = 0;
@@ -517,27 +524,20 @@ public partial class MainDashboardView : UserControl
 
             if (!client.IsApproved && !client.IsBlocked) pendingCount++;
 
-            if (!string.IsNullOrEmpty(searchText))
-            {
-                bool matchName = client.DeviceName.ToLowerInvariant().Contains(searchText);
-                bool matchId = client.DeviceId.ToLowerInvariant().Contains(searchText);
-                bool matchDept = client.Department.ToLowerInvariant().Contains(searchText);
-                if (!matchName && !matchId && !matchDept) continue;
-            }
+            if (!string.IsNullOrEmpty(searchText) && !client.DeviceName.Contains(searchText, StringComparison.OrdinalIgnoreCase)) continue;
 
-            if (statusFilter == "Đang kết nối" && !client.IsOnline) continue;
-            if (statusFilter == "Mất kết nối" && client.IsOnline) continue;
+            if (statusFilter == "Trực tuyến" && (!client.IsApproved || !client.IsOnline)) continue;
+            if (statusFilter == "Ngoại tuyến" && (!client.IsApproved || client.IsOnline)) continue;
             if (statusFilter == "Chờ phê duyệt" && (client.IsApproved || client.IsBlocked)) continue;
-
-            if (deptFilter != "Tất cả phòng ban" && !string.Equals(client.Department, deptFilter, StringComparison.OrdinalIgnoreCase)) continue;
 
             _filteredClients.Add(client);
         }
 
         if (TxtClientStats != null)
         {
-            TxtClientStats.Text = $"Tổng: {_serverService.ConnectedClients.Count} | Đang kết nối: {onlineCount} | Chờ duyệt: {pendingCount} | Mất kết nối: {offlineCount}";
+            TxtClientStats.Text = $"{_serverService.ConnectedClients.Count} thiết bị · {onlineCount} trực tuyến · {pendingCount} chờ duyệt";
         }
+        if (PanelClientsEmpty != null) PanelClientsEmpty.Visibility = _filteredClients.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void TxtSearchClient_TextChanged(object sender, TextChangedEventArgs e)
@@ -554,8 +554,42 @@ public partial class MainDashboardView : UserControl
     {
         if (TxtSearchClient != null) TxtSearchClient.Text = string.Empty;
         if (CmbStatusFilter != null) CmbStatusFilter.SelectedIndex = 0;
-        if (CmbDepartmentFilter != null) CmbDepartmentFilter.SelectedIndex = 0;
         ApplyClientFilters();
+    }
+
+    private void BtnManageClient_Click(object sender, RoutedEventArgs e)
+    {
+        if (_serverService == null || (sender as Button)?.DataContext is not DeviceInfo client) return;
+        var dialog = new DeviceManageDialog(client, _serverService.SharedPrinters.Where(p => p.IsShared).Select(p => p.Name)) { Owner = Window.GetWindow(this) };
+        if (dialog.ShowDialog() != true) return;
+
+        switch (dialog.Action)
+        {
+            case DeviceManageAction.Approve:
+                _ = ManageApproveAsync(client);
+                break;
+            case DeviceManageAction.Revoke:
+                _ = ManageRevokeAsync(client);
+                break;
+            case DeviceManageAction.SavePrinters:
+                _serverService.SetClientAllowedPrinters(client.DeviceId, dialog.SelectedPrinters);
+                ApplyClientFilters();
+                break;
+        }
+    }
+
+    private async Task ManageApproveAsync(DeviceInfo client)
+    {
+        await _serverService!.ApproveClientAsync(client);
+        ApplyClientFilters();
+        UpdateServerUI();
+    }
+
+    private async Task ManageRevokeAsync(DeviceInfo client)
+    {
+        await _serverService!.RevokeClientAsync(client);
+        ApplyClientFilters();
+        UpdateServerUI();
     }
 
     private async void BtnApproveClient_Click(object sender, RoutedEventArgs e)
@@ -731,12 +765,29 @@ public partial class MainDashboardView : UserControl
     private void ConfigureUpdateControl()
     {
         SettingsUpdateControl.Initialize(_settings);
+        SettingsUpdateControl.StatusChanged -= SettingsUpdateControl_StatusChanged;
+        SettingsUpdateControl.StatusChanged += SettingsUpdateControl_StatusChanged;
         SettingsUpdateControl.HasActivePrintJobsCheck = () =>
         {
             if (_serverService != null) return _serverService.PrintJobs.Any(j => j.Status == PrintJobStatus.Printing || j.Status == PrintJobStatus.Pending);
             if (_clientService != null) return _clientService.PrintHistory.Any(j => j.Status == PrintJobStatus.Printing || j.Status == PrintJobStatus.Pending);
             return false;
         };
+    }
+
+    private void SettingsUpdateControl_StatusChanged(object? sender, string status)
+    {
+        TxtSettingsUpdateStatus.Text = status;
+    }
+
+    private async void BtnSettingsCheckUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new UpdateDetailsDialog(_settings, SettingsUpdateControl.HasActivePrintJobsCheck)
+        {
+            Owner = Window.GetWindow(this)
+        };
+        dialog.Show();
+        await dialog.CheckNowAsync();
     }
 
     // =========================================================
@@ -746,7 +797,6 @@ public partial class MainDashboardView : UserControl
     private void BtnTabGeneral_Click(object sender, RoutedEventArgs e) => SelectSettingsTab(SettingsTab.General);
     private void BtnTabPrinters_Click(object sender, RoutedEventArgs e) => SelectSettingsTab(SettingsTab.Printers);
     private void BtnTabDevices_Click(object sender, RoutedEventArgs e) => SelectSettingsTab(SettingsTab.Devices);
-    private void BtnTabQueue_Click(object sender, RoutedEventArgs e) => SelectSettingsTab(SettingsTab.Queue);
 
     // =========================================================
     // GLOBAL BUTTON HANDLERS

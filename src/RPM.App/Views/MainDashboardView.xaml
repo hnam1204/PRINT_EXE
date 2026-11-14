@@ -53,17 +53,10 @@
                     </Border>
 
                     <!-- Nút chuyển giữa trang chính và cài đặt -->
-                    <Button x:Name="BtnHeaderSettings" Style="{StaticResource SecondaryBtn}" Click="BtnOpenSettings_Click" Padding="10,5" Margin="0,0,6,0">
+                    <Button x:Name="BtnHeaderSettings" Style="{StaticResource SecondaryBtn}" Click="BtnOpenSettings_Click" Padding="10,5">
                         <StackPanel Orientation="Horizontal">
                             <Path x:Name="BtnHeaderSettingsIcon" Data="{StaticResource GeoSettings}" Fill="{StaticResource TextMainBrush}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,4,0"/>
                             <TextBlock x:Name="BtnHeaderSettingsText" Text="Cài đặt" FontSize="11" FontWeight="SemiBold"/>
-                        </StackPanel>
-                    </Button>
-
-                    <Button Style="{StaticResource SecondaryBtn}" Click="BtnMinimize_Click" Padding="9,5">
-                        <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource GeoArrowLeft}" Fill="{StaticResource TextMainBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,4,0"/>
-                            <TextBlock Text="Thu nhỏ" FontSize="11" FontWeight="SemiBold"/>
                         </StackPanel>
                     </Button>
 
@@ -82,7 +75,7 @@
             <!-- ===================================================== -->
             <Grid x:Name="ViewHome" Visibility="Visible">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="*"/>
+                    <RowDefinition x:Name="ViewSettingsContentRow" Height="*"/>
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <!-- Cột trái: Thông tin kết nối & Máy in chia sẻ -->
@@ -316,12 +309,6 @@
                                 <TextBlock Text="Thiết bị" FontSize="11" FontWeight="SemiBold"/>
                             </StackPanel>
                         </Button>
-                        <Button x:Name="BtnTabQueue" Style="{StaticResource TabBtn}" Tag="Inactive" Click="BtnTabQueue_Click">
-                            <StackPanel Orientation="Horizontal">
-                                <Path Data="{StaticResource GeoQueue}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
-                                <TextBlock Text="Lệnh in" FontSize="11" FontWeight="SemiBold"/>
-                            </StackPanel>
-                        </Button>
                     </StackPanel>
                 </Border>
 
@@ -329,12 +316,12 @@
                 <Grid Grid.Row="1" Margin="0,0,0,8">
 
                     <!-- PHÂN HỆ 1: THIẾT LẬP CHUNG -->
-                    <Border x:Name="TabContentGeneral" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="14" Visibility="Visible">
-                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Border x:Name="TabContentGeneral" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="14" Visibility="Visible" VerticalAlignment="Top">
+                        <ScrollViewer VerticalScrollBarVisibility="Disabled">
                             <StackPanel>
-                                <TextBlock Text="CÀI ĐẶT" FontSize="13" FontWeight="Bold" Foreground="{StaticResource NavyMainBrush}" Margin="0,0,0,12"/>
+                                <TextBlock Text="CÀI ĐẶT CHUNG" FontSize="13" FontWeight="Bold" Foreground="{StaticResource NavyMainBrush}" Margin="0,0,0,10"/>
 
-                                <Grid Margin="0,0,0,10">
+                                <Grid Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="170"/>
                                         <ColumnDefinition Width="*"/>
@@ -343,39 +330,40 @@
                                     <TextBox Grid.Column="1" x:Name="TxtSettingsDeviceName" Style="{StaticResource ModernTextBox}" IsReadOnly="True"/>
                                 </Grid>
 
-                                <Grid Margin="0,0,0,10">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="170"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="8"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="Mã kết nối:" FontSize="12" Foreground="{StaticResource TextMainBrush}" VerticalAlignment="Center"/>
-                                    <TextBox Grid.Column="1" x:Name="TxtSettingsPairingCode" Style="{StaticResource ModernTextBox}" FontWeight="Bold"/>
-                                    <Button Grid.Column="3" Style="{StaticResource SecondaryBtn}" Click="BtnSettingsRegenerateCode_Click" Padding="8,4">
-                                        <TextBlock Text="Mã mới" FontSize="11"/>
-                                    </Button>
-                                </Grid>
-
-                                <Grid Margin="0,0,0,12">
+                                <Grid Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="170"/>
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="Địa chỉ máy chủ:" FontSize="12" Foreground="{StaticResource TextMainBrush}" VerticalAlignment="Center"/>
-                                    <TextBox Grid.Column="1" x:Name="TxtSettingsRelayUrl" Style="{StaticResource ModernTextBox}" IsReadOnly="True"/>
+                                    <TextBlock Grid.Column="0" Text="Vai trò:" FontSize="12" Foreground="{StaticResource TextMainBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" x:Name="TxtSettingsRole" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}" VerticalAlignment="Center"/>
                                 </Grid>
 
-                                <TextBlock Text="TÙY CHỌN NỀN" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,8" Visibility="Collapsed"/>
-                                <StackPanel Margin="0,0,0,12" Visibility="Collapsed">
-                                    <CheckBox x:Name="ChkSettingsAutoStart" Content="Tự mở cùng Windows" Margin="0,0,0,8"/>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="170"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Trạng thái:" FontSize="12" Foreground="{StaticResource TextMainBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" x:Name="TxtSettingsConnectionStatus" Text="Chưa kết nối" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource WarningBrush}" VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="170"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Phiên bản:" FontSize="12" Foreground="{StaticResource TextMainBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" x:Name="TxtSettingsVersion" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}" VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <CheckBox x:Name="ChkSettingsAutoStart" Content="Tự mở cùng Windows" Margin="170,2,0,10"/>
+                                <StackPanel Visibility="Collapsed">
                                     <CheckBox x:Name="ChkSettingsMinimizeTray" Content="Ẩn xuống khay khi bấm nút đóng" Margin="0,0,0,8"/>
                                     <CheckBox x:Name="ChkSettingsNotifications" Content="Hiện thông báo khi có lệnh in hoặc yêu cầu kết nối" Margin="0,0,0,8"/>
                                 </StackPanel>
 
-                                <Separator Margin="0,2,0,12" Background="{StaticResource BorderLightBrush}"/>
-
-                                <Separator Margin="0,2,0,12" Background="{StaticResource BorderLightBrush}"/>
+                                <Separator Margin="0,2,0,10" Background="{StaticResource BorderLightBrush}"/>
 
                                 <Grid>
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
@@ -394,119 +382,73 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <!-- Update remains available in Chung without a separate page. -->
-                                <Separator Margin="0,14,0,0" Background="{StaticResource BorderLightBrush}"/>
-                                <views:UpdateControl x:Name="SettingsUpdateControl" Margin="0,12,0,0"/>
+                                <Grid Margin="0,2,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                        <TextBlock Text="Cập nhật" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}"/>
+                                        <TextBlock x:Name="TxtSettingsUpdateStatus" Text="Sẵn sàng kiểm tra" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" x:Name="TxtSettingsUpdateVersion" Text="V1.0.1" FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="10,0,12,0"/>
+                                    <Button Grid.Column="2" Style="{StaticResource SecondaryBtn}" Click="BtnSettingsCheckUpdate_Click" Padding="10,5">
+                                        <TextBlock Text="Kiểm tra cập nhật" FontSize="11"/>
+                                    </Button>
+                                </Grid>
+                                <views:UpdateControl x:Name="SettingsUpdateControl" Visibility="Collapsed"/>
                             </StackPanel>
                         </ScrollViewer>
                     </Border>
 
-                    <!-- PHÂN HỆ 2: QUẢN LÝ MÁY IN -->
+                    <!-- PHÂN HỆ 2: MÁY IN + LỆNH IN -->
                     <Grid x:Name="TabContentPrinters" Visibility="Collapsed">
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <!-- Header bar -->
                         <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12,8" Margin="0,0,0,8">
                             <Grid>
-                                <StackPanel VerticalAlignment="Center">
+                                <StackPanel>
                                     <TextBlock Text="MÁY IN" FontSize="13" FontWeight="Bold" Foreground="{StaticResource NavyMainBrush}"/>
-                                    <TextBlock Text="Danh sách máy in trên máy này." FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,1,0,0"/>
+                                    <TextBlock Text="Chọn máy in để xem thông tin và lệnh in." FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,1,0,0"/>
                                 </StackPanel>
                                 <Button Style="{StaticResource SecondaryBtn}" Click="BtnPrintersRescan_Click" HorizontalAlignment="Right" Padding="10,5">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Path Data="{StaticResource GeoRefresh}" Fill="{StaticResource PrimaryBrush}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
-                                        <TextBlock Text="Quét lại" FontSize="11" FontWeight="SemiBold"/>
-                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal"><Path Data="{StaticResource GeoRefresh}" Fill="{StaticResource PrimaryBrush}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/><TextBlock Text="Quét lại" FontSize="11" FontWeight="SemiBold"/></StackPanel>
                                 </Button>
                             </Grid>
                         </Border>
 
-                        <!-- DataGrid -->
-                        <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Margin="0,0,0,8" ClipToBounds="True">
-                            <DataGrid x:Name="DgPrinters" SelectionMode="Single" AutoGenerateColumns="False">
-                                <DataGrid.Columns>
-                                    <DataGridTextColumn Header="TÊN MÁY IN" Binding="{Binding Name}" Width="1.8*" FontWeight="Bold"/>
-                                    <DataGridTextColumn Header="DRIVER WINDOWS" Binding="{Binding DriverName}" Width="1.7*"/>
-                                    <DataGridTemplateColumn Header="CỔNG / LOẠI" Width="1.2*">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left"
-                                                        Background="{Binding IsUsb, Converter={StaticResource BoolToBadgeBg}}">
-                                                    <TextBlock Text="{Binding PortName}" FontSize="11" FontWeight="SemiBold"
-                                                               Foreground="{Binding IsUsb, Converter={StaticResource BoolToBadgeFg}}"/>
-                                                </Border>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                    <DataGridTemplateColumn Header="CHIA SẺ" Width="1.05*">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left"
-                                                        Background="{Binding IsShared, Converter={StaticResource BoolToBadgeBg}}">
-                                                    <TextBlock Text="{Binding IsShared, Converter={StaticResource BoolToSharingText}}" FontSize="11" FontWeight="SemiBold"
-                                                               Foreground="{Binding IsShared, Converter={StaticResource BoolToBadgeFg}}"/>
-                                                </Border>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                    <DataGridTemplateColumn Header="MẶC ĐỊNH" Width="1.05*">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <StackPanel Orientation="Horizontal">
-                                                    <Path Data="{StaticResource GeoCheck}" Fill="{StaticResource PrimaryBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,4,0"/>
-                                                    <TextBlock Text="{Binding IsDefault, Converter={StaticResource BoolToDefaultText}}" FontSize="11" FontWeight="SemiBold"
-                                                               Foreground="{StaticResource PrimaryBrush}"/>
-                                                </StackPanel>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                    <DataGridTemplateColumn Header="TRẠNG THÁI" Width="0.95*">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Text="Sẵn sàng" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource SuccessBrush}"/>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                    <DataGridTemplateColumn Header="THAO TÁC" Width="1.8*">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <StackPanel Orientation="Horizontal">
-                                                    <Button Style="{StaticResource SecondaryBtn}" Click="BtnPrinterToggleRowShare_Click" Padding="7,3" Margin="0,0,5,0"
-                                                            ToolTip="Bật hoặc tắt chia sẻ cho máy in này">
-                                                        <StackPanel Orientation="Horizontal">
-                                                            <Path Data="{StaticResource GeoPower}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,4,0"/>
-                                                            <TextBlock Text="Bật / Tắt" FontSize="10"/>
-                                                        </StackPanel>
-                                                    </Button>
-                                                    <Button Style="{StaticResource SecondaryBtn}" Click="BtnPrinterSetRowDefault_Click" Padding="7,3"
-                                                            ToolTip="Đặt máy in này làm mặc định">
-                                                        <StackPanel Orientation="Horizontal">
-                                                            <Path Data="{StaticResource GeoCheck}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,4,0"/>
-                                                            <TextBlock Text="Mặc định" FontSize="10"/>
-                                                        </StackPanel>
-                                                    </Button>
-                                                </StackPanel>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                </DataGrid.Columns>
-                            </DataGrid>
+                        <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,0,0,8">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <ComboBox x:Name="CmbPrinterSelection" Grid.Column="0" Style="{StaticResource ModernComboBox}" DisplayMemberPath="Name" SelectedValuePath="Name" SelectionChanged="CmbPrinterSelection_SelectionChanged" ToolTip="Chọn máy in"/>
+                                <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                    <TextBlock x:Name="TxtSelectedPrinterInfo" Text="Chưa chọn máy in" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}"/>
+                                    <TextBlock x:Name="TxtSelectedPrinterStatus" Text="Chọn một máy in trong danh sách" FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="4" Orientation="Horizontal">
+                                    <ToggleButton Style="{StaticResource PrinterToggle}" IsChecked="{Binding IsShared}" Click="BtnPrinterToggleSelected_Click" ToolTip="Bật hoặc tắt chia sẻ máy in" AutomationProperties.Name="Bật hoặc tắt máy in"/>
+                                </StackPanel>
+                            </Grid>
                         </Border>
 
-                        <!-- Action Bar -->
-                        <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="10,6">
-                            <StackPanel Orientation="Horizontal">
-                                <Button Style="{StaticResource SecondaryBtn}" Click="BtnPrintersTestPrint_Click" Padding="10,5">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Path Data="{StaticResource GeoDocument}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
-                                        <TextBlock Text="In trang kiểm tra" FontSize="11"/>
-                                    </StackPanel>
-                                </Button>
-                            </StackPanel>
+                        <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Margin="0,0,0,8" ClipToBounds="True">
+                            <Grid>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                                <Border Grid.Row="0" Background="{StaticResource BgBrush}" Padding="12,8"><Grid><StackPanel><TextBlock Text="LỆNH IN" FontSize="13" FontWeight="Bold" Foreground="{StaticResource NavyMainBrush}"/><TextBlock x:Name="TxtQueueSummary" Text="Tổng số: 0 lệnh in" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,1,0,0"/></StackPanel><Button Style="{StaticResource SecondaryBtn}" Click="BtnQueueRefresh_Click" HorizontalAlignment="Right" Padding="9,4"><TextBlock Text="Làm mới" FontSize="11"/></Button></Grid></Border>
+                                <DataGrid x:Name="DgQueue" Grid.Row="1" SelectionMode="Single" AutoGenerateColumns="False">
+                                     <DataGrid.Columns><DataGridTextColumn Header="TÊN TÀI LIỆU" Binding="{Binding DocumentName}" Width="2.2*" FontWeight="Bold"/><DataGridTextColumn Header="THIẾT BỊ GỬI" Binding="{Binding ClientDeviceName}" Width="1.5*"/><DataGridTextColumn Header="MÁY IN" Binding="{Binding TargetPrinter}" Width="1.8*"/><DataGridTextColumn Header="KÍCH THƯỚC" Binding="{Binding FormattedFileSize}" Width="1.1*"/><DataGridTextColumn Header="THỜI GIAN" Binding="{Binding CreatedAt, StringFormat={}{0:HH:mm:ss - dd/MM}}" Width="1.3*"/><DataGridTemplateColumn Header="TRẠNG THÁI" Width="1.2*"><DataGridTemplateColumn.CellTemplate><DataTemplate><Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" Background="{Binding Status, Converter={StaticResource LevelToBadgeBg}}"><TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="Bold" Foreground="{Binding Status, Converter={StaticResource LevelToBadgeFg}}"/></Border></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn></DataGrid.Columns>
+                                </DataGrid>
+                            </Grid>
+                        </Border>
+
+                        <Border Grid.Row="3" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="10,6">
+                            <StackPanel Orientation="Horizontal"><Button Style="{StaticResource SecondaryBtn}" Click="BtnPrintersTestPrint_Click" Padding="10,5" Margin="0,0,6,0"><StackPanel Orientation="Horizontal"><Path Data="{StaticResource GeoDocument}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/><TextBlock Text="In trang kiểm tra" FontSize="11"/></StackPanel></Button><Button Style="{StaticResource SecondaryBtn}" Click="BtnRestartSpooler_Click" Padding="10,5" Margin="0,0,6,0"><TextBlock Text="Khởi động lại dịch vụ in" FontSize="11"/></Button><Button Style="{StaticResource DestructiveBtn}" Click="BtnClearCompletedJobs_Click" Padding="10,5"><TextBlock Text="Xóa lệnh hoàn tất" FontSize="11"/></Button></StackPanel>
                         </Border>
                     </Grid>
 
@@ -514,177 +456,69 @@
                     <Grid x:Name="TabContentDevices" Visibility="Collapsed">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
 
+                        <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12,9" Margin="0,0,0,8">
+                            <StackPanel>
+                                <TextBlock Text="THIẾT BỊ KẾT NỐI" FontSize="13" FontWeight="Bold" Foreground="{StaticResource NavyMainBrush}"/>
+                                <TextBlock x:Name="TxtClientStats" Text="0 thiết bị · 0 trực tuyến · 0 chờ duyệt" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </Border>
+
                         <!-- Filter bar -->
-                        <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,0,8">
+                        <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,0,8">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
-                                <Grid Grid.Row="0" Margin="0,0,0,6">
+                                <Grid Grid.Row="0" Margin="0,0,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="2*"/>
                                         <ColumnDefinition Width="6"/>
-                                        <ColumnDefinition Width="1.5*"/>
-                                        <ColumnDefinition Width="6"/>
-                                        <ColumnDefinition Width="1.5*"/>
+                                        <ColumnDefinition Width="1.2*"/>
                                         <ColumnDefinition Width="6"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBox Grid.Column="0" x:Name="TxtSearchClient" Style="{StaticResource ModernTextBox}" TextChanged="TxtSearchClient_TextChanged" ToolTip="Tìm theo tên máy hoặc phòng"/>
-                                    <ComboBox Grid.Column="2" x:Name="CmbStatusFilter" SelectionChanged="CmbFilter_SelectionChanged" Height="32" VerticalContentAlignment="Center">
+                                    <TextBox Grid.Column="0" x:Name="TxtSearchClient" Style="{StaticResource ModernTextBox}" Height="34" Padding="10,0" VerticalContentAlignment="Center" TextChanged="TxtSearchClient_TextChanged" ToolTip="Tìm theo tên máy"/>
+                                    <ComboBox Grid.Column="2" x:Name="CmbStatusFilter" Style="{StaticResource ModernComboBox}" SelectionChanged="CmbFilter_SelectionChanged">
                                         <ComboBoxItem Content="Tất cả"/>
-                                        <ComboBoxItem Content="Đang kết nối"/>
+                                        <ComboBoxItem Content="Trực tuyến"/>
+                                        <ComboBoxItem Content="Ngoại tuyến"/>
                                         <ComboBoxItem Content="Chờ phê duyệt"/>
-                                        <ComboBoxItem Content="Mất kết nối"/>
                                     </ComboBox>
-                                    <ComboBox Grid.Column="4" x:Name="CmbDepartmentFilter" SelectionChanged="CmbFilter_SelectionChanged" Height="32" VerticalContentAlignment="Center"/>
-                                    <Button Grid.Column="6" Style="{StaticResource SecondaryBtn}" Click="BtnClearFilters_Click" Padding="8,4">
+                                    <Button Grid.Column="4" Style="{StaticResource SecondaryBtn}" Click="BtnClearFilters_Click" Height="34" Padding="12,5">
                                         <TextBlock Text="Xóa lọc" FontSize="11"/>
                                     </Button>
                                 </Grid>
-                                <TextBlock Grid.Row="1" x:Name="TxtClientStats" Text="Tổng: 0 | Đang kết nối: 0 | Chờ duyệt: 0 | Mất kết nối: 0" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}"/>
                             </Grid>
                         </Border>
 
-                        <!-- DataGrid -->
-                        <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Margin="0,0,0,8" ClipToBounds="True">
-                            <DataGrid x:Name="DgClients" SelectionMode="Single" AutoGenerateColumns="False">
-                                <DataGrid.Columns>
-                                    <DataGridTextColumn Header="TÊN MÁY CON" Binding="{Binding DeviceName}" Width="1.8*" FontWeight="Bold"/>
-                                    <DataGridTextColumn Header="MÃ THIẾT BỊ (UUID)" Binding="{Binding DeviceId}" Width="2*"/>
-                                    <DataGridTextColumn Header="PHÒNG BAN" Binding="{Binding Department}" Width="1.3*"/>
-                                    <DataGridTextColumn Header="MÁY IN ĐƯỢC PHÉP" Binding="{Binding AllowedPrintersSummary}" Width="1.5*"/>
-                                    <DataGridTextColumn Header="ĐÃ IN" Binding="{Binding PrintCount}" Width="0.8*"/>
-                                    <DataGridTemplateColumn Header="TRỰC TUYẾN" Width="1.1*">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left"
-                                                        Background="{Binding IsOnline, Converter={StaticResource OnlineBadgeBg}}">
-                                                    <TextBlock Text="{Binding IsOnline, Converter={StaticResource BoolToOnlineText}}" FontSize="11" FontWeight="SemiBold"
-                                                               Foreground="{Binding IsOnline, Converter={StaticResource OnlineBadgeFg}}"/>
-                                                </Border>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                    <DataGridTemplateColumn Header="PHÊ DUYỆT" Width="1.1*">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left"
-                                                        Background="{Binding IsApproved, Converter={StaticResource BoolToBadgeBg}}">
-                                                    <TextBlock Text="{Binding IsApproved, Converter={StaticResource BoolToApprovedText}}" FontSize="11" FontWeight="SemiBold"
-                                                               Foreground="{Binding IsApproved, Converter={StaticResource BoolToBadgeFg}}"/>
-                                                </Border>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                </DataGrid.Columns>
-                            </DataGrid>
-                        </Border>
-
-                        <!-- Action Bar -->
-                        <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="10,6">
-                            <StackPanel Orientation="Horizontal">
-                                <Button Style="{StaticResource SuccessBtn}" Click="BtnApproveClient_Click" Padding="10,5" Margin="0,0,6,0">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Path Data="{StaticResource GeoCheck}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
-                                        <TextBlock Text="Cho phép" FontSize="11"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Style="{StaticResource SecondaryBtn}" Click="BtnChangeDepartment_Click" Padding="10,5" Margin="0,0,6,0">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Path Data="{StaticResource GeoBuilding}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
-                                        <TextBlock Text="Đổi phòng" FontSize="11"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Style="{StaticResource SecondaryBtn}" Click="BtnAssignPrinters_Click" Padding="10,5" Margin="0,0,6,0">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Path Data="{StaticResource GeoPrinter}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
-                                        <TextBlock Text="Chọn máy in" FontSize="11"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Style="{StaticResource DangerBtn}" Click="BtnRevokeClient_Click" Padding="10,5" Margin="0,0,6,0">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Path Data="{StaticResource GeoBlock}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
-                                        <TextBlock Text="Bỏ quyền" FontSize="11"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Style="{StaticResource DestructiveBtn}" Click="BtnDeleteClient_Click" Padding="10,5">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Path Data="{StaticResource GeoTrash}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
-                                        <TextBlock Text="Xóa" FontSize="11"/>
-                                    </StackPanel>
-                                </Button>
-                            </StackPanel>
-                        </Border>
-                    </Grid>
-
-                    <!-- PHÂN HỆ 4: HÀNG ĐỢI LỆNH IN -->
-                    <Grid x:Name="TabContentQueue" Visibility="Collapsed">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-
-                        <!-- Header bar -->
-                        <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12,8" Margin="0,0,0,8">
+                        <!-- Compact device list -->
+                        <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Margin="0,0,0,8" ClipToBounds="True">
                             <Grid>
-                                <StackPanel VerticalAlignment="Center">
-                                    <TextBlock Text="LỊCH SỬ LỆNH IN" FontSize="13" FontWeight="Bold" Foreground="{StaticResource NavyMainBrush}"/>
-                                    <TextBlock x:Name="TxtQueueSummary" Text="Tổng số: 0 lệnh in • Đang chờ/xử lý: 0 • Hoàn tất: 0 • Lỗi: 0" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,1,0,0"/>
+                                <ListBox x:Name="DgClients" BorderThickness="0" Background="Transparent" SelectionMode="Single">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="8,5">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="1.3*"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0" VerticalAlignment="Center"><TextBlock Text="{Binding DeviceName}" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}"/><TextBlock Text="{Binding LastSeen, StringFormat={}{0:dd/MM HH:mm}}" FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/></StackPanel>
+                                                <Border Grid.Column="1" Background="{StaticResource BgBrush}" CornerRadius="5" Padding="8,4" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock Text="{Binding DeviceStatus}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource PrimaryBrush}"/></Border>
+                                                <TextBlock Grid.Column="2" Text="{Binding AllowedPrintersSummary}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,12,0"/>
+                                                <Button Grid.Column="3" Style="{StaticResource SecondaryBtn}" Click="BtnManageClient_Click" Padding="11,5" VerticalAlignment="Center"><TextBlock Text="Quản lý" FontSize="11"/></Button>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                                <StackPanel x:Name="PanelClientsEmpty" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
+                                    <TextBlock Text="Chưa có thiết bị kết nối" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="Mở ứng dụng trên máy con, nhập mã kết nối và gửi yêu cầu ghép nối." FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="420" Margin="0,6,0,0"/>
                                 </StackPanel>
-                                <Button Style="{StaticResource SecondaryBtn}" Click="BtnQueueRefresh_Click" HorizontalAlignment="Right" Padding="10,5">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Path Data="{StaticResource GeoRefresh}" Fill="{StaticResource PrimaryBrush}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
-                                        <TextBlock Text="Làm mới" FontSize="11" FontWeight="SemiBold"/>
-                                    </StackPanel>
-                                </Button>
                             </Grid>
                         </Border>
 
-                        <!-- DataGrid -->
-                        <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Margin="0,0,0,8" ClipToBounds="True">
-                            <DataGrid x:Name="DgQueue" SelectionMode="Single" AutoGenerateColumns="False">
-                                <DataGrid.Columns>
-                                    <DataGridTextColumn Header="TÊN TÀI LIỆU" Binding="{Binding DocumentName}" Width="2.2*" FontWeight="Bold"/>
-                                    <DataGridTextColumn Header="MÁY CON GỬI" Binding="{Binding ClientDeviceName}" Width="1.5*"/>
-                                    <DataGridTextColumn Header="MÁY IN ĐÍCH" Binding="{Binding TargetPrinter}" Width="1.8*"/>
-                                    <DataGridTextColumn Header="KÍCH THƯỚC" Binding="{Binding FormattedFileSize}" Width="1.1*"/>
-                                    <DataGridTextColumn Header="THỜI GIAN GỬI" Binding="{Binding CreatedAt, StringFormat={}{0:HH:mm:ss - dd/MM}}" Width="1.3*"/>
-                                    <DataGridTemplateColumn Header="TRẠNG THÁI" Width="1.2*">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left"
-                                                        Background="{Binding Status, Converter={StaticResource LevelToBadgeBg}}">
-                                                    <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="Bold"
-                                                               Foreground="{Binding Status, Converter={StaticResource LevelToBadgeFg}}"/>
-                                                </Border>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                </DataGrid.Columns>
-                            </DataGrid>
-                        </Border>
-
-                        <!-- Action Bar -->
-                        <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="10,6">
-                            <StackPanel Orientation="Horizontal">
-                                <Button Style="{StaticResource SecondaryBtn}" Click="BtnRestartSpooler_Click" Padding="10,5" Margin="0,0,6,0">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Path Data="{StaticResource GeoRestart}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
-                                        <TextBlock Text="Khởi động lại dịch vụ in" FontSize="11"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Style="{StaticResource DestructiveBtn}" Click="BtnClearCompletedJobs_Click" Padding="10,5">
-                                    <TextBlock Text="Xóa lệnh hoàn tất" FontSize="11"/>
-                                </Button>
-                            </StackPanel>
-                        </Border>
                     </Grid>
 
                 </Grid>

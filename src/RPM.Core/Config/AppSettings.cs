@@ -27,7 +27,10 @@ public class AppSettings
     public List<PrintJob> PrintHistory { get; set; } = new();
     
     // Auto-update & upgrade configuration
-    public string UpdateFeedUrl { get; set; } = "http://127.0.0.1:9090/version.json";
+    // Public GitHub Releases is the default distribution source. Feed URL remains
+    // for backward-compatible local-file/corporate testing, but is not shown by default.
+    public string UpdateFeedUrl { get; set; } = "github://hnam1204/PRINT_EXE";
+    public string UpdateRepositoryUrl { get; set; } = "https://github.com/hnam1204/PRINT_EXE";
     public bool AutoCheckUpdates { get; set; } = true;
     public string UpdateChannel { get; set; } = "Beta"; // "Stable" (Chính thức) hoặc "Beta" (Thử nghiệm trước)
     public bool AutoInstallUpdates { get; set; } = false; // Tự động cài đặt hoặc hiển thị nút cho người dùng bấm
@@ -116,6 +119,16 @@ public static class ConfigManager
             Directory.CreateDirectory(folder);
         }
         return folder;
+    }
+
+    public static string BackupForUpdate()
+    {
+        if (!File.Exists(ConfigFilePath)) return string.Empty;
+        string backupFolder = Path.Combine(GetUpdatesFolder(), "config-backups");
+        Directory.CreateDirectory(backupFolder);
+        string backupPath = Path.Combine(backupFolder, $"config-{DateTime.UtcNow:yyyyMMddHHmmssfff}.json");
+        File.Copy(ConfigFilePath, backupPath, false);
+        return backupPath;
     }
 
     private static string Protect(string value)

@@ -22,6 +22,7 @@ public class UpdateManifest
     public bool IsCritical { get; set; } = false;
     public List<string> Changelog { get; set; } = new();
     public string ReleaseNotes { get; set; } = string.Empty;
+    public string ReleaseTag { get; set; } = string.Empty;
 }
 
 public class UpdateCheckResult
@@ -33,4 +34,5 @@ public class UpdateCheckResult
     public UpdateManifest? Manifest { get; set; }
     public string? ErrorMessage { get; set; }
     public bool IsRollbackAvailable { get; set; }
+    public DateTime? CheckedAtUtc { get; set; }
 }

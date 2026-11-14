@@ -1,7 +1,7 @@
 param(
     [string]$Version = "1.0.1",
     [string]$Channel = "Beta",
-    [string]$DownloadBaseUrl = "https://relay.example.invalid",
+    [string]$DownloadBaseUrl = "",
     [string[]]$Changelog = @(
         "Toi gian hoan toan Trang chu: Bo thanh toolbar day man hinh, gom 100% chuc nang vao trung tam Cai dat",
         "Tich hop 6 tab in-page trong Cai dat: Thiet lap chung, May in, Thiet bi, Hang doi in, Chan doan, Cap nhat",
@@ -18,6 +18,9 @@ Write-Host "==========================================================" -Foregro
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $scriptDir
+if ([string]::IsNullOrWhiteSpace($DownloadBaseUrl)) {
+    $DownloadBaseUrl = "https://github.com/hnam1204/PRINT_EXE/releases/download/v$Version"
+}
 
 # 1. Clean previous build outputs
 Write-Host "`n[1/5] Dang don dep thu muc build cu..." -ForegroundColor Gray
@@ -40,10 +43,19 @@ if ($LASTEXITCODE -ne 0) {
     Exit 1
 }
 
-# 3. Publish Single File Desktop App
+# 3. Publish the self-contained updater first so it can also be embedded in the main EXE.
 Write-Host "`n[3/5] Dang dong goi Single-File Executable cho RPM.App..." -ForegroundColor Gray
+$updaterPublish = "publish/updater"
+dotnet publish src/RPM.Updater/RPM.Updater.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o $updaterPublish
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] Publish RPM.Updater that bai!" -ForegroundColor Red
+    Exit 1
+}
+$embeddedUpdater = (Join-Path $scriptDir "$updaterPublish/RPM.Updater.exe")
+
+# The runtime and WPF native dependencies are embedded so customers do not need .NET installed.
 $tempPublish = "publish/temp-app"
-dotnet publish src/RPM.App/RPM.App.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=None -o $tempPublish
+dotnet publish src/RPM.App/RPM.App.csproj -c Release -r win-x64 --self-contained true -p:Version=$Version -p:AssemblyVersion=$Version.0 -p:FileVersion=$Version.0 -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true "-p:EmbeddedUpdaterPath=$embeddedUpdater" -p:DebugType=None -o $tempPublish
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Publish RPM.App that bai!" -ForegroundColor Red
     Exit 1
@@ -53,9 +65,13 @@ New-Item -ItemType Directory -Force -Path "publish" | Out-Null
 Move-Item "$tempPublish/RPM.App.exe" -Destination "publish/RemotePrintManager.exe" -Force
 Remove-Item -Recurse -Force $tempPublish -ErrorAction SilentlyContinue
 
+# Keep a separate updater beside the EXE for backward compatibility and diagnostics.
+Move-Item "publish/updater/RPM.Updater.exe" -Destination "publish/RPM.Updater.exe" -Force
+Remove-Item -Recurse -Force "publish/updater" -ErrorAction SilentlyContinue
+
 # 4. Publish Standalone Cloud Relay Broker
 Write-Host "`n[4/5] Dang dong goi RPM.Relay Broker..." -ForegroundColor Gray
-dotnet publish src/RPM.Relay/RPM.Relay.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=None -o publish/relay
+dotnet publish src/RPM.Relay/RPM.Relay.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o publish/relay
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Publish RPM.Relay that bai!" -ForegroundColor Red
     Exit 1
@@ -87,35 +103,21 @@ $manifestObj = [ordered]@{
     version = $Version
     channel = $Channel
     releaseDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    downloadUrl = "$($DownloadBaseUrl.TrimEnd('/'))/download/RemotePrintManager.exe"
+    downloadUrl = "$($DownloadBaseUrl.TrimEnd('/'))/RemotePrintManager.exe"
     sha256 = $fileHash
     minSupportedVersion = "1.0.0"
     changelog = $Changelog
     releaseNotes = "Phien ban V$Version ($Channel) voi giao dien One-Screen Minimal Desktop va nhan dien NHN Blue."
 }
 
-$rsa = [System.Security.Cryptography.RSA]::Create()
-$rsa.ImportFromPem($signingKeyPem)
-$canonical = @(
-    $manifestObj.version,
-    $manifestObj.channel,
-    ([DateTime]::Parse($manifestObj.releaseDate).ToUniversalTime().ToString("O")),
-    $manifestObj.downloadUrl,
-    $manifestObj.sha256,
-    $manifestObj.minSupportedVersion,
-    $(if ($manifestObj.isCritical) { "true" } else { "false" }),
-    ($manifestObj.changelog -join "`n"),
-    $manifestObj.releaseNotes
-) -join "`n"
-$manifestObj.signatureBase64 = [Convert]::ToBase64String($rsa.SignData(
-    [Text.Encoding]::UTF8.GetBytes($canonical),
-    [System.Security.Cryptography.HashAlgorithmName]::SHA256,
-    [System.Security.Cryptography.RSASignaturePadding]::Pss))
-$rsa.Dispose()
-
 $manifestJson = $manifestObj | ConvertTo-Json -Depth 5
 $manifestJson | Set-Content -Path "publish/version.json" -Encoding UTF8
 $manifestJson | Set-Content -Path "publish/version_beta.json" -Encoding UTF8
+
+# Use the .NET 9 signer so PowerShell 5.1 cannot silently produce an unsigned release.
+dotnet run --project tools/RPM.ReleaseSigner/RPM.ReleaseSigner.csproj -- "publish/version.json" $signingKeyPath
+if ($LASTEXITCODE -ne 0) { Write-Host "[ERROR] Ky manifest version.json that bai!" -ForegroundColor Red; Exit 1 }
+Copy-Item "publish/version.json" "publish/version_beta.json" -Force
 
 # Prepare relay server staging for immediate local/network update hosting
 $relayUpdatesDir = "publish/relay/updates"
@@ -126,7 +128,7 @@ Copy-Item "publish/RemotePrintManager.exe" -Destination "$relayUpdatesDir/Remote
 
 # Create clean portable zip distribution (only executable + manifest, no debug symbols)
 Write-Host "`nDang tao file zip phan phoi toi gian, sach se..." -ForegroundColor Gray
-$zipContent = @("publish/RemotePrintManager.exe", "publish/version.json")
+$zipContent = @("publish/RemotePrintManager.exe", "publish/RPM.Updater.exe", "publish/version.json")
 Compress-Archive -Path $zipContent -DestinationPath "publish/RemotePrintManager_v$Version`_Portable.zip" -Force
 
 Write-Host "`n==========================================================" -ForegroundColor Green

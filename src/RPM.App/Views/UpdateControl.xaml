@@ -167,7 +167,7 @@
                 </Grid>
 
                 <!-- Update Feed URL Config -->
-                <Expander Header="Cấu hình nâng cao địa chỉ máy chủ cập nhật (Feed URL)" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,10,0,0">
+                <Expander Header="Cấu hình nâng cao địa chỉ máy chủ cập nhật (Feed URL)" Visibility="Collapsed" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,10,0,0">
                     <StackPanel Margin="0,8,0,0">
                         <Grid>
                             <Grid.ColumnDefinitions>

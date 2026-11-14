@@ -5,6 +5,7 @@ using RPM.Core.Config;
 using RPM.Core.Models;
 using RPM.Core.Protocol;
 using RPM.Core.Security;
+using RPM.Core.Networking;
 using RPM.Networking;
 using RPM.Printing;
 
@@ -52,6 +53,15 @@ public class ClientService : IDisposable
 
     public async Task StartAsync()
     {
+        if (!RelayEndpointPolicy.TryValidateForRole(AppRole.Client, _settings.RelayServerUrl, out var reason))
+        {
+            _connectionStatus = "Chưa kết nối";
+            OnLog?.Invoke(this, reason + " Hãy thiết lập địa chỉ Host/Relay trong Chẩn đoán.");
+            OnStateChanged?.Invoke(this, EventArgs.Empty);
+            _ippServer.Start(_settings.LocalIppPort);
+            return;
+        }
+
         _connectionStatus = "Đang kết nối...";
         _relayClient.PairingCode = _settings.PairingCode;
         OnStateChanged?.Invoke(this, EventArgs.Empty);
@@ -73,6 +83,14 @@ public class ClientService : IDisposable
         }
         _relayClient.PairingCode = _settings.PairingCode;
         ConfigManager.Save(_settings);
+
+        if (!RelayEndpointPolicy.TryValidateForRole(AppRole.Client, _settings.RelayServerUrl, out var reason))
+        {
+            _connectionStatus = "Chưa kết nối";
+            OnLog?.Invoke(this, reason + " Hãy thiết lập địa chỉ Host/Relay trong Chẩn đoán.");
+            OnStateChanged?.Invoke(this, EventArgs.Empty);
+            return;
+        }
 
         if (_relayClient.IsConnected)
         {

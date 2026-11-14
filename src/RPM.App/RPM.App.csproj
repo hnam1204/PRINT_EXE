@@ -24,4 +24,8 @@
     <Resource Include="Assets\BeVietnamPro-Bold.ttf" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(EmbeddedUpdaterPath)' != '' and Exists('$(EmbeddedUpdaterPath)')">
+    <EmbeddedResource Include="$(EmbeddedUpdaterPath)" LogicalName="RPM.Updater.exe" />
+  </ItemGroup>
+
 </Project>

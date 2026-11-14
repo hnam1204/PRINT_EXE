@@ -1,223 +1,195 @@
-# 🖨️ Remote Print Manager (RPM)
+# Remote Print Manager
 
-<p align="center">
-  <img src="docs/assets/logo.png" width="160" alt="Remote Print Manager (RPM) Logo" /><br/>
-  <img src="https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet&logoColor=white" alt=".NET 9.0" />
-  <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white" alt="Windows" />
-  <img src="https://img.shields.io/badge/Security-AES--256--GCM%20E2EE-059669?logo=lock&logoColor=white" alt="E2EE Security" />
-  <img src="https://img.shields.io/badge/Design-Fluent%20UI%20SaaS-2563EB" alt="Fluent UI" />
-  <img src="https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF?logo=github-actions&logoColor=white" alt="CI/CD" />
-  <img src="https://img.shields.io/badge/Tests-14%2F14%20Passed-brightgreen" alt="Tests" />
-  <img src="https://img.shields.io/badge/License-MIT-blue" alt="License" />
-</p>
+Remote Print Manager là ứng dụng WPF cho Windows, giúp máy con gửi lệnh in đến máy chủ đã được ghép nối. Người dùng chỉ cần tải `RemotePrintManager.exe`, chọn vai trò, thiết lập kết nối và in bằng `Ctrl + P`.
 
-> **Remote Print Manager (RPM)** là giải pháp phần mềm chuyên dụng cho doanh nghiệp, cho phép nhiều máy tính sử dụng chung một máy in vật lý thông qua **đường truyền Internet hoàn toàn độc lập** trong **phạm vi bán kính 1 km** mà không cần kéo dây mạng, không cần chung Wi-Fi và không cần can thiệp cấu hình Router / NAT Port.
+## Tính năng chính
 
----
+- Một tệp `RemotePrintManager.exe` self-contained cho Windows 10/11 x64; máy khách không cần cài .NET Runtime hoặc .NET SDK.
+- Hai vai trò dùng chung một ứng dụng: **Máy chủ** và **Máy con**.
+- Ghép nối bằng mã hiển thị trên màn hình chính và phê duyệt thiết bị tại máy chủ.
+- Chọn máy in từ danh sách Windows; máy in được chọn tự động trở thành máy in mặc định của ứng dụng.
+- Bật/tắt chia sẻ từng máy in bằng công tắc.
+- Theo dõi thiết bị, hàng đợi in, kết nối và chẩn đoán trong màn hình cài đặt gọn.
+- Cập nhật bằng manifest có SHA-256 và chữ ký bản phát hành; cấu hình người dùng nằm ngoài thư mục ứng dụng.
+- Giữ lại lựa chọn máy in khi chuyển qua lại giữa các tab.
 
-## 📑 Mục Lục
+## Yêu cầu sử dụng
 
-* [🎯 Tính Năng Nổi Bật](#-tính-năng-nổi-bật)
-* [🏛️ Kiến Trúc Hệ Thống](#️-kiến-trúc-hệ-thống)
-* [📥 Tải Về & Cài Đặt Nhanh](#-tải-về--cài-đặt-nhanh)
-* [🚀 Hướng Dẫn Sử Dụng Nhanh](#-hướng-dẫn-sử-dụng-nhanh)
-  * [1. Dành cho Máy Tính Chủ (Server)](#1-dành-cho-máy-tính-chủ-server)
-  * [2. Dành cho 3 Máy Tính Con (Clients)](#2-dành-cho-3-máy-tính-con-clients)
-  * [3. Thao tác in ấn hàng ngày (Ctrl + P)](#3-thao-tác-in-ấn-hàng-ngày-ctrl--p)
-* [🔄 Quy Trình Cập Nhật & Nâng Cấp Tự Động (Auto-Update)](#-quy-trình-cập-nhật--nâng-cấp-tự-động-auto-update)
-* [🛠️ Biên Dịch & Đóng Gói (Build & Packaging)](#️-biên-dịch--đóng-gói-build--packaging)
-* [🌐 Hướng Dẫn Triển Khai Lên GitHub](#-hướng-dẫn-triển-khai-lên-github)
-* [📂 Cấu Trúc Mã Nguồn](#-cấu-trúc-mã-nguồn)
-* [📚 Tài Liệu Hướng Dẫn](#-tài-liệu-hướng-dẫn)
+- Windows 10 hoặc Windows 11 64-bit.
+- Máy chủ có Windows Print Spooler, driver máy in và máy in hoạt động.
+- Máy chủ và máy con có kết nối mạng phù hợp với endpoint đã cấu hình.
+- Không mở dịch vụ nội bộ ra Internet công cộng.
 
----
+Máy con không được dùng `localhost` hoặc `127.0.0.1` làm địa chỉ máy chủ từ xa. Nếu chưa xác minh được máy chủ, ứng dụng hiển thị **Chưa kết nối**.
 
-## 🎯 Tính Năng Nổi Bật
+## Tải và chạy nhanh
 
-1. **Bộ Cài Đặt Duy Nhất (Single-File Binary):**
-   * Chỉ một tệp `RemotePrintManager.exe` dung lượng siêu nhẹ (~380 KB) sử dụng chung cho cả Máy Chủ và Máy Con. Khởi động lần đầu chỉ cần 1 click để chọn vai trò.
-2. **In Ấn Trong Suốt Qua `Ctrl + P`:**
-   * Tự động đăng ký máy in ảo vào hệ thống Windows. Nhân viên mở Word, Excel, Chrome, PDF, phần mềm kế toán... nhấn tổ hợp phím **`Ctrl + P`** và in trực tiếp, không cần mở giao diện phần mềm.
-3. **Kết Nối Internet Độc Lập (Bán kính 1 km):**
-   * Hoạt động ổn định bất kể các máy tính dùng các nhà mạng viễn thông khác nhau (VNPT, Viettel, FPT, mạng 4G/5G) mà không cần cấu hình Router/NAT Port.
-4. **Mã Hóa Đầu Cuối Tuyệt Đối (E2EE AES-256-GCM):**
-   * Toàn bộ luồng dữ liệu in ấn được mã hóa cấp ngân hàng trước khi truyền qua mạng. Máy chủ trung gian không thể đọc trộm nội dung văn bản.
-5. **Chống In Trùng & Điều Phối Hàng Đợi (Deduplication):**
-   * Tự động băm tệp tin bằng thuật toán **SHA-256** để phát hiện và ngăn chặn in lặp văn bản khi người dùng bấm đúp hoặc chập chờn mạng. Sắp xếp hàng đợi in FIFO công bằng.
-6. **Giao Diện Fluent UI Windows 11 & Vector SVG:**
-   * Thiết kế hiện đại, bảng DataGrid không viền đen thô, các tag/badge màu sắc trực quan, biểu tượng hình học SVG sắc nét ở mọi độ phân giải màn hình.
-7. **Relay Server Nhúng Tự Động Khởi Động:**
-   * Tự động bật máy chủ trung gian ngay trong chế độ Máy Chủ mà không cần cài đặt phần mềm thứ ba.
-8. **Cập Nhật Trực Tiếp 1-Click (Canary Testing):**
-   * Tự động phát hiện bản cập nhật mới, xác thực mã băm SHA-256 và thay thế tệp thực thi mà không làm mất cấu hình kết nối.
-9. **Kết Nối Không Giới Hạn Máy Con & Quản Lý Đa Máy In:**
-   * Không giới hạn số lượng máy con trong mã nguồn (mở rộng linh hoạt 10, 20, 50, 100+ máy).
-   * Tìm kiếm tức thì, bộ lọc trạng thái và phân nhóm theo phòng ban (Kế toán, Kinh doanh, Hành chính, Kỹ thuật...).
-   * Chia sẻ nhiều máy in USB đồng thời và phân quyền sử dụng máy in chi tiết cho từng máy con.
-   * Điều phối hàng đợi in đồng thời (Concurrent Queue) không bị nghẽn lệnh hoặc in đè tài liệu.
-10. **Tương Thích Đa Thiết Bị Windows & Công Cụ Chẩn Đoán (System Diagnostics):**
-   * Hoạt động mượt mà trên Desktop PC, Laptop, Mini PC, Workstation (Dell, HP, Lenovo, ASUS, MSI...).
-   * Hỗ trợ tối ưu cả Windows 10 (64-bit) và Windows 11 (64-bit).
-   * Tương thích mọi dòng máy in phổ biến: Canon, HP, Brother, Epson, Samsung, Xerox...
-   * Tích hợp công cụ chẩn đoán tương thích hệ thống trực quan, hỗ trợ khởi động lại dịch vụ Spooler chỉ với 1 click.
+1. Tải `RemotePrintManager.exe` từ [GitHub Releases](https://github.com/hnam1204/PRINT_EXE/releases).
+2. Sao chép tệp vào máy cần sử dụng và mở tệp.
+3. Chọn **Máy chủ** hoặc **Máy con** ở lần chạy đầu tiên.
+4. Làm theo hướng dẫn ghép nối bên dưới.
 
----
+## Thiết lập Máy chủ
 
-## 🏛️ Kiến Trúc Hệ Thống
+Máy chủ là máy đang kết nối trực tiếp với máy in vật lý.
 
-```mermaid
-flowchart TD
-    subgraph Office_Cloud["Môi Trường Kết Nối Internet"]
-        Relay["Relay Cloud Broker (WebSocket ws/wss)<br>• Tự khởi động nhúng trên Máy Chủ<br>• Hoặc triển khai VPS Docker / Linux"]
-    end
+1. Mở `RemotePrintManager.exe` và chọn **Máy chủ**.
+2. Vào **Cài đặt > Máy in**.
+3. Chọn máy in cần chia sẻ trong danh sách.
+4. Máy in được chọn sẽ tự động là máy in mặc định của ứng dụng; không có nút **Mặc định** riêng.
+5. Bật công tắc chia sẻ của máy in.
+6. Sao chép mã ghép nối hiển thị trên màn hình chính và gửi mã cho máy con.
+7. Vào **Cài đặt > Thiết bị**, chọn yêu cầu mới và phê duyệt thiết bị.
 
-    subgraph Server_Office["Phòng Quản Trị / Máy Chủ"]
-        HostPC["🖥️ Máy Tính Chủ (Server)<br>• Nhận lệnh in AES-256-GCM<br>• Chống in trùng SHA-256<br>• Điều phối hàng đợi FIFO"]
-        USBPrinter["🖨️ Máy In Văn Phòng<br>(Kết nối cáp USB trực tiếp)"]
-        HostPC -->|Dây cáp USB| USBPrinter
-    end
+## Thiết lập Máy con
 
-    subgraph Client_Offices["3 Máy Tính Con (Bán Kính 1 km)"]
-        Client1["💻 Máy Con 1 (Phòng Kế Toán)"]
-        Client2["💻 Máy Con 2 (Phòng Kinh Doanh)"]
-        Client3["💻 Máy Con 3 (Văn Phòng Tầng Khác)"]
-    end
+1. Mở cùng tệp `RemotePrintManager.exe` trên máy con.
+2. Chọn **Máy con**.
+3. Nhập mã ghép nối trên màn hình chính.
+4. Gửi yêu cầu kết nối và chờ máy chủ phê duyệt.
+5. Khi trạng thái là **Đã kết nối**, máy con có thể gửi lệnh in đến máy in được cấp quyền.
 
-    Client1 -->|Gửi lệnh in mã hóa| Relay
-    Client2 -->|Gửi lệnh in mã hóa| Relay
-    Client3 -->|Gửi lệnh in mã hóa| Relay
-    Relay -->|Chuyển tiếp thời gian thực| HostPC
-```
+## In tài liệu
 
----
+1. Mở tài liệu trong Word, Excel, trình duyệt, PDF hoặc ứng dụng cần in.
+2. Nhấn `Ctrl + P`.
+3. Chọn máy in đã được cấu hình.
+4. Chọn tùy chọn in và nhấn **In**.
 
-## 📥 Tải Về & Cài Đặt Nhanh
+Lệnh in chỉ được chuyển khi máy con đã ghép nối, được máy chủ phê duyệt và máy chủ đang hoạt động.
 
-Bạn có thể tải các bản phát hành chính thức tại mục **[Releases](../../releases)**:
+## Cài đặt và chẩn đoán
 
-| Tệp Tin | Mô Tả | Định Dạng |
-| :--- | :--- | :--- |
-| **`RemotePrintManager.exe`** | Ứng dụng chạy trực tiếp không cần cài đặt (Khuyên dùng) | Single-File Executable |
-| **`RemotePrintManager_v1.0.0_Portable.zip`** | Gói nén di động chứa đầy đủ binary và debug symbols | Zip Archive |
-| **`RemotePrintManager_Setup_v1.0.0.exe`** | Bộ cài đặt Windows Wizard có icon Desktop và Startup | Windows Installer |
+Màn hình **Cài đặt chung** chỉ hiển thị tên thiết bị, vai trò, trạng thái kết nối thực tế, phiên bản và tùy chọn khởi động cùng Windows.
 
-### Kiểm tra mã băm SHA-256 (Khuyến nghị bảo mật)
-```powershell
-Get-FileHash -Path ".\RemotePrintManager.exe" -Algorithm SHA256
-```
+Thông tin kỹ thuật như endpoint, IP, WebSocket và cổng kết nối chỉ xem trong **Chẩn đoán** hoặc **Cấu hình nâng cao**. Không chia sẻ mã ghép nối hoặc thông tin chẩn đoán lên nơi công khai.
 
----
+## Cập nhật
 
-## 🚀 Hướng Dẫn Sử Dụng Nhanh
+1. Mở **Cài đặt**.
+2. Tại dòng **Cập nhật**, nhấn **Kiểm tra cập nhật**.
+3. Xem nội dung chi tiết trong hộp thoại riêng nếu có phiên bản mới.
+4. Thực hiện cập nhật theo hướng dẫn và không tắt ứng dụng trong quá trình thay thế tệp.
 
-### 1. Dành cho Máy Tính Chủ (Server)
-*(Máy tính cắm dây cáp USB trực tiếp vào máy in)*
-1. Chạy file `RemotePrintManager.exe` → Chọn **🖥️ THIẾT LẬP LÀM MÁY CHỦ**.
-2. Vào tab **Máy In** → Bấm **"Quét máy in trên máy tính"** → Chọn máy in USB và bấm **"Chọn làm máy in chia sẻ"**.
-3. Vào tab **Tổng Quan** → Sao chép **Mã Ghép Đôi** (Ví dụ: `RPM-8197`) và gửi cho 3 máy con.
-4. Khi máy con kết nối, vào tab **Thiết Bị Kết Nối** → Bấm **"Phê duyệt (Approve)"**.
+Cấu hình được lưu tại `%APPDATA%\\RemotePrintManager\\config.json` và dữ liệu hỗ trợ cập nhật tại `%APPDATA%\\RemotePrintManager\\Updates`. Các dữ liệu này không nằm trong tệp EXE nên được giữ lại khi cập nhật.
 
-### 2. Dành cho 3 Máy Tính Con (Clients)
-*(3 máy tính nằm trong bán kính 1 km)*
-1. Chạy file `RemotePrintManager.exe` → Chọn **💻 THIẾT LẬP LÀM MÁY CON**.
-2. Vào tab **Tìm & Kết Nối Máy Chủ** → Nhập mã ghép đôi (ví dụ `RPM-8197`) → Bấm **"Gửi Yêu Cầu Ghép Đôi"**.
-3. Sau khi máy chủ bấm duyệt → Vào tab **Máy In Của Tôi** → Bấm **"Cài Đặt Máy In Ảo Vào Windows"**.
+## Kiểm tra tệp phát hành
 
-### 3. Thao tác in ấn hàng ngày (Ctrl + P)
-Nhân viên **không cần mở lại phần mềm RPM**:
-* Mở Word, Excel, Chrome, file PDF bất kỳ.
-* Nhấn tổ hợp phím **`Ctrl + P`** → Chọn máy in `Remote Printer (RPM)` → Nhấn **Print**.
-* Tài liệu sẽ tự động truyền qua Internet và in ra giấy tại máy chủ ngay lập tức.
-
----
-
-## 🔄 Quy Trình Cập Nhật & Nâng Cấp Tự Động (Auto-Update)
-
-Khi có phiên bản mới được phát hành (ví dụ: `v1.0.1`):
-1. **Kiểm tra & Cập nhật 1-Click:** Trên giao diện phần mềm, vào **Cài Đặt** → bấm **"⚡ Cập nhật ngay"**.
-2. **Cập nhật thử nghiệm an toàn (Canary Testing):** Quản trị viên nâng cấp thử nghiệm trên **Máy con số 1** trước. Sau khi in thử thành công, tiến hành cập nhật trên các máy còn lại.
-3. **Bảo toàn dữ liệu 100%:** Toàn bộ thông tin ghép đôi, danh sách thiết bị và cấu hình được giữ nguyên vẹn trong `%AppData%\RemotePrintManager\config.json`.
-
----
-
-## 🛠️ Biên Dịch & Đóng Gói (Build & Packaging)
-
-### Yêu cầu hệ thống
-* Windows 10/11 x64
-* [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
-
-### Biên dịch và đóng gói tự động
-Dự án đi kèm kịch bản tự động hóa [build.ps1](file:///d:/ĐỒ ÁN WEBSITE/GITHUB/PRINTEXE/build.ps1):
+Sau khi tải bản phát hành, có thể kiểm tra SHA-256 bằng PowerShell:
 
 ```powershell
-# Chạy toàn bộ Test, biên dịch Release và đóng gói phân phối:
-.\build.ps1 -Version "1.0.0"
+Get-FileHash -Path .\\RemotePrintManager.exe -Algorithm SHA256
 ```
 
-Kết quả đầu ra nằm tại thư mục `publish/`:
-* `publish/RemotePrintManager.exe` — File chạy duy nhất.
-* `publish/RemotePrintManager_v1.0.0_Portable.zip` — Gói nén portable.
-* `publish/version.json` — Manifest phiên bản chứa mã băm SHA-256.
-* `publish/relay/RPM.Relay.exe` — Relay Broker trung gian độc lập.
+Đối chiếu giá trị với `sha256` trong `version.json` của bản phát hành.
 
----
+## Build và publish từ source
 
-## 🌐 Hướng Dẫn Triển Khai Lên GitHub
+### Môi trường build
 
-### 1. Đẩy dự án lên GitHub
-```powershell
-git remote add origin https://github.com/<your-username>/RemotePrintManager.git
-git branch -M master
-git push -u origin master
-```
+- Windows 10/11 x64.
+- .NET 9 SDK.
+- PowerShell 5.1 hoặc PowerShell 7.
 
-### 2. Tự động phát hành qua GitHub Actions (CI/CD)
-Dự án đã tích hợp sẵn workflow tại [.github/workflows/ci-cd.yml](file:///d:/ĐỒ ÁN WEBSITE/GITHUB/PRINTEXE/.github/workflows/ci-cd.yml).
-Khi bạn muốn phát hành phiên bản mới, chỉ cần tạo và đẩy tag git:
+### Tạo bản phát hành
+
+Đặt khóa ký manifest ở một trong hai vị trí sau, không commit khóa vào Git:
 
 ```powershell
-git tag v1.0.0
-git push origin v1.0.0
+New-Item -ItemType Directory -Force .\\secrets
+$env:RPM_UPDATE_PRIVATE_KEY_PEM = Get-Content -Raw .\\secrets\\update-private-key.pem
 ```
-GitHub Actions sẽ tự động biên dịch, chạy test, đóng gói và phát hành bản Release kèm toàn bộ file thực thi lên GitHub.
 
----
+Chạy script build:
 
-## 📂 Cấu Trúc Mã Nguồn
-
+```powershell
+.\\build.ps1 -Version "1.0.1" -Channel "Beta"
 ```
+
+Script sẽ chạy test, publish self-contained single-file cho ứng dụng và updater, tạo manifest có chữ ký, rồi chuẩn bị các tệp trong `publish/`:
+
+- `publish/RemotePrintManager.exe`: ứng dụng chính cho khách hàng.
+- `publish/RPM.Updater.exe`: updater độc lập dùng cho tương thích và chẩn đoán.
+- `publish/version.json`: manifest phiên bản, URL tải, SHA-256 và chữ ký.
+- `publish/RemotePrintManager_v<version>_Portable.zip`: gói portable.
+- `publish/relay/RPM.Relay.exe`: relay broker tùy chọn cho môi trường được quản trị.
+
+Bản publish chính đã đóng gói .NET Runtime và thư viện native cần thiết vào EXE. Máy khách không cần cài .NET riêng.
+
+## Kiểm thử
+
+```powershell
+dotnet test --configuration Release
+dotnet build RemotePrintManager.sln --configuration Release
+```
+
+Build self-contained local:
+
+```powershell
+dotnet publish src/RPM.App/RPM.App.csproj `
+  -c Release -r win-x64 --self-contained true `
+  -p:PublishSingleFile=true `
+  -p:IncludeNativeLibrariesForSelfExtract=true `
+  -o publish\\app
+```
+
+Kiểm thử trên máy Windows sạch chưa cài .NET Runtime và kiểm thử Host/Client trên hai máy vật lý là các bước xác nhận riêng; không thay thế bằng kết quả build tại máy phát triển.
+
+## Cấu trúc chính
+
+```text
 PRINTEXE/
-├── .github/
-│   └── workflows/ci-cd.yml     # Kịch bản GitHub Actions tự động build, test & release
-├── deploy/
-│   ├── Dockerfile.relay        # Multi-stage Docker container cho máy chủ Relay Linux
-│   └── docker-compose.yml      # Khởi động Relay Broker với 1 lệnh
-├── docs/
-│   ├── USER_MANUAL.md          # Sổ tay hướng dẫn người dùng cuối
-│   └── DEPLOYMENT_AND_OPERATIONS.md # Cẩm nang vận hành, đóng gói & triển khai chi tiết
-├── installer/
-│   └── RemotePrintManager.iss  # Kịch bản đóng gói Inno Setup Windows Installer
 ├── src/
-│   ├── RPM.Core/               # Data models, E2EE AES-256-GCM, SHA-256, Auto-Update Service
-│   ├── RPM.Networking/         # WebSocket Relay Engine, Embedded Server, P2P Routing
-│   ├── RPM.Printing/           # Windows Spooler helper, IPP spooler, Driver integration
-│   ├── RPM.Relay/              # Standalone Cloud Broker cho Linux / Windows Server
-│   └── RPM.App/                # Ứng dụng WPF Modern Fluent UI (Server & Client Dashboard)
-├── tests/
-│   └── RPM.Tests/              # Bộ kiểm thử tự động 100% Pass (Crypto, Protocol, Update)
-├── publish/                    # Thư mục xuất bản sau khi chạy build.ps1
-└── build.ps1                   # Kịch bản đóng gói và tính SHA-256 tự động
+│   ├── RPM.App/          # WPF application
+│   ├── RPM.Core/         # Models, configuration, update services
+│   ├── RPM.Networking/   # Networking and relay integration
+│   ├── RPM.Printing/     # Windows printer integration
+│   ├── RPM.Relay/        # Optional relay broker
+│   └── RPM.Updater/      # Update helper
+├── tests/RPM.Tests/      # Automated tests
+├── docs/
+│   ├── USER_MANUAL.md
+│   └── DEPLOYMENT_AND_OPERATIONS.md
+├── build.ps1
+└── RemotePrintManager.sln
 ```
 
----
+## Tài liệu
 
-## 📚 Tài Liệu Hướng Dẫn
+- [Hướng dẫn người dùng](docs/USER_MANUAL.md)
+- [Hướng dẫn triển khai và vận hành](docs/DEPLOYMENT_AND_OPERATIONS.md)
 
-* [📖 Sổ Tay Hướng Dẫn Người Dùng (USER_MANUAL.md)](docs/USER_MANUAL.md)
-* [📘 Hướng Dẫn Vận Hành & Triển Khai Chi Tiết (DEPLOYMENT_AND_OPERATIONS.md)](docs/DEPLOYMENT_AND_OPERATIONS.md)
+## GitHub workflow
 
----
+Kiểm tra remote hiện tại:
 
-## 📄 Bản Quyền & Giấy Phép
+```powershell
+git remote -v
+git status
+```
 
-Phần mềm Remote Print Manager (RPM) phục vụ nhu cầu in ấn văn phòng nội bộ và doanh nghiệp. Mọi thắc mắc hoặc yêu cầu đóng góp tính năng, vui lòng tạo Issue hoặc Pull Request trên GitHub.
+Commit riêng phần tài liệu:
+
+```powershell
+git add README.md docs/USER_MANUAL.md
+git commit -m "docs: update usage and release instructions"
+```
+
+Đẩy branch hiện tại lên GitHub:
+
+```powershell
+git push origin main
+```
+
+Khi phát hành phiên bản mới, tạo tag sau khi đã build và kiểm tra:
+
+```powershell
+git tag -a v1.0.1 -m "Release v1.0.1"
+git push origin v1.0.1
+```
+
+Không commit `secrets/update-private-key.pem`, biến môi trường chứa khóa ký, hoặc các tệp cấu hình có thông tin bí mật.
+
+## Giấy phép
+
+Xem thông tin giấy phép và điều khoản sử dụng trong repository trước khi phân phối cho khách hàng.

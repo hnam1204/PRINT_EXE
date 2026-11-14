@@ -101,19 +101,29 @@ public class ServerService : IDisposable
 
     public void LoadPrinters()
     {
-        SharedPrinters.Clear();
+        ApplyPrinterScan(ScanPrinters());
+    }
+
+    public List<SharedPrinterInfo> ScanPrinters()
+    {
         var installed = _printerService.GetInstalledPrinters();
         foreach (var p in installed)
         {
-            bool isShared = _settings.SharedPrinterNames.Contains(p.Name, StringComparer.OrdinalIgnoreCase)
+            p.IsShared = _settings.SharedPrinterNames.Contains(p.Name, StringComparer.OrdinalIgnoreCase)
                 || (!string.IsNullOrEmpty(_settings.SelectedPrinterName) && string.Equals(p.Name, _settings.SelectedPrinterName, StringComparison.OrdinalIgnoreCase));
+            p.IsDefault = !string.IsNullOrWhiteSpace(_settings.SelectedPrinterName)
+                && string.Equals(p.Name, _settings.SelectedPrinterName, StringComparison.OrdinalIgnoreCase);
+        }
+        return installed;
+    }
 
-            p.IsShared = isShared;
-            if (!string.IsNullOrWhiteSpace(_settings.SelectedPrinterName))
-            {
-                p.IsDefault = string.Equals(p.Name, _settings.SelectedPrinterName, StringComparison.OrdinalIgnoreCase);
-            }
-            if (isShared && ActiveSharedPrinter == null)
+    public void ApplyPrinterScan(IEnumerable<SharedPrinterInfo> printers)
+    {
+        ActiveSharedPrinter = null;
+        SharedPrinters.Clear();
+        foreach (var p in printers)
+        {
+            if (p.IsShared && ActiveSharedPrinter == null)
             {
                 ActiveSharedPrinter = p;
             }

@@ -17,6 +17,7 @@ public partial class UpdateControl : UserControl
     private readonly DispatcherTimer _periodicTimer = new();
     
     public Func<bool>? HasActivePrintJobsCheck { get; set; }
+    public event EventHandler<string>? StatusChanged;
 
     public UpdateControl()
     {
@@ -72,7 +73,6 @@ public partial class UpdateControl : UserControl
     {
         TxtCurrentVersion.Text = $"V{_settings.AppVersion}";
         TxtCurrentChannel.Text = _settings.UpdateChannel == "Beta" ? "Bản thử nghiệm" : "Bản chính thức";
-        TxtFeedUrl.Text = _settings.UpdateFeedUrl;
         ChkAutoCheck.IsChecked = _settings.AutoCheckUpdates;
         ChkAutoInstall.IsChecked = _settings.AutoInstallUpdates;
 
@@ -99,12 +99,15 @@ public partial class UpdateControl : UserControl
         await CheckForUpdatesInternalAsync(silent: false);
     }
 
+    public Task CheckNowAsync() => CheckForUpdatesInternalAsync(silent: false);
+
     private async Task CheckForUpdatesInternalAsync(bool silent)
     {
         BtnCheckUpdate.IsEnabled = false;
         SetStatusState("Đang kiểm tra", PrimaryColor, LightPrimaryColor);
 
-        var result = await UpdateService.CheckForUpdatesAsync(_settings.UpdateFeedUrl, _settings.AppVersion, _settings.UpdateChannel);
+        string updateSource = string.IsNullOrWhiteSpace(_settings.UpdateRepositoryUrl) ? _settings.UpdateFeedUrl : _settings.UpdateRepositoryUrl;
+        var result = await UpdateService.CheckForUpdatesAsync(updateSource, _settings.AppVersion, _settings.UpdateChannel);
 
         BtnCheckUpdate.IsEnabled = true;
 
@@ -192,22 +195,22 @@ public partial class UpdateControl : UserControl
     {
         if (_availableManifest == null) return;
 
+        if (!UpdateService.CanUpdateInstallation(out string permissionError))
+        {
+            MessageBox.Show(permissionError, "Chưa thể cập nhật", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
         // 1. Check if there are active print jobs in progress
         if (HasActivePrintJobsCheck != null && HasActivePrintJobsCheck.Invoke())
         {
-            var choice = MessageBox.Show(
-                "Đang có lệnh in.\n\n" +
-                "Bạn muốn chờ in xong không?\n\n" +
-                "Chọn Có để chờ hoặc Không để cập nhật ngay.",
+            MessageBox.Show(
+                "Đang có lệnh in chưa hoàn tất. Hãy chờ đến khi hàng đợi trống rồi cập nhật để không làm gián đoạn công việc.",
                 "Đang in",
-                MessageBoxButton.YesNoCancel,
+                MessageBoxButton.OK,
                 MessageBoxImage.Warning
             );
-
-            if (choice == MessageBoxResult.Yes || choice == MessageBoxResult.Cancel)
-            {
-                return;
-            }
+            return;
         }
 
         // 2. Begin download
@@ -241,20 +244,18 @@ public partial class UpdateControl : UserControl
         SetStatusState("Đang cài đặt", SuccessColor, LightGreenColor);
         TxtProgressStatus.Text = "Đang cài đặt và khởi động lại...";
 
-        // Record history before restarting
-        var historyItem = new UpdateHistoryItem
+        try
         {
-            FromVersion = _settings.AppVersion,
-            ToVersion = _availableManifest.Version,
-            Channel = _availableManifest.Channel,
-            InstalledAt = DateTime.UtcNow,
-            Status = "Thành công",
-            Notes = $"Cập nhật lên V{_availableManifest.Version} ({_availableManifest.Channel})"
-        };
-
-        _settings.AppVersion = _availableManifest.Version;
-        _settings.UpdateHistory.Insert(0, historyItem);
-        ConfigManager.Save(_settings);
+            ConfigManager.BackupForUpdate();
+        }
+        catch (Exception ex)
+        {
+            SetStatusState("Không thể sao lưu", DangerColor, LightRedColor);
+            MessageBox.Show($"Không thể sao lưu cấu hình trước khi cập nhật: {ex.Message}", "Lỗi cập nhật", MessageBoxButton.OK, MessageBoxImage.Error);
+            BtnUpdateNow.IsEnabled = true;
+            BtnCheckUpdate.IsEnabled = true;
+            return;
+        }
 
         await Task.Delay(800);
 
@@ -269,6 +270,7 @@ public partial class UpdateControl : UserControl
         }
         else
         {
+            UpdateService.WritePendingUpdate(_settings.AppVersion, _availableManifest);
             Application.Current?.Shutdown();
         }
     }
@@ -354,6 +356,7 @@ public partial class UpdateControl : UserControl
         TxtStatusBadge.Foreground = textColor;
         DotUpdateStatus.Fill = textColor;
         BorderStatusBadge.Background = bgColor;
+        StatusChanged?.Invoke(this, text);
     }
 
     private static readonly SolidColorBrush PrimaryColor = new(Color.FromArgb(255, 255, 121, 0)); // #FF7900 Cam chính

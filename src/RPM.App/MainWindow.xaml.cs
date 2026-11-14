@@ -5,6 +5,7 @@ using RPM.App.Services;
 using RPM.App.Views;
 using RPM.Core.Config;
 using RPM.Core.Models;
+using RPM.Core.Update;
 
 namespace RPM.App;
 
@@ -22,6 +23,9 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         _settings = ConfigManager.Load();
+        _settings.AppVersion = UpdateService.GetInstalledVersion();
+        UpdateService.CompletePendingUpdate(_settings);
+        ConfigManager.Save(_settings);
 
         Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;

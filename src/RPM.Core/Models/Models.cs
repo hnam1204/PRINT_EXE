@@ -37,6 +37,9 @@ public class DeviceInfo
     public string AllowedPrintersSummary => AllowedPrinters == null || AllowedPrinters.Count == 0
         ? "Tất cả máy in chia sẻ"
         : string.Join(", ", AllowedPrinters);
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string DeviceStatus => IsBlocked ? "Đã từ chối" : !IsApproved ? "Chờ phê duyệt" : IsOnline ? "Trực tuyến" : "Ngoại tuyến";
 }
 
 public class SharedPrinterInfo
