@@ -11,14 +11,14 @@ using RPM.Printing;
 
 namespace RPM.App.Views;
 
-public enum DashboardSubView
+public enum SettingsTab
 {
-    Home,
+    General,
     Printers,
     Devices,
     Queue,
     Diagnostics,
-    Settings
+    Update
 }
 
 public partial class MainDashboardView : UserControl
@@ -34,8 +34,9 @@ public partial class MainDashboardView : UserControl
     private readonly ObservableCollection<PrintJob> _allJobs = new();
     private readonly ObservableCollection<AuditCheckItem> _auditItems = new();
 
-    private DashboardSubView _currentSubView = DashboardSubView.Home;
     private bool _isViewLoaded = false;
+    private bool _isSettingsOpen = false;
+    private SettingsTab _currentSettingsTab = SettingsTab.General;
 
     public event EventHandler? OnMinimizeRequested;
     public event EventHandler? OnRoleChangeRequested;
@@ -62,11 +63,11 @@ public partial class MainDashboardView : UserControl
             _serverService.PrintJobs.CollectionChanged += (s, e) => Dispatcher.Invoke(() =>
             {
                 RefreshRecentJobs();
-                if (_currentSubView == DashboardSubView.Queue) LoadQueueView();
+                if (_isSettingsOpen && _currentSettingsTab == SettingsTab.Queue) LoadQueueView();
             });
             _serverService.ConnectedClients.CollectionChanged += (s, e) => Dispatcher.Invoke(() =>
             {
-                if (_currentSubView == DashboardSubView.Devices) ApplyClientFilters();
+                if (_isSettingsOpen && _currentSettingsTab == SettingsTab.Devices) ApplyClientFilters();
                 UpdateServerUI();
             });
         }
@@ -77,7 +78,7 @@ public partial class MainDashboardView : UserControl
             _clientService.PrintHistory.CollectionChanged += (s, e) => Dispatcher.Invoke(() =>
             {
                 RefreshRecentJobs();
-                if (_currentSubView == DashboardSubView.Queue) LoadQueueView();
+                if (_isSettingsOpen && _currentSettingsTab == SettingsTab.Queue) LoadQueueView();
             });
         }
 
@@ -87,12 +88,12 @@ public partial class MainDashboardView : UserControl
     private void MainDashboardView_Loaded(object sender, RoutedEventArgs e)
     {
         _isViewLoaded = true;
+
         if (_settings.Role == AppRole.Server)
         {
             PanelServerMode.Visibility = Visibility.Visible;
             PanelClientMode.Visibility = Visibility.Collapsed;
-            ToolbarServer.Visibility = Visibility.Visible;
-            ToolbarClient.Visibility = Visibility.Collapsed;
+            BtnTabDevices.Visibility = Visibility.Visible;
 
             TxtServerHostName.Text = _settings.DeviceName;
             TxtServerPairingCode.Text = _settings.PairingCode;
@@ -103,8 +104,7 @@ public partial class MainDashboardView : UserControl
         {
             PanelServerMode.Visibility = Visibility.Collapsed;
             PanelClientMode.Visibility = Visibility.Visible;
-            ToolbarServer.Visibility = Visibility.Collapsed;
-            ToolbarClient.Visibility = Visibility.Visible;
+            BtnTabDevices.Visibility = Visibility.Collapsed;
 
             TxtClientCodeInput.Text = _settings.PairingCode;
 
@@ -112,100 +112,87 @@ public partial class MainDashboardView : UserControl
         }
 
         RefreshRecentJobs();
-        SetActiveView(DashboardSubView.Home);
+        CloseSettings();
     }
 
     // =========================================================
-    // IN-PAGE NAVIGATION SYSTEM (SINGLE-WINDOW / ZERO POPUPS)
+    // NAVIGATION: HOME <-> SETTINGS CENTER
     // =========================================================
 
-    public void SetActiveView(DashboardSubView view)
+    public void OpenSettings(SettingsTab tab = SettingsTab.General)
     {
-        _currentSubView = view;
+        _isSettingsOpen = true;
+        ViewHome.Visibility = Visibility.Collapsed;
+        ViewSettings.Visibility = Visibility.Visible;
+        BtnHeaderBackToHome.Visibility = Visibility.Visible;
 
-        // 1. Toggle visibility of sub-views
-        ViewHome.Visibility = (view == DashboardSubView.Home) ? Visibility.Visible : Visibility.Collapsed;
-        ViewPrinters.Visibility = (view == DashboardSubView.Printers) ? Visibility.Visible : Visibility.Collapsed;
-        ViewDevices.Visibility = (view == DashboardSubView.Devices) ? Visibility.Visible : Visibility.Collapsed;
-        ViewQueue.Visibility = (view == DashboardSubView.Queue) ? Visibility.Visible : Visibility.Collapsed;
-        ViewDiagnostics.Visibility = (view == DashboardSubView.Diagnostics) ? Visibility.Visible : Visibility.Collapsed;
-        ViewSettings.Visibility = (view == DashboardSubView.Settings) ? Visibility.Visible : Visibility.Collapsed;
-
-        // 2. Header Back Button
-        BtnHeaderBackToHome.Visibility = (view == DashboardSubView.Home) ? Visibility.Collapsed : Visibility.Visible;
-
-        // 3. Update Subtitle
-        switch (view)
-        {
-            case DashboardSubView.Home:
-                TxtRoleSubtitle.Text = _settings.Role == AppRole.Server ? "MÁY CHỦ IN ẤN (SERVER)" : "MÁY CON IN TỪ XA (CLIENT)";
-                break;
-            case DashboardSubView.Printers:
-                TxtRoleSubtitle.Text = "QUẢN LÝ VÀ CHIA SẺ MÁY IN";
-                break;
-            case DashboardSubView.Devices:
-                TxtRoleSubtitle.Text = "QUẢN LÝ THIẾT BỊ MÁY CON";
-                break;
-            case DashboardSubView.Queue:
-                TxtRoleSubtitle.Text = "HÀNG ĐỢI LỆNH IN & LỊCH SỬ";
-                break;
-            case DashboardSubView.Diagnostics:
-                TxtRoleSubtitle.Text = "CHẨN ĐOÁN HỆ THỐNG & ĐỘ TƯƠNG THÍCH";
-                break;
-            case DashboardSubView.Settings:
-                TxtRoleSubtitle.Text = "CÀI ĐẶT & NÂNG CẤP PHẦN MỀM";
-                break;
-        }
-
-        // 4. Update Navigation Toolbar Button Active States
-        UpdateToolbarStyles(view);
-
-        // 5. Trigger view-specific data loader
-        switch (view)
-        {
-            case DashboardSubView.Home:
-                if (_settings.Role == AppRole.Server) UpdateServerUI();
-                else UpdateClientUI();
-                RefreshRecentJobs();
-                break;
-            case DashboardSubView.Printers:
-                LoadPrintersView();
-                break;
-            case DashboardSubView.Devices:
-                LoadDevicesView();
-                break;
-            case DashboardSubView.Queue:
-                LoadQueueView();
-                break;
-            case DashboardSubView.Diagnostics:
-                LoadDiagnosticsView();
-                break;
-            case DashboardSubView.Settings:
-                LoadSettingsView();
-                break;
-        }
+        SelectSettingsTab(tab);
     }
 
-    private void UpdateToolbarStyles(DashboardSubView view)
+    public void CloseSettings()
     {
+        _isSettingsOpen = false;
+        ViewHome.Visibility = Visibility.Visible;
+        ViewSettings.Visibility = Visibility.Collapsed;
+        BtnHeaderBackToHome.Visibility = Visibility.Collapsed;
+
+        TxtRoleSubtitle.Text = _settings.Role == AppRole.Server ? "MÁY CHỦ IN ẤN (SERVER)" : "MÁY CON IN TỪ XA (CLIENT)";
+
+        if (_settings.Role == AppRole.Server) UpdateServerUI();
+        else UpdateClientUI();
+        RefreshRecentJobs();
+    }
+
+    private void SelectSettingsTab(SettingsTab tab)
+    {
+        _currentSettingsTab = tab;
+
+        // Toggle content containers
+        TabContentGeneral.Visibility = (tab == SettingsTab.General) ? Visibility.Visible : Visibility.Collapsed;
+        TabContentPrinters.Visibility = (tab == SettingsTab.Printers) ? Visibility.Visible : Visibility.Collapsed;
+        TabContentDevices.Visibility = (tab == SettingsTab.Devices) ? Visibility.Visible : Visibility.Collapsed;
+        TabContentQueue.Visibility = (tab == SettingsTab.Queue) ? Visibility.Visible : Visibility.Collapsed;
+        TabContentDiagnostics.Visibility = (tab == SettingsTab.Diagnostics) ? Visibility.Visible : Visibility.Collapsed;
+        TabContentUpdate.Visibility = (tab == SettingsTab.Update) ? Visibility.Visible : Visibility.Collapsed;
+
+        // Update Tab button active styles
         var primary = (Style)Application.Current.Resources["PrimaryBtn"];
         var secondary = (Style)Application.Current.Resources["SecondaryBtn"];
 
-        if (_settings.Role == AppRole.Server)
+        BtnTabGeneral.Style = (tab == SettingsTab.General) ? primary : secondary;
+        BtnTabPrinters.Style = (tab == SettingsTab.Printers) ? primary : secondary;
+        BtnTabDevices.Style = (tab == SettingsTab.Devices) ? primary : secondary;
+        BtnTabQueue.Style = (tab == SettingsTab.Queue) ? primary : secondary;
+        BtnTabDiagnostics.Style = (tab == SettingsTab.Diagnostics) ? primary : secondary;
+        BtnTabUpdate.Style = (tab == SettingsTab.Update) ? primary : secondary;
+
+        // Update Subtitle
+        switch (tab)
         {
-            BtnNavHome.Style = (view == DashboardSubView.Home) ? primary : secondary;
-            BtnNavPrinters.Style = (view == DashboardSubView.Printers) ? primary : secondary;
-            BtnNavDevices.Style = (view == DashboardSubView.Devices) ? primary : secondary;
-            BtnNavQueue.Style = (view == DashboardSubView.Queue) ? primary : secondary;
-            BtnNavDiagnostics.Style = (view == DashboardSubView.Diagnostics) ? primary : secondary;
-            BtnNavSettings.Style = (view == DashboardSubView.Settings) ? primary : secondary;
-        }
-        else
-        {
-            BtnNavHomeClient.Style = (view == DashboardSubView.Home) ? primary : secondary;
-            BtnNavQueueClient.Style = (view == DashboardSubView.Queue) ? primary : secondary;
-            BtnNavDiagnosticsClient.Style = (view == DashboardSubView.Diagnostics) ? primary : secondary;
-            BtnNavSettingsClient.Style = (view == DashboardSubView.Settings) ? primary : secondary;
+            case SettingsTab.General:
+                TxtRoleSubtitle.Text = "CÀI ĐẶT: THIẾT LẬP HỆ THỐNG";
+                LoadGeneralSettingsView();
+                break;
+            case SettingsTab.Printers:
+                TxtRoleSubtitle.Text = "CÀI ĐẶT: QUẢN LÝ MÁY IN";
+                LoadPrintersView();
+                break;
+            case SettingsTab.Devices:
+                TxtRoleSubtitle.Text = "CÀI ĐẶT: QUẢN LÝ THIẾT BỊ MÁY CON";
+                LoadDevicesView();
+                break;
+            case SettingsTab.Queue:
+                TxtRoleSubtitle.Text = "CÀI ĐẶT: HÀNG ĐỢI LỆNH IN";
+                LoadQueueView();
+                break;
+            case SettingsTab.Diagnostics:
+                TxtRoleSubtitle.Text = "CÀI ĐẶT: CHẨN ĐOÁN HỆ THỐNG";
+                LoadDiagnosticsView();
+                break;
+            case SettingsTab.Update:
+                TxtRoleSubtitle.Text = "CÀI ĐẶT: CẬP NHẬT PHẦN MỀM";
+                LoadUpdateView();
+                break;
         }
     }
 
@@ -317,7 +304,76 @@ public partial class MainDashboardView : UserControl
     }
 
     // =========================================================
-    // VIEW 1: PRINTERS LOGIC
+    // TAB: GENERAL SETTINGS
+    // =========================================================
+
+    private void LoadGeneralSettingsView()
+    {
+        TxtSettingsDeviceName.Text = _settings.DeviceName;
+        TxtSettingsPairingCode.Text = _settings.PairingCode;
+        TxtSettingsRelayUrl.Text = _settings.RelayServerUrl;
+        ChkSettingsAutoStart.IsChecked = _settings.AutoStartWithWindows;
+        ChkSettingsMinimizeTray.IsChecked = _settings.MinimizeToSystemTray;
+        ChkSettingsNotifications.IsChecked = _settings.ShowDesktopNotifications;
+
+        TxtSwitchRoleBtn.Text = _settings.Role == AppRole.Server ? "⇄ Đổi sang Chế độ Máy Con" : "⇄ Đổi sang Chế độ Máy Chủ";
+    }
+
+    private void BtnSettingsRegenerateCode_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.PairingCode = RPMCrypto.GeneratePairingCode();
+        TxtSettingsPairingCode.Text = _settings.PairingCode;
+        MessageBox.Show($"Đã sinh mã ghép đôi mới: '{_settings.PairingCode}'.\nNhớ nhấn 'Lưu cấu hình cài đặt' để áp dụng.", "Mã mới", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void BtnSaveSettings_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.DeviceName = TxtSettingsDeviceName.Text.Trim();
+        _settings.PairingCode = TxtSettingsPairingCode.Text.Trim();
+        _settings.RelayServerUrl = TxtSettingsRelayUrl.Text.Trim();
+        _settings.AutoStartWithWindows = ChkSettingsAutoStart.IsChecked == true;
+        _settings.MinimizeToSystemTray = ChkSettingsMinimizeTray.IsChecked == true;
+        _settings.ShowDesktopNotifications = ChkSettingsNotifications.IsChecked == true;
+
+        ConfigManager.Save(_settings);
+
+        if (_settings.Role == AppRole.Server)
+        {
+            TxtServerHostName.Text = _settings.DeviceName;
+            TxtServerPairingCode.Text = _settings.PairingCode;
+            UpdateServerUI();
+        }
+        else
+        {
+            TxtClientCodeInput.Text = _settings.PairingCode;
+            UpdateClientUI();
+        }
+
+        MessageBox.Show("Đã lưu toàn bộ cấu hình thiết lập thành công!", "Lưu thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void BtnSwitchRole_Click(object sender, RoutedEventArgs e)
+    {
+        var targetRole = _settings.Role == AppRole.Server ? AppRole.Client : AppRole.Server;
+        string targetRoleName = targetRole == AppRole.Server ? "MÁY CHỦ" : "MÁY CON";
+
+        var confirm = MessageBox.Show(
+            $"Bạn có chắc chắn muốn chuyển đổi vai trò phần mềm sang [{targetRoleName}]?\n\nỨng dụng sẽ áp dụng vai trò mới và bảo toàn 100% cấu hình hiện tại.",
+            "Xác nhận đổi vai trò",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question
+        );
+
+        if (confirm == MessageBoxResult.Yes)
+        {
+            _settings.Role = targetRole;
+            ConfigManager.Save(_settings);
+            OnRoleChangeRequested?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    // =========================================================
+    // TAB: PRINTERS
     // =========================================================
 
     private void LoadPrintersView()
@@ -400,7 +456,7 @@ public partial class MainDashboardView : UserControl
     }
 
     // =========================================================
-    // VIEW 2: DEVICES LOGIC
+    // TAB: DEVICES
     // =========================================================
 
     private void LoadDevicesView()
@@ -583,7 +639,7 @@ public partial class MainDashboardView : UserControl
     }
 
     // =========================================================
-    // VIEW 3: QUEUE LOGIC
+    // TAB: QUEUE
     // =========================================================
 
     private void LoadQueueView()
@@ -640,7 +696,7 @@ public partial class MainDashboardView : UserControl
     }
 
     // =========================================================
-    // VIEW 4: DIAGNOSTICS LOGIC
+    // TAB: DIAGNOSTICS
     // =========================================================
 
     private void LoadDiagnosticsView()
@@ -672,20 +728,11 @@ public partial class MainDashboardView : UserControl
     }
 
     // =========================================================
-    // VIEW 5: SETTINGS LOGIC
+    // TAB: UPDATE
     // =========================================================
 
-    private void LoadSettingsView()
+    private void LoadUpdateView()
     {
-        TxtSettingsDeviceName.Text = _settings.DeviceName;
-        TxtSettingsPairingCode.Text = _settings.PairingCode;
-        TxtSettingsRelayUrl.Text = _settings.RelayServerUrl;
-        ChkSettingsAutoStart.IsChecked = _settings.AutoStartWithWindows;
-        ChkSettingsMinimizeTray.IsChecked = _settings.MinimizeToSystemTray;
-        ChkSettingsNotifications.IsChecked = _settings.ShowDesktopNotifications;
-
-        TxtSwitchRoleBtn.Text = _settings.Role == AppRole.Server ? "⇄ Đổi sang Chế độ Máy Con" : "⇄ Đổi sang Chế độ Máy Chủ";
-
         SettingsUpdateControl.Initialize(_settings);
         SettingsUpdateControl.HasActivePrintJobsCheck = () =>
         {
@@ -695,75 +742,26 @@ public partial class MainDashboardView : UserControl
         };
     }
 
-    private void BtnSettingsRegenerateCode_Click(object sender, RoutedEventArgs e)
-    {
-        _settings.PairingCode = RPMCrypto.GeneratePairingCode();
-        TxtSettingsPairingCode.Text = _settings.PairingCode;
-        MessageBox.Show($"Đã sinh mã ghép đôi mới: '{_settings.PairingCode}'.\nNhớ nhấn 'Lưu cấu hình cài đặt' để áp dụng.", "Mã mới", MessageBoxButton.OK, MessageBoxImage.Information);
-    }
+    // =========================================================
+    // TAB BAR BUTTON CLICKS
+    // =========================================================
 
-    private void BtnSaveSettings_Click(object sender, RoutedEventArgs e)
-    {
-        _settings.DeviceName = TxtSettingsDeviceName.Text.Trim();
-        _settings.PairingCode = TxtSettingsPairingCode.Text.Trim();
-        _settings.RelayServerUrl = TxtSettingsRelayUrl.Text.Trim();
-        _settings.AutoStartWithWindows = ChkSettingsAutoStart.IsChecked == true;
-        _settings.MinimizeToSystemTray = ChkSettingsMinimizeTray.IsChecked == true;
-        _settings.ShowDesktopNotifications = ChkSettingsNotifications.IsChecked == true;
-
-        ConfigManager.Save(_settings);
-
-        if (_settings.Role == AppRole.Server)
-        {
-            TxtServerHostName.Text = _settings.DeviceName;
-            TxtServerPairingCode.Text = _settings.PairingCode;
-            UpdateServerUI();
-        }
-        else
-        {
-            TxtClientCodeInput.Text = _settings.PairingCode;
-            UpdateClientUI();
-        }
-
-        MessageBox.Show("Đã lưu toàn bộ cấu hình thiết lập thành công!", "Lưu thành công", MessageBoxButton.OK, MessageBoxImage.Information);
-        SetActiveView(DashboardSubView.Home);
-    }
-
-    private void BtnSwitchRole_Click(object sender, RoutedEventArgs e)
-    {
-        var targetRole = _settings.Role == AppRole.Server ? AppRole.Client : AppRole.Server;
-        string targetRoleName = targetRole == AppRole.Server ? "MÁY CHỦ" : "MÁY CON";
-
-        var confirm = MessageBox.Show(
-            $"Bạn có chắc chắn muốn chuyển đổi vai trò phần mềm sang [{targetRoleName}]?\n\nỨng dụng sẽ áp dụng vai trò mới và bảo toàn 100% cấu hình hiện tại.",
-            "Xác nhận đổi vai trò",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question
-        );
-
-        if (confirm == MessageBoxResult.Yes)
-        {
-            _settings.Role = targetRole;
-            ConfigManager.Save(_settings);
-            OnRoleChangeRequested?.Invoke(this, EventArgs.Empty);
-        }
-    }
+    private void BtnTabGeneral_Click(object sender, RoutedEventArgs e) => SelectSettingsTab(SettingsTab.General);
+    private void BtnTabPrinters_Click(object sender, RoutedEventArgs e) => SelectSettingsTab(SettingsTab.Printers);
+    private void BtnTabDevices_Click(object sender, RoutedEventArgs e) => SelectSettingsTab(SettingsTab.Devices);
+    private void BtnTabQueue_Click(object sender, RoutedEventArgs e) => SelectSettingsTab(SettingsTab.Queue);
+    private void BtnTabDiagnostics_Click(object sender, RoutedEventArgs e) => SelectSettingsTab(SettingsTab.Diagnostics);
+    private void BtnTabUpdate_Click(object sender, RoutedEventArgs e) => SelectSettingsTab(SettingsTab.Update);
 
     // =========================================================
     // GLOBAL BUTTON HANDLERS
     // =========================================================
 
-    private void BtnBackToHome_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Home);
-    private void BtnNavHome_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Home);
-    private void BtnNavPrinters_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Printers);
-    private void BtnNavDevices_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Devices);
-    private void BtnNavQueue_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Queue);
-    private void BtnNavDiagnostics_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Diagnostics);
-    private void BtnNavSettings_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Settings);
+    private void BtnBackToHome_Click(object sender, RoutedEventArgs e) => CloseSettings();
+    private void BtnOpenSettings_Click(object sender, RoutedEventArgs e) => OpenSettings(SettingsTab.General);
 
-    private void BtnOpenPrinterDialog_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Printers);
-    private void BtnOpenQueueDialog_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Queue);
-    private void BtnOpenSettings_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Settings);
+    private void BtnOpenPrinterDialog_Click(object sender, RoutedEventArgs e) => OpenSettings(SettingsTab.Printers);
+    private void BtnOpenQueueDialog_Click(object sender, RoutedEventArgs e) => OpenSettings(SettingsTab.Queue);
 
     private void BtnMinimize_Click(object sender, RoutedEventArgs e) => OnMinimizeRequested?.Invoke(this, EventArgs.Empty);
 
@@ -818,23 +816,6 @@ public partial class MainDashboardView : UserControl
         else
         {
             MessageBox.Show("Không thể gửi lệnh in. Hãy chắc chắn rằng máy chủ đang mở và kết nối mạng ổn định.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
-    }
-
-    private async void BtnClientInstallVirtualPrinter_Click(object sender, RoutedEventArgs e)
-    {
-        string expectedPrinterName = _clientService?.RemotePrinter != null 
-            ? $"{_clientService.RemotePrinter.Name} (Remote)" 
-            : "Remote Office Printer";
-
-        var (success, msg) = await VirtualPrinterManager.InstallVirtualPrinterAsync(expectedPrinterName, _settings.LocalIppPort);
-        if (success)
-        {
-            MessageBox.Show($"Đã cài đặt máy in ảo '{expectedPrinterName}' vào Windows thành công!\nBây giờ bạn có thể mở Word, Excel, Chrome và nhấn Ctrl + P để in.", "Cài đặt thành công", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-        else
-        {
-            MessageBox.Show($"Không thể tự động cài máy in: {msg}\n\n* Lưu ý: Lệnh này đòi hỏi quyền Administrator của Windows. Vui lòng đóng phần mềm và mở lại bằng chuột phải -> 'Run as administrator'.", "Yêu cầu quyền Administrator", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 }

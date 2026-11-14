@@ -2,11 +2,11 @@ param(
     [string]$Version = "1.0.1",
     [string]$Channel = "Beta",
     [string[]]$Changelog = @(
-        "Tich hop 100% cac chuc nang vao CUNG 1 TRANG duy nhat (Zero-Popup Single Window UI)",
-        "Khoa nut mo rong cua so (Maximize/Resize), co dinh kich thuoc 920x630px tieu chuan",
-        "Chong mo UI toan dien: Bat ClearType Display Pixel Snapping, nang cao do tuong phan vien va font chu",
-        "Hoan thien bo dieu huong in-page voi nut Quay lai Trang Chu va toolbar nhan dien trang thai",
-        "Khac phuc triet de ngoai le TrayService khi tat ung dung, bao toan 100% du lieu"
+        "Toi gian hoan toan Trang chu: Bo thanh toolbar day man hinh, gom 100% chuc nang vao trung tam Cai dat",
+        "Tich hop 6 tab in-page trong Cai dat: Thiet lap chung, May in, Thiet bi, Hang doi in, Chan doan, Cap nhat",
+        "Sua triet de loi khoi dong NullReferenceException (ApplyClientFilters) khi nap ung dung",
+        "Sua triet de loi mat icon tren Taskbar, Explorer va System Tray voi icon multi-res sac net",
+        "Khoa nut mo rong Maximize, co dinh kich thuoc chuan 920x630px, ClearType Display Pixel Snapping"
     )
 )
 
