@@ -264,9 +264,9 @@ public static class LiveSystemAuditor
             GroupName = "3. Ghép nối, xác thực và phân quyền",
             Name = "Ghép nối thành công từ máy con thật",
             WeightPercent = 3.0,
-            Status = AuditStatus.NotTested,
+            Status = AuditStatus.Blocked,
             DataSource = DataSourceType.RealData,
-            Evidence = "Chưa có thiết bị máy con thứ hai gửi bản tin Pairing Request qua Relay.",
+            Evidence = "Chưa có thiết bị máy con thứ hai gửi bản tin Pairing Request qua Relay (Môi trường test hiện tại chỉ có 01 máy tính MSI).",
             Recommendation = "Chạy phần mềm ở chế độ Máy Con trên máy tính thứ 2 để ghép đôi."
         });
 

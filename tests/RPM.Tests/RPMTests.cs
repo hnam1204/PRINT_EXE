@@ -543,7 +543,9 @@ public class RPMTests
     [Fact]
     public void Audit_LiveSystemAuditor_CalculatesExactWeightsAndRejectsMockData()
     {
-        var audit = LiveSystemAuditor.RunAudit();
+        var svc = new PrinterService();
+        var printers = svc.GetInstalledPrinters();
+        var audit = LiveSystemAuditor.RunAudit(null, printers);
 
         Assert.NotNull(audit);
         Assert.NotEmpty(audit.OperatingSystem);
@@ -560,6 +562,10 @@ public class RPMTests
         // Verified percent must be based solely on PASS items
         double expectedVerified = audit.Items.Where(i => i.Status == AuditStatus.Pass).Sum(i => i.WeightPercent);
         Assert.Equal(Math.Round(expectedVerified, 1), audit.VerifiedOperationalPercent);
+        Assert.Equal(22, audit.PassCount);
+        Assert.Equal(5, audit.BlockedCount);
+        Assert.Equal(0, audit.FailCount);
+        Assert.Equal(77.0, audit.VerifiedOperationalPercent);
 
         // Verify the 7 groups exist
         Assert.Equal(7, audit.Groups.Count);
