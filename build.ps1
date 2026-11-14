@@ -2,11 +2,11 @@ param(
     [string]$Version = "1.0.1",
     [string]$Channel = "Beta",
     [string[]]$Changelog = @(
-        "Toi uu hoa giao dien One-Screen Minimal Desktop mo hinh UltraViewer",
-        "Chuan hoa bo nhan dien thuong hieu NHN Blue (#001947, #0078F9, #F6F9FF)",
-        "Tach cac tinh nang quan tri chuyen sau vao Dialog: May In, Thiet Bi, Hang Doi",
-        "Toi uu hoa hieu nang: khong con load lai toan bo du lieu Windows lien tuc",
-        "Tu dong bao toan 100% cau hinh va thiet lap in an"
+        "Tich hop 100% cac chuc nang vao CUNG 1 TRANG duy nhat (Zero-Popup Single Window UI)",
+        "Khoa nut mo rong cua so (Maximize/Resize), co dinh kich thuoc 920x630px tieu chuan",
+        "Chong mo UI toan dien: Bat ClearType Display Pixel Snapping, nang cao do tuong phan vien va font chu",
+        "Hoan thien bo dieu huong in-page voi nut Quay lai Trang Chu va toolbar nhan dien trang thai",
+        "Khac phuc triet de ngoai le TrayService khi tat ung dung, bao toan 100% du lieu"
     )
 )
 

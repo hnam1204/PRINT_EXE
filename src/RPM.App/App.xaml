@@ -64,29 +64,55 @@
             <SolidColorBrush x:Key="DangerLightBrush" Color="#FAECEB"/>
 
             <!-- Nền ứng dụng & Card: Light Mode NHN -->
-            <SolidColorBrush x:Key="BgBrush" Color="#F6F9FF"/>
+            <SolidColorBrush x:Key="BgBrush" Color="#F4F7FC"/>
             <SolidColorBrush x:Key="CardBgBrush" Color="#FFFFFF"/>
-            <SolidColorBrush x:Key="BorderBrush" Color="#E2E8F0"/>
-            <SolidColorBrush x:Key="BorderLightBrush" Color="#EEF2F6"/>
+            <SolidColorBrush x:Key="BorderBrush" Color="#CBD5E1"/>
+            <SolidColorBrush x:Key="BorderLightBrush" Color="#E2E8F0"/>
 
-            <!-- Chữ chính: #14233B -->
-            <SolidColorBrush x:Key="TextMainBrush" Color="#14233B"/>
-            <SolidColorBrush x:Key="TextMutedBrush" Color="#64748B"/>
-            <SolidColorBrush x:Key="TextSubtleBrush" Color="#94A3B8"/>
+            <!-- Chữ chính: Siêu sắc nét #0F172A -->
+            <SolidColorBrush x:Key="TextMainBrush" Color="#0F172A"/>
+            <SolidColorBrush x:Key="TextMutedBrush" Color="#334155"/>
+            <SolidColorBrush x:Key="TextSubtleBrush" Color="#64748B"/>
 
             <!-- Typography: Be Vietnam Pro with modern system fallbacks -->
-            <FontFamily x:Key="SegoeFont">Be Vietnam Pro, Segoe UI Variable Display, Segoe UI, -apple-system, sans-serif</FontFamily>
+            <FontFamily x:Key="SegoeFont">Segoe UI Variable Display, Segoe UI, Be Vietnam Pro, -apple-system, sans-serif</FontFamily>
 
-            <!-- Card Style with Soft Elevation -->
+            <!-- Global Crisp Text & Rendering Defaults -->
+            <Style TargetType="Window">
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="UseLayoutRounding" Value="True"/>
+                <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+                <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
+                <Setter Property="RenderOptions.ClearTypeHint" Value="Enabled"/>
+                <Setter Property="RenderOptions.BitmapScalingMode" Value="HighQuality"/>
+            </Style>
+
+            <Style TargetType="UserControl">
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="UseLayoutRounding" Value="True"/>
+                <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+                <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
+                <Setter Property="RenderOptions.ClearTypeHint" Value="Enabled"/>
+            </Style>
+
+            <Style TargetType="TextBlock">
+                <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+                <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
+                <Setter Property="RenderOptions.ClearTypeHint" Value="Enabled"/>
+            </Style>
+
+            <!-- Card Style with Sharp Borders (Anti-blur) -->
             <Style x:Key="CardBorder" TargetType="Border">
                 <Setter Property="Background" Value="{StaticResource CardBgBrush}"/>
                 <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="CornerRadius" Value="10"/>
-                <Setter Property="Padding" Value="16"/>
+                <Setter Property="CornerRadius" Value="8"/>
+                <Setter Property="Padding" Value="14"/>
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="UseLayoutRounding" Value="True"/>
                 <Setter Property="Effect">
                     <Setter.Value>
-                        <DropShadowEffect BlurRadius="10" ShadowDepth="2" Direction="270" Color="#001947" Opacity="0.04"/>
+                        <DropShadowEffect BlurRadius="4" ShadowDepth="1" Direction="270" Color="#001947" Opacity="0.04"/>
                     </Setter.Value>
                 </Setter>
             </Style>

@@ -85,8 +85,11 @@ public class TrayService : IDisposable
         {
             if (_notifyIcon != null)
             {
-                _notifyIcon.Visible = false;
-                _notifyIcon.Dispose();
+                var icon = _notifyIcon;
+                _notifyIcon = null;
+                try { icon.Visible = false; } catch { }
+                try { icon.ContextMenuStrip?.Dispose(); } catch { }
+                try { icon.Dispose(); } catch { }
             }
         }
         catch

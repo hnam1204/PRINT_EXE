@@ -4,17 +4,37 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using RPM.App.Services;
 using RPM.Core.Config;
+using RPM.Core.Diagnostics;
 using RPM.Core.Models;
+using RPM.Core.Security;
 using RPM.Printing;
 
 namespace RPM.App.Views;
+
+public enum DashboardSubView
+{
+    Home,
+    Printers,
+    Devices,
+    Queue,
+    Diagnostics,
+    Settings
+}
 
 public partial class MainDashboardView : UserControl
 {
     private readonly AppSettings _settings;
     private readonly ServerService? _serverService;
     private readonly ClientService? _clientService;
+
+    // Collections for in-page views
     private readonly ObservableCollection<PrintJob> _recentJobs = new();
+    private readonly ObservableCollection<SharedPrinterInfo> _sharedPrinters = new();
+    private readonly ObservableCollection<DeviceInfo> _filteredClients = new();
+    private readonly ObservableCollection<PrintJob> _allJobs = new();
+    private readonly ObservableCollection<AuditCheckItem> _auditItems = new();
+
+    private DashboardSubView _currentSubView = DashboardSubView.Home;
 
     public event EventHandler? OnMinimizeRequested;
     public event EventHandler? OnRoleChangeRequested;
@@ -27,18 +47,37 @@ public partial class MainDashboardView : UserControl
 
         InitializeComponent();
 
+        // Bind in-page controls
         IcRecentJobs.ItemsSource = _recentJobs;
+        DgPrinters.ItemsSource = _sharedPrinters;
+        DgClients.ItemsSource = _filteredClients;
+        DgQueue.ItemsSource = _allJobs;
+        DgAuditItems.ItemsSource = _auditItems;
 
+        // Register background sync events
         if (_serverService != null)
         {
             _serverService.OnStatusChanged += (s, e) => Dispatcher.Invoke(UpdateServerUI);
-            _serverService.PrintJobs.CollectionChanged += (s, e) => Dispatcher.Invoke(RefreshRecentJobs);
+            _serverService.PrintJobs.CollectionChanged += (s, e) => Dispatcher.Invoke(() =>
+            {
+                RefreshRecentJobs();
+                if (_currentSubView == DashboardSubView.Queue) LoadQueueView();
+            });
+            _serverService.ConnectedClients.CollectionChanged += (s, e) => Dispatcher.Invoke(() =>
+            {
+                if (_currentSubView == DashboardSubView.Devices) ApplyClientFilters();
+                UpdateServerUI();
+            });
         }
 
         if (_clientService != null)
         {
             _clientService.OnStateChanged += (s, e) => Dispatcher.Invoke(UpdateClientUI);
-            _clientService.PrintHistory.CollectionChanged += (s, e) => Dispatcher.Invoke(RefreshRecentJobs);
+            _clientService.PrintHistory.CollectionChanged += (s, e) => Dispatcher.Invoke(() =>
+            {
+                RefreshRecentJobs();
+                if (_currentSubView == DashboardSubView.Queue) LoadQueueView();
+            });
         }
 
         Loaded += MainDashboardView_Loaded;
@@ -53,9 +92,6 @@ public partial class MainDashboardView : UserControl
             ToolbarServer.Visibility = Visibility.Visible;
             ToolbarClient.Visibility = Visibility.Collapsed;
 
-            TxtRoleSubtitle.Text = "MÁY CHỦ IN ẤN (SERVER)";
-            TxtCardBTitle.Text = "THÔNG TIN MÁY CHỦ & KẾT NỐI";
-            TxtBadgeRole.Text = "Máy Chủ";
             TxtServerHostName.Text = _settings.DeviceName;
             TxtServerPairingCode.Text = _settings.PairingCode;
 
@@ -68,32 +104,125 @@ public partial class MainDashboardView : UserControl
             ToolbarServer.Visibility = Visibility.Collapsed;
             ToolbarClient.Visibility = Visibility.Visible;
 
-            TxtRoleSubtitle.Text = "MÁY CON IN TỪ XA (CLIENT)";
-            TxtCardBTitle.Text = "KẾT NỐI TỚI MÁY CHỦ";
-            TxtBadgeRole.Text = "Máy Con";
             TxtClientCodeInput.Text = _settings.PairingCode;
 
             UpdateClientUI();
         }
 
         RefreshRecentJobs();
+        SetActiveView(DashboardSubView.Home);
     }
+
+    // =========================================================
+    // IN-PAGE NAVIGATION SYSTEM (SINGLE-WINDOW / ZERO POPUPS)
+    // =========================================================
+
+    public void SetActiveView(DashboardSubView view)
+    {
+        _currentSubView = view;
+
+        // 1. Toggle visibility of sub-views
+        ViewHome.Visibility = (view == DashboardSubView.Home) ? Visibility.Visible : Visibility.Collapsed;
+        ViewPrinters.Visibility = (view == DashboardSubView.Printers) ? Visibility.Visible : Visibility.Collapsed;
+        ViewDevices.Visibility = (view == DashboardSubView.Devices) ? Visibility.Visible : Visibility.Collapsed;
+        ViewQueue.Visibility = (view == DashboardSubView.Queue) ? Visibility.Visible : Visibility.Collapsed;
+        ViewDiagnostics.Visibility = (view == DashboardSubView.Diagnostics) ? Visibility.Visible : Visibility.Collapsed;
+        ViewSettings.Visibility = (view == DashboardSubView.Settings) ? Visibility.Visible : Visibility.Collapsed;
+
+        // 2. Header Back Button
+        BtnHeaderBackToHome.Visibility = (view == DashboardSubView.Home) ? Visibility.Collapsed : Visibility.Visible;
+
+        // 3. Update Subtitle
+        switch (view)
+        {
+            case DashboardSubView.Home:
+                TxtRoleSubtitle.Text = _settings.Role == AppRole.Server ? "MÁY CHỦ IN ẤN (SERVER)" : "MÁY CON IN TỪ XA (CLIENT)";
+                break;
+            case DashboardSubView.Printers:
+                TxtRoleSubtitle.Text = "QUẢN LÝ VÀ CHIA SẺ MÁY IN";
+                break;
+            case DashboardSubView.Devices:
+                TxtRoleSubtitle.Text = "QUẢN LÝ THIẾT BỊ MÁY CON";
+                break;
+            case DashboardSubView.Queue:
+                TxtRoleSubtitle.Text = "HÀNG ĐỢI LỆNH IN & LỊCH SỬ";
+                break;
+            case DashboardSubView.Diagnostics:
+                TxtRoleSubtitle.Text = "CHẨN ĐOÁN HỆ THỐNG & ĐỘ TƯƠNG THÍCH";
+                break;
+            case DashboardSubView.Settings:
+                TxtRoleSubtitle.Text = "CÀI ĐẶT & NÂNG CẤP PHẦN MỀM";
+                break;
+        }
+
+        // 4. Update Navigation Toolbar Button Active States
+        UpdateToolbarStyles(view);
+
+        // 5. Trigger view-specific data loader
+        switch (view)
+        {
+            case DashboardSubView.Home:
+                if (_settings.Role == AppRole.Server) UpdateServerUI();
+                else UpdateClientUI();
+                RefreshRecentJobs();
+                break;
+            case DashboardSubView.Printers:
+                LoadPrintersView();
+                break;
+            case DashboardSubView.Devices:
+                LoadDevicesView();
+                break;
+            case DashboardSubView.Queue:
+                LoadQueueView();
+                break;
+            case DashboardSubView.Diagnostics:
+                LoadDiagnosticsView();
+                break;
+            case DashboardSubView.Settings:
+                LoadSettingsView();
+                break;
+        }
+    }
+
+    private void UpdateToolbarStyles(DashboardSubView view)
+    {
+        var primary = (Style)Application.Current.Resources["PrimaryBtn"];
+        var secondary = (Style)Application.Current.Resources["SecondaryBtn"];
+
+        if (_settings.Role == AppRole.Server)
+        {
+            BtnNavHome.Style = (view == DashboardSubView.Home) ? primary : secondary;
+            BtnNavPrinters.Style = (view == DashboardSubView.Printers) ? primary : secondary;
+            BtnNavDevices.Style = (view == DashboardSubView.Devices) ? primary : secondary;
+            BtnNavQueue.Style = (view == DashboardSubView.Queue) ? primary : secondary;
+            BtnNavDiagnostics.Style = (view == DashboardSubView.Diagnostics) ? primary : secondary;
+            BtnNavSettings.Style = (view == DashboardSubView.Settings) ? primary : secondary;
+        }
+        else
+        {
+            BtnNavHomeClient.Style = (view == DashboardSubView.Home) ? primary : secondary;
+            BtnNavQueueClient.Style = (view == DashboardSubView.Queue) ? primary : secondary;
+            BtnNavDiagnosticsClient.Style = (view == DashboardSubView.Diagnostics) ? primary : secondary;
+            BtnNavSettingsClient.Style = (view == DashboardSubView.Settings) ? primary : secondary;
+        }
+    }
+
+    // =========================================================
+    // VIEW 0: HOME LOGIC
+    // =========================================================
 
     private void UpdateServerUI()
     {
         if (_serverService == null) return;
 
-        // Header status pill
         bool isOnline = _serverService.Relay.IsConnected;
         TxtHeaderStatus.Text = isOnline ? "Máy chủ đang hoạt động (Online)" : "Máy chủ nội bộ (Sẵn sàng)";
         DotStatus.Fill = (SolidColorBrush)Application.Current.Resources["SuccessBrush"];
         PillStatus.Background = (SolidColorBrush)Application.Current.Resources["SuccessLightBrush"];
         TxtHeaderStatus.Foreground = (SolidColorBrush)Application.Current.Resources["SuccessBrush"];
 
-        // Server connection status
         TxtServerConnectionStatus.Text = isOnline ? "Đã kết nối Relay Broker (WSS)" : "Chạy máy chủ nội bộ trên cổng 9090";
 
-        // Shared printer
         int sharedCount = _serverService.SharedPrinters.Count(p => p.IsShared);
         if (_serverService.ActiveSharedPrinter != null)
         {
@@ -108,7 +237,6 @@ public partial class MainDashboardView : UserControl
             TxtActivePrinterSummary.Text = "Máy in: Chưa chọn máy in";
         }
 
-        // Clients stats
         int onlineClients = _serverService.ConnectedClients.Count(c => c.IsOnline && c.IsApproved);
         int pendingClients = _serverService.ConnectedClients.Count(c => !c.IsApproved && !c.IsBlocked);
         TxtServerClientsSummary.Text = $"{_serverService.ConnectedClients.Count} máy con ({onlineClients} trực tuyến • {pendingClients} chờ duyệt)";
@@ -187,8 +315,443 @@ public partial class MainDashboardView : UserControl
     }
 
     // =========================================================
-    // EVENT HANDLERS
+    // VIEW 1: PRINTERS LOGIC
     // =========================================================
+
+    private void LoadPrintersView()
+    {
+        _sharedPrinters.Clear();
+        if (_serverService != null)
+        {
+            _serverService.LoadPrinters();
+            foreach (var p in _serverService.SharedPrinters)
+            {
+                _sharedPrinters.Add(p);
+            }
+        }
+        else
+        {
+            var printerService = new PrinterService();
+            foreach (var p in printerService.GetInstalledPrinters())
+            {
+                _sharedPrinters.Add(p);
+            }
+        }
+    }
+
+    private void BtnPrintersRescan_Click(object sender, RoutedEventArgs e)
+    {
+        LoadPrintersView();
+        MessageBox.Show($"Đã quét thấy {_sharedPrinters.Count} máy in trên hệ thống Windows.", "Quét máy in", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void BtnPrintersToggleShare_Click(object sender, RoutedEventArgs e)
+    {
+        if (_serverService == null) return;
+        if (DgPrinters.SelectedItem is SharedPrinterInfo selected)
+        {
+            _serverService.TogglePrinterSharing(selected.Name);
+            LoadPrintersView();
+            UpdateServerUI();
+        }
+        else
+        {
+            MessageBox.Show("Vui lòng chọn một máy in từ danh sách để bật/tắt chia sẻ.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void BtnPrintersSetDefault_Click(object sender, RoutedEventArgs e)
+    {
+        if (_serverService == null) return;
+        if (DgPrinters.SelectedItem is SharedPrinterInfo selected)
+        {
+            _serverService.SetDefaultPrinter(selected.Name);
+            LoadPrintersView();
+            UpdateServerUI();
+            MessageBox.Show($"Đã đặt '{selected.Name}' làm máy in chính để chia sẻ qua mạng!", "Thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        else
+        {
+            MessageBox.Show("Vui lòng chọn một máy in để đặt làm máy in chính.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void BtnPrintersTestPrint_Click(object sender, RoutedEventArgs e)
+    {
+        if (DgPrinters.SelectedItem is SharedPrinterInfo selected)
+        {
+            var printerService = _serverService?.PrinterService ?? new PrinterService();
+            bool ok = printerService.PrintTestPage(selected.Name, "Máy Cục Bộ", Environment.MachineName, out string err);
+            if (ok)
+            {
+                MessageBox.Show($"Đã gửi trang in kiểm tra tới '{selected.Name}'. Vui lòng kiểm tra khay giấy máy in!", "Thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                MessageBox.Show($"In thử thất bại: {err}", "Lỗi in", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        else
+        {
+            MessageBox.Show("Vui lòng chọn máy in để in trang kiểm tra.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    // =========================================================
+    // VIEW 2: DEVICES LOGIC
+    // =========================================================
+
+    private void LoadDevicesView()
+    {
+        if (CmbDepartmentFilter.Items.Count <= 1)
+        {
+            CmbDepartmentFilter.Items.Clear();
+            CmbDepartmentFilter.Items.Add(new ComboBoxItem { Content = "Tất cả phòng ban", IsSelected = true });
+            foreach (var dept in _settings.Departments)
+            {
+                CmbDepartmentFilter.Items.Add(new ComboBoxItem { Content = dept });
+            }
+        }
+        ApplyClientFilters();
+    }
+
+    private void ApplyClientFilters()
+    {
+        if (_serverService == null) return;
+
+        string searchText = TxtSearchClient?.Text?.Trim().ToLowerInvariant() ?? string.Empty;
+        string statusFilter = (CmbStatusFilter?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Tất cả trạng thái";
+        string deptFilter = (CmbDepartmentFilter?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Tất cả phòng ban";
+
+        _filteredClients.Clear();
+        int onlineCount = 0;
+        int pendingCount = 0;
+        int offlineCount = 0;
+
+        foreach (var client in _serverService.ConnectedClients)
+        {
+            if (client.IsOnline) onlineCount++;
+            else offlineCount++;
+
+            if (!client.IsApproved && !client.IsBlocked) pendingCount++;
+
+            if (!string.IsNullOrEmpty(searchText))
+            {
+                bool matchName = client.DeviceName.ToLowerInvariant().Contains(searchText);
+                bool matchId = client.DeviceId.ToLowerInvariant().Contains(searchText);
+                bool matchDept = client.Department.ToLowerInvariant().Contains(searchText);
+                if (!matchName && !matchId && !matchDept) continue;
+            }
+
+            if (statusFilter == "Trực tuyến (Online)" && !client.IsOnline) continue;
+            if (statusFilter == "Ngoại tuyến (Offline)" && client.IsOnline) continue;
+            if (statusFilter == "Chờ phê duyệt" && (client.IsApproved || client.IsBlocked)) continue;
+
+            if (deptFilter != "Tất cả phòng ban" && !string.Equals(client.Department, deptFilter, StringComparison.OrdinalIgnoreCase)) continue;
+
+            _filteredClients.Add(client);
+        }
+
+        TxtClientStats.Text = $"Tổng: {_serverService.ConnectedClients.Count} thiết bị | Online: {onlineCount} | Chờ duyệt: {pendingCount} | Offline: {offlineCount}";
+    }
+
+    private void TxtSearchClient_TextChanged(object sender, TextChangedEventArgs e) => ApplyClientFilters();
+    private void CmbFilter_SelectionChanged(object sender, SelectionChangedEventArgs e) => ApplyClientFilters();
+
+    private void BtnClearFilters_Click(object sender, RoutedEventArgs e)
+    {
+        TxtSearchClient.Text = string.Empty;
+        if (CmbStatusFilter != null) CmbStatusFilter.SelectedIndex = 0;
+        if (CmbDepartmentFilter != null) CmbDepartmentFilter.SelectedIndex = 0;
+        ApplyClientFilters();
+    }
+
+    private async void BtnApproveClient_Click(object sender, RoutedEventArgs e)
+    {
+        if (_serverService == null) return;
+        if (DgClients.SelectedItem is DeviceInfo client)
+        {
+            await _serverService.ApproveClientAsync(client);
+            ApplyClientFilters();
+            UpdateServerUI();
+            MessageBox.Show($"Đã phê duyệt máy con '{client.DeviceName}'. Máy có thể in ấn ngay bây giờ!", "Phê duyệt thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        else
+        {
+            MessageBox.Show("Vui lòng chọn máy con từ danh sách để phê duyệt.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void BtnChangeDepartment_Click(object sender, RoutedEventArgs e)
+    {
+        if (_serverService == null) return;
+        if (DgClients.SelectedItem is DeviceInfo client)
+        {
+            var depts = _settings.Departments;
+            int currentIndex = depts.IndexOf(client.Department);
+            int nextIndex = (currentIndex + 1) % depts.Count;
+            string nextDept = depts[nextIndex];
+
+            _serverService.SetClientDepartment(client.DeviceId, nextDept);
+            ApplyClientFilters();
+            MessageBox.Show($"Đã chuyển máy con '{client.DeviceName}' sang phòng: '{nextDept}'.", "Đổi phòng ban", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        else
+        {
+            MessageBox.Show("Vui lòng chọn máy con muốn đổi phòng ban.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void BtnAssignPrinters_Click(object sender, RoutedEventArgs e)
+    {
+        if (_serverService == null) return;
+        if (DgClients.SelectedItem is DeviceInfo client)
+        {
+            var sharedPrinters = _serverService.SharedPrinters.Where(p => p.IsShared).Select(p => p.Name).ToList();
+            if (sharedPrinters.Count == 0)
+            {
+                MessageBox.Show("Chưa có máy in nào đang được chia sẻ.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (client.AllowedPrinters.Count == 0)
+            {
+                _serverService.SetClientAllowedPrinters(client.DeviceId, new List<string> { sharedPrinters[0] });
+                MessageBox.Show($"Đã phân quyền cho '{client.DeviceName}': CHỈ ĐƯỢC IN TRÊN '{sharedPrinters[0]}'.", "Phân quyền", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                _serverService.SetClientAllowedPrinters(client.DeviceId, new List<string>());
+                MessageBox.Show($"Đã phân quyền cho '{client.DeviceName}': ĐƯỢC PHÉP DÙNG TẤT CẢ MÁY IN CHIA SẺ.", "Phân quyền", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            ApplyClientFilters();
+        }
+        else
+        {
+            MessageBox.Show("Vui lòng chọn máy con để phân quyền máy in.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private async void BtnRevokeClient_Click(object sender, RoutedEventArgs e)
+    {
+        if (_serverService == null) return;
+        if (DgClients.SelectedItem is DeviceInfo client)
+        {
+            if (MessageBox.Show($"Bạn có chắc chắn muốn thu hồi quyền truy cập của máy '{client.DeviceName}'?", "Xác nhận", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            {
+                await _serverService.RevokeClientAsync(client);
+                ApplyClientFilters();
+                UpdateServerUI();
+            }
+        }
+        else
+        {
+            MessageBox.Show("Vui lòng chọn máy con để thu hồi quyền.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void BtnDeleteClient_Click(object sender, RoutedEventArgs e)
+    {
+        if (_serverService == null) return;
+        if (DgClients.SelectedItem is DeviceInfo client)
+        {
+            if (MessageBox.Show($"Bạn có chắc chắn muốn xóa máy '{client.DeviceName}' khỏi hệ thống?", "Xác nhận xóa", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
+            {
+                _serverService.DeleteClient(client.DeviceId);
+                ApplyClientFilters();
+                UpdateServerUI();
+            }
+        }
+        else
+        {
+            MessageBox.Show("Vui lòng chọn máy con cần xóa.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    // =========================================================
+    // VIEW 3: QUEUE LOGIC
+    // =========================================================
+
+    private void LoadQueueView()
+    {
+        _allJobs.Clear();
+        IEnumerable<PrintJob> source = _serverService != null 
+            ? _serverService.PrintJobs 
+            : (_clientService != null ? _clientService.PrintHistory : Enumerable.Empty<PrintJob>());
+
+        foreach (var job in source.Reverse())
+        {
+            _allJobs.Add(job);
+        }
+
+        int total = _allJobs.Count;
+        int completed = _allJobs.Count(j => j.Status == PrintJobStatus.Completed);
+        int pending = _allJobs.Count(j => j.Status == PrintJobStatus.Pending || j.Status == PrintJobStatus.Printing);
+        int failed = _allJobs.Count(j => j.Status == PrintJobStatus.Failed);
+
+        TxtQueueSummary.Text = $"Tổng số: {total} lệnh in • Đang chờ/xử lý: {pending} • Hoàn tất: {completed} • Lỗi: {failed}";
+    }
+
+    private void BtnQueueRefresh_Click(object sender, RoutedEventArgs e)
+    {
+        LoadQueueView();
+    }
+
+    private void BtnRestartSpooler_Click(object sender, RoutedEventArgs e)
+    {
+        bool restarted = CompatibilityChecker.RestartSpoolerService(out string err);
+        if (restarted)
+        {
+            MessageBox.Show("Đã khởi động lại dịch vụ Windows Print Spooler thành công! Hàng đợi in ấn đã được giải phóng.", "Thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        else
+        {
+            MessageBox.Show($"Không thể tự động khởi động dịch vụ Spooler: {err}\nVui lòng chạy ứng dụng với quyền 'Run as administrator'.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void BtnClearCompletedJobs_Click(object sender, RoutedEventArgs e)
+    {
+        if (_serverService != null)
+        {
+            _serverService.ClearCompletedJobs();
+        }
+        else if (_clientService != null)
+        {
+            var completed = _clientService.PrintHistory.Where(j => j.Status == PrintJobStatus.Completed || j.Status == PrintJobStatus.Failed).ToList();
+            foreach (var j in completed) _clientService.PrintHistory.Remove(j);
+        }
+        LoadQueueView();
+        RefreshRecentJobs();
+    }
+
+    // =========================================================
+    // VIEW 4: DIAGNOSTICS LOGIC
+    // =========================================================
+
+    private void LoadDiagnosticsView()
+    {
+        List<SharedPrinterInfo>? printers = null;
+        try
+        {
+            var printerService = _serverService?.PrinterService ?? new PrinterService();
+            printers = printerService.GetInstalledPrinters();
+        }
+        catch { }
+
+        var audit = LiveSystemAuditor.RunAudit(_settings, printers);
+        _auditItems.Clear();
+        foreach (var item in audit.Items)
+        {
+            _auditItems.Add(item);
+        }
+
+        TxtDiagScore.Text = $"{audit.VerifiedOperationalPercent:F1}% HOẠT ĐỘNG";
+        TxtDiagSummary.Text = $"{audit.PassCount} PASS • {audit.BlockedCount} BLOCKED • {audit.RealDataCount + audit.CachedDataCount} REAL";
+        TxtDiagSpecs.Text = $"Máy tính: {audit.MachineName} • {audit.OperatingSystem}";
+    }
+
+    private void BtnRerunDiagnostics_Click(object sender, RoutedEventArgs e)
+    {
+        LoadDiagnosticsView();
+        MessageBox.Show("Đã hoàn tất kiểm toán hệ thống trên máy thật!", "Chẩn đoán", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    // =========================================================
+    // VIEW 5: SETTINGS LOGIC
+    // =========================================================
+
+    private void LoadSettingsView()
+    {
+        TxtSettingsDeviceName.Text = _settings.DeviceName;
+        TxtSettingsPairingCode.Text = _settings.PairingCode;
+        TxtSettingsRelayUrl.Text = _settings.RelayServerUrl;
+        ChkSettingsAutoStart.IsChecked = _settings.AutoStartWithWindows;
+        ChkSettingsMinimizeTray.IsChecked = _settings.MinimizeToSystemTray;
+        ChkSettingsNotifications.IsChecked = _settings.ShowDesktopNotifications;
+
+        TxtSwitchRoleBtn.Text = _settings.Role == AppRole.Server ? "⇄ Đổi sang Chế độ Máy Con" : "⇄ Đổi sang Chế độ Máy Chủ";
+
+        SettingsUpdateControl.Initialize(_settings);
+        SettingsUpdateControl.HasActivePrintJobsCheck = () =>
+        {
+            if (_serverService != null) return _serverService.PrintJobs.Any(j => j.Status == PrintJobStatus.Printing || j.Status == PrintJobStatus.Pending);
+            if (_clientService != null) return _clientService.PrintHistory.Any(j => j.Status == PrintJobStatus.Printing || j.Status == PrintJobStatus.Pending);
+            return false;
+        };
+    }
+
+    private void BtnSettingsRegenerateCode_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.PairingCode = RPMCrypto.GeneratePairingCode();
+        TxtSettingsPairingCode.Text = _settings.PairingCode;
+        MessageBox.Show($"Đã sinh mã ghép đôi mới: '{_settings.PairingCode}'.\nNhớ nhấn 'Lưu cấu hình cài đặt' để áp dụng.", "Mã mới", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void BtnSaveSettings_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.DeviceName = TxtSettingsDeviceName.Text.Trim();
+        _settings.PairingCode = TxtSettingsPairingCode.Text.Trim();
+        _settings.RelayServerUrl = TxtSettingsRelayUrl.Text.Trim();
+        _settings.AutoStartWithWindows = ChkSettingsAutoStart.IsChecked == true;
+        _settings.MinimizeToSystemTray = ChkSettingsMinimizeTray.IsChecked == true;
+        _settings.ShowDesktopNotifications = ChkSettingsNotifications.IsChecked == true;
+
+        ConfigManager.Save(_settings);
+
+        if (_settings.Role == AppRole.Server)
+        {
+            TxtServerHostName.Text = _settings.DeviceName;
+            TxtServerPairingCode.Text = _settings.PairingCode;
+            UpdateServerUI();
+        }
+        else
+        {
+            TxtClientCodeInput.Text = _settings.PairingCode;
+            UpdateClientUI();
+        }
+
+        MessageBox.Show("Đã lưu toàn bộ cấu hình thiết lập thành công!", "Lưu thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+        SetActiveView(DashboardSubView.Home);
+    }
+
+    private void BtnSwitchRole_Click(object sender, RoutedEventArgs e)
+    {
+        var targetRole = _settings.Role == AppRole.Server ? AppRole.Client : AppRole.Server;
+        string targetRoleName = targetRole == AppRole.Server ? "MÁY CHỦ" : "MÁY CON";
+
+        var confirm = MessageBox.Show(
+            $"Bạn có chắc chắn muốn chuyển đổi vai trò phần mềm sang [{targetRoleName}]?\n\nỨng dụng sẽ áp dụng vai trò mới và bảo toàn 100% cấu hình hiện tại.",
+            "Xác nhận đổi vai trò",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question
+        );
+
+        if (confirm == MessageBoxResult.Yes)
+        {
+            _settings.Role = targetRole;
+            ConfigManager.Save(_settings);
+            OnRoleChangeRequested?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    // =========================================================
+    // GLOBAL BUTTON HANDLERS
+    // =========================================================
+
+    private void BtnBackToHome_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Home);
+    private void BtnNavHome_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Home);
+    private void BtnNavPrinters_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Printers);
+    private void BtnNavDevices_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Devices);
+    private void BtnNavQueue_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Queue);
+    private void BtnNavDiagnostics_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Diagnostics);
+    private void BtnNavSettings_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Settings);
+
+    private void BtnOpenPrinterDialog_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Printers);
+    private void BtnOpenQueueDialog_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Queue);
+    private void BtnOpenSettings_Click(object sender, RoutedEventArgs e) => SetActiveView(DashboardSubView.Settings);
+
+    private void BtnMinimize_Click(object sender, RoutedEventArgs e) => OnMinimizeRequested?.Invoke(this, EventArgs.Empty);
 
     private void BtnCopyPairingCode_Click(object sender, RoutedEventArgs e)
     {
@@ -202,7 +765,7 @@ public partial class MainDashboardView : UserControl
 
         if (_clientService.IsApproved)
         {
-            if (MessageBox.Show("Bạn có muốn ngắt kết nối với máy chủ hiện tại?", "Xác nhận ngắt kết nối", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            if (MessageBox.Show("Bạn có muốn ngắt kết nối với máy chủ hiện tại?", "Xác nhận", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
             {
                 await _clientService.DisconnectAsync();
                 UpdateClientUI();
@@ -259,87 +822,5 @@ public partial class MainDashboardView : UserControl
         {
             MessageBox.Show($"Không thể tự động cài máy in: {msg}\n\n* Lưu ý: Lệnh này đòi hỏi quyền Administrator của Windows. Vui lòng đóng phần mềm và mở lại bằng chuột phải -> 'Run as administrator'.", "Yêu cầu quyền Administrator", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
-    }
-
-    private void BtnOpenPrinterDialog_Click(object sender, RoutedEventArgs e)
-    {
-        if (_serverService != null)
-        {
-            var dialog = new PrinterManagementDialog(_serverService)
-            {
-                Owner = Window.GetWindow(this)
-            };
-            dialog.ShowDialog();
-            UpdateServerUI();
-        }
-    }
-
-    private void BtnOpenDeviceDialog_Click(object sender, RoutedEventArgs e)
-    {
-        if (_serverService != null)
-        {
-            var dialog = new DeviceManagementDialog(_serverService, _settings)
-            {
-                Owner = Window.GetWindow(this)
-            };
-            dialog.ShowDialog();
-            UpdateServerUI();
-        }
-    }
-
-    private void BtnOpenQueueDialog_Click(object sender, RoutedEventArgs e)
-    {
-        ObservableCollection<PrintJob> jobs = _serverService != null 
-            ? _serverService.PrintJobs 
-            : (_clientService != null ? _clientService.PrintHistory : new ObservableCollection<PrintJob>());
-
-        var dialog = new PrintQueueDialog(jobs, () =>
-        {
-            if (_serverService != null) _serverService.ClearCompletedJobs();
-        })
-        {
-            Owner = Window.GetWindow(this)
-        };
-        dialog.ShowDialog();
-        RefreshRecentJobs();
-    }
-
-    private void BtnOpenDiagnostics_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new CompatibilityDialog(_settings)
-        {
-            Owner = Window.GetWindow(this)
-        };
-        dialog.ShowDialog();
-    }
-
-    private void BtnOpenSettings_Click(object sender, RoutedEventArgs e)
-    {
-        Func<bool>? activeCheck = _serverService != null 
-            ? () => _serverService.PrintJobs.Any(j => j.Status == PrintJobStatus.Printing || j.Status == PrintJobStatus.Pending)
-            : (_clientService != null ? () => _clientService.PrintHistory.Any(j => j.Status == PrintJobStatus.Printing || j.Status == PrintJobStatus.Pending) : null);
-
-        var dialog = new SettingsDialog(_settings, activeCheck)
-        {
-            Owner = Window.GetWindow(this)
-        };
-
-        dialog.OnRoleChanged += (s, ev) =>
-        {
-            OnRoleChangeRequested?.Invoke(this, EventArgs.Empty);
-        };
-
-        dialog.ShowDialog();
-
-        if (dialog.SettingsSaved)
-        {
-            if (_serverService != null) UpdateServerUI();
-            if (_clientService != null) UpdateClientUI();
-        }
-    }
-
-    private void BtnMinimize_Click(object sender, RoutedEventArgs e)
-    {
-        OnMinimizeRequested?.Invoke(this, EventArgs.Empty);
     }
 }
