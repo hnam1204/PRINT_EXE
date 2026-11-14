@@ -132,10 +132,10 @@
                                         <TextBlock Text="MÃ KẾT NỐI (CUNG CẤP CHO MÁY CON):" FontSize="9" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
                                         <TextBlock x:Name="TxtServerPairingCode" Text="RPM-8197" FontSize="22" FontWeight="Bold" FontFamily="Consolas, monospace" Foreground="{StaticResource PrimaryBrush}" Margin="0,2,0,0"/>
                                     </StackPanel>
-                                    <Button Grid.Column="1" Style="{StaticResource PrimaryBtn}" Click="BtnCopyPairingCode_Click" Padding="12,6" VerticalAlignment="Center">
+                                    <Button Grid.Column="1" x:Name="BtnCopyPairingCode" Style="{StaticResource PrimaryBtn}" Click="BtnCopyPairingCode_Click" Padding="12,6" VerticalAlignment="Center">
                                         <StackPanel Orientation="Horizontal">
                                             <Path Data="{StaticResource GeoCopy}" Fill="#FFFFFF" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"/>
-                                            <TextBlock Text="Sao chép" FontSize="11"/>
+                                            <TextBlock x:Name="TxtCopyPairingCode" Text="Sao chép" FontSize="11"/>
                                         </StackPanel>
                                     </Button>
                                 </Grid>
@@ -312,40 +312,40 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- TAB BAR BÊN TRONG CÀI ĐẶT -->
+                <!-- TAB BAR BÊN TRONG CÀI ĐẶT (SEGMENTED TABS SIÊU MƯỢT, ZERO LAG) -->
                 <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="6,5" Margin="0,0,0,8">
                     <StackPanel Orientation="Horizontal">
-                        <Button x:Name="BtnTabGeneral" Style="{StaticResource PrimaryBtn}" Click="BtnTabGeneral_Click" Margin="0,0,6,0" Padding="12,5">
+                        <Button x:Name="BtnTabGeneral" Style="{StaticResource TabBtn}" Tag="Active" Click="BtnTabGeneral_Click" Margin="0,0,6,0">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource GeoSettings}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
                                 <TextBlock Text="Thiết lập chung" FontSize="11" FontWeight="SemiBold"/>
                             </StackPanel>
                         </Button>
-                        <Button x:Name="BtnTabPrinters" Style="{StaticResource SecondaryBtn}" Click="BtnTabPrinters_Click" Margin="0,0,6,0" Padding="12,5">
+                        <Button x:Name="BtnTabPrinters" Style="{StaticResource TabBtn}" Tag="Inactive" Click="BtnTabPrinters_Click" Margin="0,0,6,0">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource GeoPrinter}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
                                 <TextBlock Text="Quản lý máy in" FontSize="11" FontWeight="SemiBold"/>
                             </StackPanel>
                         </Button>
-                        <Button x:Name="BtnTabDevices" Style="{StaticResource SecondaryBtn}" Click="BtnTabDevices_Click" Margin="0,0,6,0" Padding="12,5">
+                        <Button x:Name="BtnTabDevices" Style="{StaticResource TabBtn}" Tag="Inactive" Click="BtnTabDevices_Click" Margin="0,0,6,0">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource GeoDevices}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
                                 <TextBlock Text="Quản lý thiết bị" FontSize="11" FontWeight="SemiBold"/>
                             </StackPanel>
                         </Button>
-                        <Button x:Name="BtnTabQueue" Style="{StaticResource SecondaryBtn}" Click="BtnTabQueue_Click" Margin="0,0,6,0" Padding="12,5">
+                        <Button x:Name="BtnTabQueue" Style="{StaticResource TabBtn}" Tag="Inactive" Click="BtnTabQueue_Click" Margin="0,0,6,0">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource GeoQueue}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
                                 <TextBlock Text="Hàng đợi lệnh in" FontSize="11" FontWeight="SemiBold"/>
                             </StackPanel>
                         </Button>
-                        <Button x:Name="BtnTabDiagnostics" Style="{StaticResource SecondaryBtn}" Click="BtnTabDiagnostics_Click" Margin="0,0,6,0" Padding="12,5">
+                        <Button x:Name="BtnTabDiagnostics" Style="{StaticResource TabBtn}" Tag="Inactive" Click="BtnTabDiagnostics_Click" Margin="0,0,6,0">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource GeoShield}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
                                 <TextBlock Text="Chẩn đoán hệ thống" FontSize="11" FontWeight="SemiBold"/>
                             </StackPanel>
                         </Button>
-                        <Button x:Name="BtnTabUpdate" Style="{StaticResource SecondaryBtn}" Click="BtnTabUpdate_Click" Padding="12,5">
+                        <Button x:Name="BtnTabUpdate" Style="{StaticResource TabBtn}" Tag="Inactive" Click="BtnTabUpdate_Click">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource GeoRocket}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
                                 <TextBlock Text="Cập nhật phần mềm" FontSize="11" FontWeight="SemiBold"/>

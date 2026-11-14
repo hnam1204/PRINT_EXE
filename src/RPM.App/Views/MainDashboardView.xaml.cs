@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using Button = System.Windows.Controls.Button;
 using RPM.App.Services;
 using RPM.Core.Config;
 using RPM.Core.Diagnostics;
@@ -155,18 +156,15 @@ public partial class MainDashboardView : UserControl
         TabContentDiagnostics.Visibility = (tab == SettingsTab.Diagnostics) ? Visibility.Visible : Visibility.Collapsed;
         TabContentUpdate.Visibility = (tab == SettingsTab.Update) ? Visibility.Visible : Visibility.Collapsed;
 
-        // Update Tab button active styles
-        var primary = (Style)Application.Current.Resources["PrimaryBtn"];
-        var secondary = (Style)Application.Current.Resources["SecondaryBtn"];
+        // Update Tab button active states with ZERO template recreation (Ultra-fast & butter smooth)
+        BtnTabGeneral.Tag = (tab == SettingsTab.General) ? "Active" : "Inactive";
+        BtnTabPrinters.Tag = (tab == SettingsTab.Printers) ? "Active" : "Inactive";
+        BtnTabDevices.Tag = (tab == SettingsTab.Devices) ? "Active" : "Inactive";
+        BtnTabQueue.Tag = (tab == SettingsTab.Queue) ? "Active" : "Inactive";
+        BtnTabDiagnostics.Tag = (tab == SettingsTab.Diagnostics) ? "Active" : "Inactive";
+        BtnTabUpdate.Tag = (tab == SettingsTab.Update) ? "Active" : "Inactive";
 
-        BtnTabGeneral.Style = (tab == SettingsTab.General) ? primary : secondary;
-        BtnTabPrinters.Style = (tab == SettingsTab.Printers) ? primary : secondary;
-        BtnTabDevices.Style = (tab == SettingsTab.Devices) ? primary : secondary;
-        BtnTabQueue.Style = (tab == SettingsTab.Queue) ? primary : secondary;
-        BtnTabDiagnostics.Style = (tab == SettingsTab.Diagnostics) ? primary : secondary;
-        BtnTabUpdate.Style = (tab == SettingsTab.Update) ? primary : secondary;
-
-        // Update Subtitle
+        // Update Subtitle and trigger non-blocking asynchronous loads
         switch (tab)
         {
             case SettingsTab.General:
@@ -175,7 +173,7 @@ public partial class MainDashboardView : UserControl
                 break;
             case SettingsTab.Printers:
                 TxtRoleSubtitle.Text = "CÀI ĐẶT: QUẢN LÝ MÁY IN";
-                LoadPrintersView();
+                LoadPrintersViewAsync();
                 break;
             case SettingsTab.Devices:
                 TxtRoleSubtitle.Text = "CÀI ĐẶT: QUẢN LÝ THIẾT BỊ MÁY CON";
@@ -187,7 +185,7 @@ public partial class MainDashboardView : UserControl
                 break;
             case SettingsTab.Diagnostics:
                 TxtRoleSubtitle.Text = "CÀI ĐẶT: CHẨN ĐOÁN HỆ THỐNG";
-                LoadDiagnosticsView();
+                LoadDiagnosticsViewAsync();
                 break;
             case SettingsTab.Update:
                 TxtRoleSubtitle.Text = "CÀI ĐẶT: CẬP NHẬT PHẦN MỀM";
@@ -373,15 +371,34 @@ public partial class MainDashboardView : UserControl
     }
 
     // =========================================================
-    // TAB: PRINTERS
+    // TAB: PRINTERS (NON-BLOCKING BACKGROUND SCAN)
     // =========================================================
 
-    private void LoadPrintersView()
+    private async void LoadPrintersViewAsync()
     {
+        // 1. Instantly display existing list so tab switch has zero visual lag
+        if (_serverService != null && _serverService.SharedPrinters.Count > 0)
+        {
+            _sharedPrinters.Clear();
+            foreach (var p in _serverService.SharedPrinters)
+            {
+                _sharedPrinters.Add(p);
+            }
+        }
+
+        // 2. Refresh from Windows in background thread without blocking UI
+        await Task.Run(() =>
+        {
+            if (_serverService != null)
+            {
+                _serverService.LoadPrinters();
+            }
+        });
+
+        // 3. Update UI
         _sharedPrinters.Clear();
         if (_serverService != null)
         {
-            _serverService.LoadPrinters();
             foreach (var p in _serverService.SharedPrinters)
             {
                 _sharedPrinters.Add(p);
@@ -390,16 +407,37 @@ public partial class MainDashboardView : UserControl
         else
         {
             var printerService = new PrinterService();
-            foreach (var p in printerService.GetInstalledPrinters())
+            var list = await Task.Run(() => printerService.GetInstalledPrinters());
+            foreach (var p in list)
             {
                 _sharedPrinters.Add(p);
             }
         }
     }
 
-    private void BtnPrintersRescan_Click(object sender, RoutedEventArgs e)
+    private async void BtnPrintersRescan_Click(object sender, RoutedEventArgs e)
     {
-        LoadPrintersView();
+        var btn = sender as Button;
+        if (btn != null) btn.IsEnabled = false;
+
+        await Task.Run(() =>
+        {
+            if (_serverService != null)
+            {
+                _serverService.LoadPrinters();
+            }
+        });
+
+        _sharedPrinters.Clear();
+        if (_serverService != null)
+        {
+            foreach (var p in _serverService.SharedPrinters)
+            {
+                _sharedPrinters.Add(p);
+            }
+        }
+
+        if (btn != null) btn.IsEnabled = true;
         MessageBox.Show($"Đã quét thấy {_sharedPrinters.Count} máy in trên hệ thống Windows.", "Quét máy in", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
@@ -409,7 +447,7 @@ public partial class MainDashboardView : UserControl
         if (DgPrinters.SelectedItem is SharedPrinterInfo selected)
         {
             _serverService.TogglePrinterSharing(selected.Name);
-            LoadPrintersView();
+            LoadPrintersViewAsync();
             UpdateServerUI();
         }
         else
@@ -424,7 +462,7 @@ public partial class MainDashboardView : UserControl
         if (DgPrinters.SelectedItem is SharedPrinterInfo selected)
         {
             _serverService.SetDefaultPrinter(selected.Name);
-            LoadPrintersView();
+            LoadPrintersViewAsync();
             UpdateServerUI();
             MessageBox.Show($"Đã đặt '{selected.Name}' làm máy in chính để chia sẻ qua mạng!", "Thành công", MessageBoxButton.OK, MessageBoxImage.Information);
         }
@@ -434,15 +472,26 @@ public partial class MainDashboardView : UserControl
         }
     }
 
-    private void BtnPrintersTestPrint_Click(object sender, RoutedEventArgs e)
+    private async void BtnPrintersTestPrint_Click(object sender, RoutedEventArgs e)
     {
         if (DgPrinters.SelectedItem is SharedPrinterInfo selected)
         {
-            var printerService = _serverService?.PrinterService ?? new PrinterService();
-            bool ok = printerService.PrintTestPage(selected.Name, "Máy Cục Bộ", Environment.MachineName, out string err);
+            var btn = sender as Button;
+            if (btn != null) btn.IsEnabled = false;
+
+            string printerName = selected.Name;
+            string err = string.Empty;
+            bool ok = await Task.Run(() =>
+            {
+                var printerService = _serverService?.PrinterService ?? new PrinterService();
+                return printerService.PrintTestPage(printerName, "Máy Cục Bộ", Environment.MachineName, out err);
+            });
+
+            if (btn != null) btn.IsEnabled = true;
+
             if (ok)
             {
-                MessageBox.Show($"Đã gửi trang in kiểm tra tới '{selected.Name}'. Vui lòng kiểm tra khay giấy máy in!", "Thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show($"Đã gửi trang in kiểm tra tới '{printerName}'. Vui lòng kiểm tra khay giấy máy in!", "Thành công", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             else
             {
@@ -667,9 +716,16 @@ public partial class MainDashboardView : UserControl
         LoadQueueView();
     }
 
-    private void BtnRestartSpooler_Click(object sender, RoutedEventArgs e)
+    private async void BtnRestartSpooler_Click(object sender, RoutedEventArgs e)
     {
-        bool restarted = CompatibilityChecker.RestartSpoolerService(out string err);
+        var btn = sender as Button;
+        if (btn != null) btn.IsEnabled = false;
+
+        string err = string.Empty;
+        bool restarted = await Task.Run(() => CompatibilityChecker.RestartSpoolerService(out err));
+
+        if (btn != null) btn.IsEnabled = true;
+
         if (restarted)
         {
             MessageBox.Show("Đã khởi động lại dịch vụ Windows Print Spooler thành công! Hàng đợi in ấn đã được giải phóng.", "Thành công", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -696,20 +752,19 @@ public partial class MainDashboardView : UserControl
     }
 
     // =========================================================
-    // TAB: DIAGNOSTICS
+    // TAB: DIAGNOSTICS (NON-BLOCKING BACKGROUND AUDIT)
     // =========================================================
 
-    private void LoadDiagnosticsView()
+    private async void LoadDiagnosticsViewAsync()
     {
-        List<SharedPrinterInfo>? printers = null;
-        try
+        if (_auditItems.Count == 0)
         {
-            var printerService = _serverService?.PrinterService ?? new PrinterService();
-            printers = printerService.GetInstalledPrinters();
+            TxtDiagSummary.Text = "Đang kiểm tra hệ thống...";
         }
-        catch { }
 
-        var audit = LiveSystemAuditor.RunAudit(_settings, printers);
+        List<SharedPrinterInfo>? printers = _serverService?.SharedPrinters?.ToList();
+        var audit = await Task.Run(() => LiveSystemAuditor.RunAudit(_settings, printers));
+
         _auditItems.Clear();
         foreach (var item in audit.Items)
         {
@@ -721,9 +776,27 @@ public partial class MainDashboardView : UserControl
         TxtDiagSpecs.Text = $"Máy tính: {audit.MachineName} • {audit.OperatingSystem}";
     }
 
-    private void BtnRerunDiagnostics_Click(object sender, RoutedEventArgs e)
+    private async void BtnRerunDiagnostics_Click(object sender, RoutedEventArgs e)
     {
-        LoadDiagnosticsView();
+        var btn = sender as Button;
+        if (btn != null) btn.IsEnabled = false;
+
+        TxtDiagSummary.Text = "Đang kiểm toán lại toàn bộ hệ thống...";
+
+        List<SharedPrinterInfo>? printers = _serverService?.SharedPrinters?.ToList();
+        var audit = await Task.Run(() => LiveSystemAuditor.RunAudit(_settings, printers));
+
+        _auditItems.Clear();
+        foreach (var item in audit.Items)
+        {
+            _auditItems.Add(item);
+        }
+
+        TxtDiagScore.Text = $"{audit.VerifiedOperationalPercent:F1}% HOẠT ĐỘNG";
+        TxtDiagSummary.Text = $"{audit.PassCount} PASS • {audit.BlockedCount} BLOCKED • {audit.RealDataCount + audit.CachedDataCount} REAL";
+        TxtDiagSpecs.Text = $"Máy tính: {audit.MachineName} • {audit.OperatingSystem}";
+
+        if (btn != null) btn.IsEnabled = true;
         MessageBox.Show("Đã hoàn tất kiểm toán hệ thống trên máy thật!", "Chẩn đoán", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
@@ -765,10 +838,27 @@ public partial class MainDashboardView : UserControl
 
     private void BtnMinimize_Click(object sender, RoutedEventArgs e) => OnMinimizeRequested?.Invoke(this, EventArgs.Empty);
 
-    private void BtnCopyPairingCode_Click(object sender, RoutedEventArgs e)
+    private async void BtnCopyPairingCode_Click(object sender, RoutedEventArgs e)
     {
         Clipboard.SetText(_settings.PairingCode);
-        MessageBox.Show($"Đã sao chép mã ghép đôi '{_settings.PairingCode}' vào bộ nhớ tạm!\nBạn hãy gửi mã này cho các máy con để kết nối.", "Sao chép thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+
+        // Tactile micro-feedback directly on button
+        if (TxtCopyPairingCode != null)
+        {
+            TxtCopyPairingCode.Text = "✓ Đã sao chép";
+            if (BtnCopyPairingCode != null)
+            {
+                BtnCopyPairingCode.Background = (SolidColorBrush)Application.Current.Resources["SuccessBrush"];
+            }
+
+            await Task.Delay(1500);
+
+            TxtCopyPairingCode.Text = "Sao chép";
+            if (BtnCopyPairingCode != null)
+            {
+                BtnCopyPairingCode.ClearValue(BackgroundProperty);
+            }
+        }
     }
 
     private async void BtnClientConnectToggle_Click(object sender, RoutedEventArgs e)

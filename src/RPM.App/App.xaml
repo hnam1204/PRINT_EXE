@@ -118,7 +118,7 @@
             </Style>
 
             <!-- ========================================================= -->
-            <!-- MODERN BUTTONS (NHN ELECTRIC BLUE & MINIMALIST SYSTEM)    -->
+            <!-- MODERN BUTTONS (TACTILE MICRO-PRESS & FLUID RENDERING)    -->
             <!-- ========================================================= -->
             <Style x:Key="PrimaryBtn" TargetType="Button">
                 <Setter Property="FontFamily" Value="{StaticResource SegoeFont}"/>
@@ -126,28 +126,41 @@
                 <Setter Property="FontWeight" Value="SemiBold"/>
                 <Setter Property="Foreground" Value="White"/>
                 <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
-                <Setter Property="BorderThickness" Value="0"/>
-                <Setter Property="Padding" Value="16,8"/>
+                <Setter Property="BorderBrush" Value="{StaticResource PrimaryHoverBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding" Value="14,7"/>
                 <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="UseLayoutRounding" Value="True"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
                             <Border x:Name="btnBorder" Background="{TemplateBinding Background}"
-                                    CornerRadius="8"
-                                    Padding="{TemplateBinding Padding}">
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="7"
+                                    Padding="{TemplateBinding Padding}"
+                                    RenderTransformOrigin="0.5,0.5">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="btnBorder" Property="Background" Value="{StaticResource PrimaryHoverBrush}"/>
+                                    <Setter TargetName="btnBorder" Property="BorderBrush" Value="{StaticResource PrimaryPressedBrush}"/>
                                 </Trigger>
                                 <Trigger Property="IsPressed" Value="True">
                                     <Setter TargetName="btnBorder" Property="Background" Value="{StaticResource PrimaryPressedBrush}"/>
+                                    <Setter TargetName="btnBorder" Property="RenderTransform">
+                                        <Setter.Value>
+                                            <ScaleTransform ScaleX="0.975" ScaleY="0.975"/>
+                                        </Setter.Value>
+                                    </Setter>
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter TargetName="btnBorder" Property="Background" Value="#E2E8F0"/>
+                                    <Setter TargetName="btnBorder" Property="BorderBrush" Value="#CBD5E1"/>
                                     <Setter Property="Foreground" Value="#94A3B8"/>
-                                    <Setter Property="Cursor" Value="No"/>
+                                    <Setter Property="Cursor" Value="Arrow"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -157,22 +170,36 @@
 
             <Style x:Key="SuccessBtn" TargetType="Button" BasedOn="{StaticResource PrimaryBtn}">
                 <Setter Property="Background" Value="{StaticResource SuccessBrush}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource SuccessHoverBrush}"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
                             <Border x:Name="btnBorder" Background="{TemplateBinding Background}"
-                                    CornerRadius="8"
-                                    Padding="{TemplateBinding Padding}">
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="7"
+                                    Padding="{TemplateBinding Padding}"
+                                    RenderTransformOrigin="0.5,0.5">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="btnBorder" Property="Background" Value="{StaticResource SuccessHoverBrush}"/>
+                                    <Setter TargetName="btnBorder" Property="BorderBrush" Value="#0E7A31"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="btnBorder" Property="Background" Value="#0E7A31"/>
+                                    <Setter TargetName="btnBorder" Property="RenderTransform">
+                                        <Setter.Value>
+                                            <ScaleTransform ScaleX="0.975" ScaleY="0.975"/>
+                                        </Setter.Value>
+                                    </Setter>
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter TargetName="btnBorder" Property="Background" Value="#E2E8F0"/>
+                                    <Setter TargetName="btnBorder" Property="BorderBrush" Value="#CBD5E1"/>
                                     <Setter Property="Foreground" Value="#94A3B8"/>
-                                    <Setter Property="Cursor" Value="No"/>
+                                    <Setter Property="Cursor" Value="Arrow"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -182,22 +209,36 @@
 
             <Style x:Key="DangerBtn" TargetType="Button" BasedOn="{StaticResource PrimaryBtn}">
                 <Setter Property="Background" Value="{StaticResource DangerBrush}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource DangerHoverBrush}"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
                             <Border x:Name="btnBorder" Background="{TemplateBinding Background}"
-                                    CornerRadius="8"
-                                    Padding="{TemplateBinding Padding}">
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="7"
+                                    Padding="{TemplateBinding Padding}"
+                                    RenderTransformOrigin="0.5,0.5">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="btnBorder" Property="Background" Value="{StaticResource DangerHoverBrush}"/>
+                                    <Setter TargetName="btnBorder" Property="BorderBrush" Value="#8C241D"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="btnBorder" Property="Background" Value="#8C241D"/>
+                                    <Setter TargetName="btnBorder" Property="RenderTransform">
+                                        <Setter.Value>
+                                            <ScaleTransform ScaleX="0.975" ScaleY="0.975"/>
+                                        </Setter.Value>
+                                    </Setter>
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter TargetName="btnBorder" Property="Background" Value="#E2E8F0"/>
+                                    <Setter TargetName="btnBorder" Property="BorderBrush" Value="#CBD5E1"/>
                                     <Setter Property="Foreground" Value="#94A3B8"/>
-                                    <Setter Property="Cursor" Value="No"/>
+                                    <Setter Property="Cursor" Value="Arrow"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -207,22 +248,36 @@
 
             <Style x:Key="WarningBtn" TargetType="Button" BasedOn="{StaticResource PrimaryBtn}">
                 <Setter Property="Background" Value="{StaticResource WarningBrush}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource WarningHoverBrush}"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
                             <Border x:Name="btnBorder" Background="{TemplateBinding Background}"
-                                    CornerRadius="8"
-                                    Padding="{TemplateBinding Padding}">
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="7"
+                                    Padding="{TemplateBinding Padding}"
+                                    RenderTransformOrigin="0.5,0.5">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="btnBorder" Property="Background" Value="{StaticResource WarningHoverBrush}"/>
+                                    <Setter TargetName="btnBorder" Property="BorderBrush" Value="#B57D00"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="btnBorder" Property="Background" Value="#B57D00"/>
+                                    <Setter TargetName="btnBorder" Property="RenderTransform">
+                                        <Setter.Value>
+                                            <ScaleTransform ScaleX="0.975" ScaleY="0.975"/>
+                                        </Setter.Value>
+                                    </Setter>
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter TargetName="btnBorder" Property="Background" Value="#E2E8F0"/>
+                                    <Setter TargetName="btnBorder" Property="BorderBrush" Value="#CBD5E1"/>
                                     <Setter Property="Foreground" Value="#94A3B8"/>
-                                    <Setter Property="Cursor" Value="No"/>
+                                    <Setter Property="Cursor" Value="Arrow"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -238,16 +293,19 @@
                 <Setter Property="Background" Value="#FFFFFF"/>
                 <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="Padding" Value="14,7"/>
+                <Setter Property="Padding" Value="13,6"/>
                 <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="UseLayoutRounding" Value="True"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
                             <Border x:Name="btnBorder" Background="{TemplateBinding Background}"
                                     BorderBrush="{TemplateBinding BorderBrush}"
                                     BorderThickness="{TemplateBinding BorderThickness}"
-                                    CornerRadius="8"
-                                    Padding="{TemplateBinding Padding}">
+                                    CornerRadius="7"
+                                    Padding="{TemplateBinding Padding}"
+                                    RenderTransformOrigin="0.5,0.5">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
@@ -258,12 +316,18 @@
                                 </Trigger>
                                 <Trigger Property="IsPressed" Value="True">
                                     <Setter TargetName="btnBorder" Property="Background" Value="#E0EFFF"/>
+                                    <Setter TargetName="btnBorder" Property="BorderBrush" Value="{StaticResource PrimaryHoverBrush}"/>
+                                    <Setter TargetName="btnBorder" Property="RenderTransform">
+                                        <Setter.Value>
+                                            <ScaleTransform ScaleX="0.975" ScaleY="0.975"/>
+                                        </Setter.Value>
+                                    </Setter>
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter TargetName="btnBorder" Property="Background" Value="#F8FAFC"/>
                                     <Setter TargetName="btnBorder" Property="BorderBrush" Value="#E2E8F0"/>
                                     <Setter Property="Foreground" Value="#94A3B8"/>
-                                    <Setter Property="Cursor" Value="No"/>
+                                    <Setter Property="Cursor" Value="Arrow"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -279,16 +343,19 @@
                 <Setter Property="Background" Value="#FEF2F2"/>
                 <Setter Property="BorderBrush" Value="#FECACA"/>
                 <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="Padding" Value="14,7"/>
+                <Setter Property="Padding" Value="13,6"/>
                 <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="UseLayoutRounding" Value="True"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
                             <Border x:Name="btnBorder" Background="{TemplateBinding Background}"
                                     BorderBrush="{TemplateBinding BorderBrush}"
                                     BorderThickness="{TemplateBinding BorderThickness}"
-                                    CornerRadius="8"
-                                    Padding="{TemplateBinding Padding}">
+                                    CornerRadius="7"
+                                    Padding="{TemplateBinding Padding}"
+                                    RenderTransformOrigin="0.5,0.5">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
@@ -298,13 +365,82 @@
                                 </Trigger>
                                 <Trigger Property="IsPressed" Value="True">
                                     <Setter TargetName="btnBorder" Property="Background" Value="#FCA5A5"/>
+                                    <Setter TargetName="btnBorder" Property="RenderTransform">
+                                        <Setter.Value>
+                                            <ScaleTransform ScaleX="0.975" ScaleY="0.975"/>
+                                        </Setter.Value>
+                                    </Setter>
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter TargetName="btnBorder" Property="Background" Value="#F8FAFC"/>
                                     <Setter TargetName="btnBorder" Property="BorderBrush" Value="#E2E8F0"/>
                                     <Setter Property="Foreground" Value="#94A3B8"/>
-                                    <Setter Property="Cursor" Value="No"/>
+                                    <Setter Property="Cursor" Value="Arrow"/>
                                 </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- ========================================================= -->
+            <!-- SEGMENTED IN-PAGE TAB BUTTON STYLE (SUPER FAST & SMOOTH)  -->
+            <!-- ========================================================= -->
+            <Style x:Key="TabBtn" TargetType="Button">
+                <Setter Property="FontFamily" Value="{StaticResource SegoeFont}"/>
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+                <Setter Property="Background" Value="#F8FAFC"/>
+                <Setter Property="BorderBrush" Value="{StaticResource BorderLightBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding" Value="12,6"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="UseLayoutRounding" Value="True"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="tabBorder"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="6"
+                                    Padding="{TemplateBinding Padding}"
+                                    RenderTransformOrigin="0.5,0.5">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <!-- Inactive Hover -->
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="tabBorder" Property="Background" Value="#EBF4FF"/>
+                                    <Setter TargetName="tabBorder" Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/>
+                                    <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}"/>
+                                </Trigger>
+                                <!-- Pressed -->
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="tabBorder" Property="RenderTransform">
+                                        <Setter.Value>
+                                            <ScaleTransform ScaleX="0.97" ScaleY="0.97"/>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Trigger>
+                                <!-- Active State (Tag="Active") -->
+                                <Trigger Property="Tag" Value="Active">
+                                    <Setter TargetName="tabBorder" Property="Background" Value="{StaticResource PrimaryBrush}"/>
+                                    <Setter TargetName="tabBorder" Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/>
+                                    <Setter Property="Foreground" Value="#FFFFFF"/>
+                                    <Setter Property="FontWeight" Value="Bold"/>
+                                </Trigger>
+                                <!-- Active Hover -->
+                                <MultiTrigger>
+                                    <MultiTrigger.Conditions>
+                                        <Condition Property="Tag" Value="Active"/>
+                                        <Condition Property="IsMouseOver" Value="True"/>
+                                    </MultiTrigger.Conditions>
+                                    <Setter TargetName="tabBorder" Property="Background" Value="{StaticResource PrimaryHoverBrush}"/>
+                                    <Setter TargetName="tabBorder" Property="BorderBrush" Value="{StaticResource PrimaryHoverBrush}"/>
+                                </MultiTrigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Setter.Value>
