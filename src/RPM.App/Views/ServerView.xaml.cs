@@ -21,9 +21,9 @@ public partial class ServerView : UserControl
 
     public ServerView(ServerService serverService, AppSettings settings)
     {
-        InitializeComponent();
         _serverService = serverService;
         _settings = settings;
+        InitializeComponent();
 
         DgPrinters.ItemsSource = _printers;
         DgClients.ItemsSource = _filteredClients;
@@ -82,6 +82,7 @@ public partial class ServerView : UserControl
 
     private void UpdateDashboardUI()
     {
+        if (_serverService == null || TxtOverviewPrinterName == null) return;
         int sharedCount = _serverService.SharedPrinters.Count(p => p.IsShared);
         if (_serverService.ActiveSharedPrinter != null)
         {
@@ -119,6 +120,7 @@ public partial class ServerView : UserControl
 
     private void ApplyClientFilters()
     {
+        if (_serverService == null || _filteredClients == null) return;
         string searchText = TxtSearchClient?.Text?.Trim().ToLowerInvariant() ?? string.Empty;
         string statusFilter = (CmbStatusFilter?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Tất cả trạng thái";
         string deptFilter = (CmbDepartmentFilter?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Tất cả phòng ban";

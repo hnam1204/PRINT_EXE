@@ -19,9 +19,9 @@ public partial class ClientView : UserControl
 
     public ClientView(ClientService clientService, AppSettings settings)
     {
-        InitializeComponent();
         _clientService = clientService;
         _settings = settings;
+        InitializeComponent();
 
         DgClientHistory.ItemsSource = _clientService.PrintHistory;
         LstClientLog.ItemsSource = _logs;
@@ -61,6 +61,7 @@ public partial class ClientView : UserControl
 
     private void UpdateUI()
     {
+        if (_clientService == null || TxtClientStatus == null) return;
         TxtClientStatus.Text = _clientService.ConnectionStatus;
         TxtApprovalStatus.Text = _clientService.ConnectionStatus;
 
