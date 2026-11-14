@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Security-AES--256--GCM%20E2EE-059669?logo=lock&logoColor=white" alt="E2EE Security" />
   <img src="https://img.shields.io/badge/Design-Fluent%20UI%20SaaS-2563EB" alt="Fluent UI" />
   <img src="https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF?logo=github-actions&logoColor=white" alt="CI/CD" />
-  <img src="https://img.shields.io/badge/Tests-11%2F11%20Passed-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-14%2F14%20Passed-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/License-MIT-blue" alt="License" />
 </p>
 
@@ -55,6 +55,11 @@
    * Tìm kiếm tức thì, bộ lọc trạng thái và phân nhóm theo phòng ban (Kế toán, Kinh doanh, Hành chính, Kỹ thuật...).
    * Chia sẻ nhiều máy in USB đồng thời và phân quyền sử dụng máy in chi tiết cho từng máy con.
    * Điều phối hàng đợi in đồng thời (Concurrent Queue) không bị nghẽn lệnh hoặc in đè tài liệu.
+10. **Tương Thích Đa Thiết Bị Windows & Công Cụ Chẩn Đoán (System Diagnostics):**
+   * Hoạt động mượt mà trên Desktop PC, Laptop, Mini PC, Workstation (Dell, HP, Lenovo, ASUS, MSI...).
+   * Hỗ trợ tối ưu cả Windows 10 (64-bit) và Windows 11 (64-bit).
+   * Tương thích mọi dòng máy in phổ biến: Canon, HP, Brother, Epson, Samsung, Xerox...
+   * Tích hợp công cụ chẩn đoán tương thích hệ thống trực quan, hỗ trợ khởi động lại dịch vụ Spooler chỉ với 1 click.
 
 ---
 

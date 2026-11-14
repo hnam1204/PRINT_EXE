@@ -1,0 +1,95 @@
+<Window x:Class="RPM.App.Views.CompatibilityDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Chẩn Đoán Khả Năng Tương Thích Hệ Thống Windows - Remote Print Manager"
+        Height="620" Width="850"
+        MinHeight="500" MinWidth="750"
+        WindowStartupLocation="CenterOwner"
+        Icon="/Assets/logo.png"
+        Background="{StaticResource BgBrush}">
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Width="48" Height="48" Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="12" Margin="0,0,14,0" Padding="4">
+                <Image Source="/Assets/logo.png" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+            </Border>
+
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                <TextBlock Text="KIỂM TRA KHẢ NĂNG TƯƠNG THÍCH THIẾT BỊ WINDOWS" FontSize="16" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
+                <TextBlock Text="Chẩn đoán phần cứng, hệ điều hành Windows 10/11 64-bit, dịch vụ Spooler và trình điều khiển máy in" FontSize="12" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- Overall Status Banner -->
+        <Border Grid.Row="1" x:Name="BannerOverall" Background="{StaticResource SuccessLightBrush}" BorderBrush="#A7F3D0" BorderThickness="1" CornerRadius="12" Padding="16,12" Margin="0,0,0,16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock x:Name="TxtOverallTitle" Text="● HỆ THỐNG HOÀN TOÀN TƯƠNG THÍCH" FontSize="14" FontWeight="Bold" Foreground="{StaticResource SuccessBrush}"/>
+                    <TextBlock x:Name="TxtOverallMessage" Text="Thiết bị đáp ứng đầy đủ điều kiện để cài đặt và vận hành Remote Print Manager." FontSize="12" Foreground="{StaticResource TextMainBrush}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="10,6" Margin="0,0,8,0">
+                        <TextBlock x:Name="TxtDeviceSpec" Text="Win 11 x64" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}"/>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Diagnostics DataGrid -->
+        <Border Grid.Row="2" Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" ClipToBounds="True">
+            <DataGrid x:Name="DgDiagnostics" IsReadOnly="True" BorderThickness="0"
+                      VirtualizingStackPanel.IsVirtualizing="True"
+                      VirtualizingStackPanel.VirtualizationMode="Recycling">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="HẠNG MỤC" Binding="{Binding Category}" Width="130"/>
+                    <DataGridTextColumn Header="THÀNH PHẦN KIỂM TRA" Binding="{Binding Name}" Width="190"/>
+                    <DataGridTextColumn Header="THÔNG TIN HỆ THỐNG" Binding="{Binding Detail}" Width="1.8*"/>
+
+                    <!-- Badge Status -->
+                    <DataGridTemplateColumn Header="KẾT QUẢ" Width="130">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Border Background="{Binding Level, Converter={StaticResource LevelToBadgeBg}}" 
+                                        CornerRadius="12" Padding="8,3" HorizontalAlignment="Left" Margin="4,0">
+                                    <TextBlock Text="{Binding Level, Converter={StaticResource LevelToText}}" 
+                                               Foreground="{Binding Level, Converter={StaticResource LevelToBadgeFg}}" 
+                                               FontSize="11" FontWeight="SemiBold"/>
+                                </Border>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <DataGridTextColumn Header="KHUYẾN NGHỊ / HƯỚNG DẪN" Binding="{Binding Recommendation}" Width="2*"/>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Border>
+
+        <!-- Bottom Action Bar -->
+        <Grid Grid.Row="3" Margin="0,16,0,0">
+            <Button Style="{StaticResource SecondaryBtn}" Content="🔄 Quét lại hệ thống" Click="BtnRescan_Click" HorizontalAlignment="Left" Padding="14,8"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Style="{StaticResource WarningBtn}" Content="🛠️ Khởi động lại Spooler" Click="BtnRestartSpooler_Click" Margin="0,0,10,0" Padding="14,8"/>
+                <Button Style="{StaticResource PrimaryBtn}" Content="Đóng" Click="BtnClose_Click" Padding="20,8"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>
+

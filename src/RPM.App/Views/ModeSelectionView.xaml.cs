@@ -21,4 +21,13 @@ public partial class ModeSelectionView : UserControl
     {
         OnRoleSelected?.Invoke(this, AppRole.Client);
     }
+
+    private void BtnDiagnostics_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new CompatibilityDialog
+        {
+            Owner = Window.GetWindow(this)
+        };
+        dlg.ShowDialog();
+    }
 }

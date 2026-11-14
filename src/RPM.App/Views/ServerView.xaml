@@ -43,6 +43,7 @@
                             <TextBlock x:Name="TxtServerStatus" Text="Máy chủ đang hoạt động" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SuccessBrush}"/>
                         </StackPanel>
                     </Border>
+                    <Button Style="{StaticResource SecondaryBtn}" Content="🔍 Chẩn đoán" Click="BtnOpenDiagnostics_Click" Margin="0,0,10,0" Padding="12,6"/>
                     <Button Style="{StaticResource SecondaryBtn}" Content="Thu nhỏ" Click="BtnMinimize_Click" Padding="14,7"/>
                 </StackPanel>
             </Grid>
@@ -478,7 +479,8 @@
                                 <CheckBox x:Name="ChkNotifications" Content="Hiện thông báo Desktop khi có máy con xin kết nối hoặc có lệnh in" FontSize="13" Margin="0,0,0,24" IsChecked="True"/>
 
                                 <StackPanel Orientation="Horizontal">
-                                    <Button Style="{StaticResource PrimaryBtn}" Content="Lưu Cài Đặt" Click="BtnSaveSettings_Click" Margin="0,0,14,0"/>
+                                    <Button Style="{StaticResource PrimaryBtn}" Content="Lưu Cài Đặt" Click="BtnSaveSettings_Click" Margin="0,0,12,0"/>
+                                    <Button Style="{StaticResource SecondaryBtn}" Content="🔍 Chẩn Đoán Thiết Bị" Click="BtnOpenDiagnostics_Click" Margin="0,0,12,0"/>
                                     <Button Style="{StaticResource SecondaryBtn}" Content="🔄 Đổi sang Chế Độ Máy Con" Click="BtnSwitchToClient_Click"/>
                                 </StackPanel>
                             </StackPanel>

@@ -4,6 +4,7 @@ using System.Text.Json;
 using RPM.Core.Models;
 using RPM.Core.Protocol;
 using RPM.Core.Security;
+using RPM.Core.Diagnostics;
 using RPM.Core.Update;
 using RPM.Networking;
 using RPM.Printing;
@@ -398,5 +399,52 @@ public class RPMTests
 
         Assert.Equal(totalConcurrentJobs, dequeuedJobs.Count);
         Assert.Equal(totalConcurrentJobs, dequeuedJobs.Select(j => j.JobId).Distinct().Count());
+    }
+
+    [Fact]
+    public void Compatibility_Diagnostics_DetectsWindowsAnd64BitCorrectly()
+    {
+        var report = CompatibilityChecker.RunDiagnostics();
+
+        Assert.NotNull(report);
+        Assert.NotEmpty(report.OperatingSystem);
+        Assert.True(report.Is64Bit);
+        Assert.True(report.Items.Count >= 6);
+
+        // Verify key diagnostic checklist items
+        Assert.Contains(report.Items, i => i.Category == "Hệ điều hành");
+        Assert.Contains(report.Items, i => i.Category == "Kiến trúc phần cứng");
+        Assert.Contains(report.Items, i => i.Category == "Dịch vụ in ấn");
+        Assert.Contains(report.Items, i => i.Category == "Ứng dụng văn phòng");
+    }
+
+    [Fact]
+    public void Compatibility_PrinterBrandDetection_RecognizesMajorBrands()
+    {
+        var mockPrinters = new List<SharedPrinterInfo>
+        {
+            new() { Name = "Canon LBP 2900 USB Laser", DriverName = "Canon LBP2900", IsShared = true },
+            new() { Name = "HP LaserJet Pro M404dn", DriverName = "HP LaserJet", IsShared = true },
+            new() { Name = "Brother HL-L2321D series", DriverName = "Brother HL-L2320D", IsShared = true },
+            new() { Name = "Epson L3150 Series WiFi/USB", DriverName = "Epson ESC/P", IsShared = true }
+        };
+
+        var report = CompatibilityChecker.RunDiagnostics(null, mockPrinters);
+
+        var printerItem = report.Items.FirstOrDefault(i => i.Category == "Máy in vật lý");
+        Assert.NotNull(printerItem);
+        Assert.Equal(CompatibilityLevel.Compatible, printerItem.Level);
+        Assert.Contains("Canon", printerItem.Detail);
+        Assert.Contains("HP", printerItem.Detail);
+        Assert.Contains("Brother", printerItem.Detail);
+        Assert.Contains("Epson", printerItem.Detail);
+    }
+
+    [Fact]
+    public void Compatibility_PortAvailabilityCheck_ValidatesPortReadiness()
+    {
+        // Check a random high port
+        bool isAvailable = CompatibilityChecker.CheckPortAvailable(19283);
+        Assert.True(isAvailable);
     }
 }

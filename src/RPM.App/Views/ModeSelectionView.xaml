@@ -99,9 +99,14 @@
                 </Border>
             </Grid>
 
+            <Button Style="{StaticResource SecondaryBtn}" 
+                    Content="🔍 Kiểm tra khả năng tương thích của thiết bị này (Windows 10/11 64-bit)" 
+                    Click="BtnDiagnostics_Click" 
+                    HorizontalAlignment="Center" Margin="0,20,0,0" Padding="18,8"/>
+
             <TextBlock Text="* Bạn có thể đổi lại vai trò bất cứ lúc nào trong mục Cài đặt của phần mềm." 
                        FontSize="12" FontStyle="Italic" Foreground="{StaticResource TextMutedBrush}" 
-                       HorizontalAlignment="Center" Margin="0,32,0,0"/>
+                       HorizontalAlignment="Center" Margin="0,12,0,0"/>
         </StackPanel>
     </Grid>
 </UserControl>

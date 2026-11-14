@@ -370,5 +370,42 @@ git push origin v1.0.0
 
 ---
 
+## 11. Khả Năng Tương Thích Đa Thiết Bị Windows & Công Cụ Chẩn Đoán (System Diagnostics)
+
+### 11.1. Hỗ trợ đa dạng phần cứng & thương hiệu máy tính
+* **Thiết bị:** Tương thích 100% với Máy tính để bàn (Desktop PC), Máy tính xách tay (Laptop), Máy tính siêu nhỏ (Mini PC / Intel NUC), Máy trạm (Workstation), Máy All-in-One.
+* **Thương hiệu:** Hoạt động độc lập và bình đẳng trên mọi hãng phần cứng (Dell, HP, Lenovo, ASUS, Acer, MSI, Gigabyte, tự lắp ráp...).
+* **Kiến trúc:** Tối ưu hóa cho Windows x64 và ARM64 (qua lớp dịch x64 trên Windows 11).
+
+### 11.2. Hỗ trợ các phiên bản hệ điều hành Windows
+* **Windows 10 (64-bit):** Bản dựng (Build) từ 19041 (20H1/21H1/22H2) trở lên — Tương thích hoàn hảo với Máy Chủ công ty.
+* **Windows 11 (64-bit):** Bản dựng từ 22000 (21H2/22H2/23H2/24H2) trở lên — Tương thích tốt với các máy tính văn phòng mới.
+* **Windows Server:** Hỗ trợ Windows Server 2016, 2019, 2022 khi triển khai Relay hoặc vai trò Print Host.
+
+### 11.3. Khả năng tương thích mọi thương hiệu máy in
+* **Hãng máy in hỗ trợ:** Canon (LBP 2900, 3300, 6030, MF series...), HP (LaserJet Pro, Neverstop, Ink Tank...), Brother (HL series, DCP series...), Epson (EcoTank, L series...), Samsung, Ricoh, Xerox, Konica Minolta...
+* **Giao tiếp:** Tối ưu hóa cổng USB kết nối trực tiếp vào Máy Chủ, hỗ trợ cả máy in kết nối qua cổng mạng nội bộ.
+
+### 11.4. Tương thích 100% với các ứng dụng Windows (Ctrl + P)
+Nhân viên không cần mở phần mềm Remote Print Manager, mà in trực tiếp từ:
+* **Bộ ứng dụng văn phòng:** Microsoft Word, Microsoft Excel, PowerPoint, Outlook.
+* **Trình duyệt Web:** Google Chrome, Microsoft Edge, Cốc Cốc, Firefox.
+* **Trình đọc & in ấn PDF:** Adobe Acrobat Reader, Foxit PDF Editor, Nitro PDF.
+* **Phần mềm doanh nghiệp:** Phần mềm kế toán MISA SME / AMIS, FAST, Bravo, phần mềm bán hàng KiotViet, Sapo...
+
+### 11.5. Công cụ chẩn đoán hệ thống tự động (System Diagnostics Tool)
+Phần mềm tích hợp sẵn công cụ chẩn đoán tương thích hệ thống:
+* **Cách mở:** Bấm nút **"🔍 Chẩn đoán"** trên thanh tiêu đề hoặc vào tab **Cài Đặt** → **"🔍 Chẩn Đoán Thiết Bị"**.
+* **Bảng kiểm tra 7 hạng mục tự động:**
+  1. *Hệ điều hành Windows:* Nhận diện Windows 10/11 64-bit và số Build.
+  2. *Kiến trúc CPU:* Kiểm tra hỗ trợ xử lý x64 đa nhân.
+  3. *Quyền hạn thực thi:* Kiểm tra quyền Administrator vs Standard User.
+  4. *Dịch vụ in ấn Windows Spooler:* Tự động phát hiện dịch vụ `spoolsv` đang chạy hay bị tắt, có nút **"🛠️ Khởi động lại Spooler"** tự sửa lỗi trong 1 click.
+  5. *Nhận diện máy in & Driver:* Tự động quét và liệt kê các dòng máy in của Canon, HP, Brother, Epson...
+  6. *Cổng mạng IPP (9199):* Kiểm tra tính sẵn sàng để mở luồng in ngầm.
+  7. *Ứng dụng tương thích:* Xác thực khả năng in qua phím tắt `Ctrl + P`.
+
+---
+
 > **Bản quyền & Phát triển:** Remote Print Manager (RPM) © 2026. Thiết kế chuyên biệt cho môi trường doanh nghiệp và văn phòng chi nhánh.
 

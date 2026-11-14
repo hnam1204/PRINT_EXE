@@ -21,6 +21,9 @@
             <converters:BoolToBadgeFgConverter x:Key="BoolToBadgeFg"/>
             <converters:OnlineBadgeBgConverter x:Key="OnlineBadgeBg"/>
             <converters:OnlineBadgeFgConverter x:Key="OnlineBadgeFg"/>
+            <converters:LevelToBadgeBgConverter x:Key="LevelToBadgeBg"/>
+            <converters:LevelToBadgeFgConverter x:Key="LevelToBadgeFg"/>
+            <converters:LevelToTextConverter x:Key="LevelToText"/>
 
             <!-- Colors: Modern Enterprise SaaS Palette -->
             <SolidColorBrush x:Key="PrimaryBrush" Color="#2563EB"/>

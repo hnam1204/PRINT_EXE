@@ -115,3 +115,63 @@ public class OnlineBadgeFgConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
 }
 
+public class LevelToBadgeBgConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is RPM.Core.Diagnostics.CompatibilityLevel level)
+        {
+            return level switch
+            {
+                RPM.Core.Diagnostics.CompatibilityLevel.Compatible => new SolidColorBrush(Color.FromArgb(255, 222, 247, 236)),
+                RPM.Core.Diagnostics.CompatibilityLevel.NeedsSetup => new SolidColorBrush(Color.FromArgb(255, 254, 243, 199)),
+                RPM.Core.Diagnostics.CompatibilityLevel.Incompatible => new SolidColorBrush(Color.FromArgb(255, 254, 226, 226)),
+                _ => new SolidColorBrush(Color.FromArgb(255, 243, 244, 246))
+            };
+        }
+        return new SolidColorBrush(Color.FromArgb(255, 243, 244, 246));
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
+}
+
+public class LevelToBadgeFgConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is RPM.Core.Diagnostics.CompatibilityLevel level)
+        {
+            return level switch
+            {
+                RPM.Core.Diagnostics.CompatibilityLevel.Compatible => new SolidColorBrush(Color.FromArgb(255, 3, 84, 63)),
+                RPM.Core.Diagnostics.CompatibilityLevel.NeedsSetup => new SolidColorBrush(Color.FromArgb(255, 180, 83, 9)),
+                RPM.Core.Diagnostics.CompatibilityLevel.Incompatible => new SolidColorBrush(Color.FromArgb(255, 185, 28, 28)),
+                _ => new SolidColorBrush(Color.FromArgb(255, 75, 85, 99))
+            };
+        }
+        return new SolidColorBrush(Color.FromArgb(255, 75, 85, 99));
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
+}
+
+public class LevelToTextConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is RPM.Core.Diagnostics.CompatibilityLevel level)
+        {
+            return level switch
+            {
+                RPM.Core.Diagnostics.CompatibilityLevel.Compatible => "● Tương thích",
+                RPM.Core.Diagnostics.CompatibilityLevel.NeedsSetup => "▲ Cần thiết lập",
+                RPM.Core.Diagnostics.CompatibilityLevel.Incompatible => "✕ Không tương thích",
+                _ => "Chưa xác định"
+            };
+        }
+        return "Chưa xác định";
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
+}
+

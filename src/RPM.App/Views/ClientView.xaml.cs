@@ -233,4 +233,13 @@ public partial class ClientView : UserControl
     {
         OnMinimizeRequested?.Invoke(this, EventArgs.Empty);
     }
+
+    private void BtnOpenDiagnostics_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new CompatibilityDialog(_settings)
+        {
+            Owner = Window.GetWindow(this)
+        };
+        dlg.ShowDialog();
+    }
 }
