@@ -84,5 +84,17 @@ public static class RPMCrypto
 
         return $"RPM-{new string(code)}";
     }
+
+    public static string GeneratePairingCode(string previousCode)
+    {
+        string nextCode;
+        do
+        {
+            nextCode = GeneratePairingCode();
+        }
+        while (string.Equals(nextCode, previousCode, StringComparison.OrdinalIgnoreCase));
+
+        return nextCode;
+    }
 }
 

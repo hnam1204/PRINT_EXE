@@ -994,6 +994,39 @@ public partial class MainDashboardView : UserControl
         }
     }
 
+    private async void BtnRegeneratePairingCode_Click(object sender, RoutedEventArgs e)
+    {
+        if (_serverService == null) return;
+
+        if (MessageBox.Show(
+                "Mã hiện tại sẽ hết hiệu lực và các máy con phải ghép nối lại. Bạn có muốn tiếp tục không?",
+                "Tạo mã kết nối mới",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question) != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        BtnRegeneratePairingCode.IsEnabled = false;
+        try
+        {
+            await _serverService.RotatePairingCodeAsync();
+            UpdateServerPairingCodeUI();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"Không thể tạo mã mới: {ex.Message}",
+                "Không thể đổi mã",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            BtnRegeneratePairingCode.IsEnabled = true;
+        }
+    }
+
     private async void BtnClientConnectToggle_Click(object sender, RoutedEventArgs e)
     {
         if (_clientService == null) return;

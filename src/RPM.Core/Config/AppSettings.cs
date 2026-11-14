@@ -25,6 +25,7 @@ public class AppSettings
     public string CloudHostPublicKey { get; set; } = string.Empty;
     public string CloudPairingCode { get; set; } = string.Empty;
     public DateTime? CloudPairingExpiresAt { get; set; }
+    public string CloudPairingSessionId { get; set; } = string.Empty;
     public string CloudPairingId { get; set; } = string.Empty;
     public bool AutoStartWithWindows { get; set; } = true;
     public bool MinimizeToSystemTray { get; set; } = true;

@@ -84,11 +84,7 @@ public class ServerService : IDisposable
 
     public async Task StartAsync()
     {
-        if (!PacketSecurity.IsValidPairingCode(_settings.PairingCode))
-        {
-            _settings.PairingCode = Core.Security.RPMCrypto.GeneratePairingCode();
-            ConfigManager.Save(_settings);
-        }
+        string previousCloudSessionId = RotateLocalPairingCode();
 
         _relayClient.PairingCode = _settings.PairingCode;
 
@@ -108,7 +104,7 @@ public class ServerService : IDisposable
             if (_cloud.IsOnline)
             {
                 cloudReady = true;
-                await StartCloudWorkersIfNeededAsync();
+                await StartCloudWorkersIfNeededAsync(previousCloudSessionId);
             }
         }
 
@@ -141,6 +137,49 @@ public class ServerService : IDisposable
         await _relayClient.StartAsync(_settings.RelayServerUrl);
     }
 
+    public async Task<bool> RotatePairingCodeAsync(CancellationToken cancellationToken = default)
+    {
+        bool restartRelay = _relayClient.IsConnected;
+        if (restartRelay)
+        {
+            await _relayClient.StopAsync();
+        }
+
+        string previousCloudSessionId = RotateLocalPairingCode();
+
+        if (restartRelay)
+        {
+            await _relayClient.StartAsync(_settings.RelayServerUrl);
+        }
+
+        if (_settings.CloudTransportEnabled && _cloud.IsOnline && _cloud.Client is not null)
+        {
+            try
+            {
+                await IssueCloudPairingCodeAsync(previousCloudSessionId, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke(this, $"[Cloud] Đã đổi mã Relay, nhưng chưa đổi được mã Cloud: {ex.Message}");
+            }
+        }
+
+        OnStatusChanged?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
+    private string RotateLocalPairingCode()
+    {
+        string previousCloudSessionId = _settings.CloudPairingSessionId;
+        _settings.PairingCode = Core.Security.RPMCrypto.GeneratePairingCode(_settings.PairingCode);
+        _settings.CloudPairingCode = string.Empty;
+        _settings.CloudPairingExpiresAt = null;
+        _settings.CloudPairingSessionId = string.Empty;
+        ConfigManager.Save(_settings);
+        _relayClient.PairingCode = _settings.PairingCode;
+        return previousCloudSessionId;
+    }
+
     public async Task<bool> EnrollCloudAsync(string enrollmentSecret, CancellationToken cancellationToken = default)
     {
         bool enrolled = await _cloud.EnrollAsync(enrollmentSecret, cancellationToken);
@@ -158,13 +197,13 @@ public class ServerService : IDisposable
         catch (Exception ex) { OnLog?.Invoke(this, $"[Cloud] Không thể khởi động lại Worker: {ex.Message}"); }
     }
 
-    private async Task StartCloudWorkersIfNeededAsync()
+    private async Task StartCloudWorkersIfNeededAsync(string? previousCloudSessionId = null)
     {
         if (Interlocked.Exchange(ref _cloudWorkersStarted, 1) != 0) return;
         try
         {
             await RegisterCloudPrintersAsync();
-            await IssueCloudPairingCodeAsync();
+            await IssueCloudPairingCodeAsync(previousCloudSessionId);
             _ = Task.Run(CloudWorkerLoopAsync);
             _ = Task.Run(CloudPairingLoopAsync);
         }
@@ -175,14 +214,29 @@ public class ServerService : IDisposable
         }
     }
 
-    private async Task IssueCloudPairingCodeAsync()
+    private async Task IssueCloudPairingCodeAsync(string? previousCloudSessionId = null, CancellationToken cancellationToken = default)
     {
         if (_cloud.Client is null) return;
-        var code = await _cloud.Client.IssuePairingCodeAsync(_settings.DeviceId);
+        string sessionToRevoke = previousCloudSessionId ?? _settings.CloudPairingSessionId;
+        if (!string.IsNullOrWhiteSpace(sessionToRevoke))
+        {
+            try
+            {
+                await _cloud.Client.RevokePairingCodeAsync(sessionToRevoke, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke(this, $"[Cloud] Không thể thu hồi mã cũ, tiếp tục tạo mã mới: {ex.Message}");
+            }
+        }
+
+        string sessionId = $"{_settings.DeviceId}:{Guid.NewGuid():N}";
+        var code = await _cloud.Client.IssuePairingCodeAsync(sessionId, cancellationToken);
         if (code?.Code is not null)
         {
             _settings.CloudPairingCode = code.Code;
             _settings.CloudPairingExpiresAt = code.ExpiresAt;
+            _settings.CloudPairingSessionId = code.SessionId;
             ConfigManager.Save(_settings);
             OnLog?.Invoke(this, $"[Cloud] Mã ghép nối: {code.Code}");
         }

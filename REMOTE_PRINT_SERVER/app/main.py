@@ -47,6 +47,25 @@ from .storage import BlobStore, VercelBlobStore
 from .security import enforce_rate_limit, hash_token, new_device_token, require_device, require_role
 
 
+def _revoke_pairings_for_code(session, host_id: str, code: str, revoked_at: datetime) -> int:
+    """Invalidate every pairing created from a rotated host code."""
+    pairings = session.scalars(select(Pairing).where(
+        Pairing.host_id == host_id,
+        Pairing.code == code,
+        Pairing.status.in_(["PENDING", "APPROVED"]),
+    )).all()
+    for pairing in pairings:
+        pairing.status = "REVOKED"
+        pairing.decided_at = revoked_at
+        session.add(AuditEvent(
+            actor_id=host_id,
+            action="PAIRING_REVOKED_BY_CODE_ROTATION",
+            target_type="PAIRING",
+            target_id=pairing.id,
+        ))
+    return len(pairings)
+
+
 def create_app(settings: Settings | None = None, database_url: str | None = None, blob_store: BlobStore | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     db_url = database_url or settings.database_url
@@ -449,9 +468,15 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                     sessionId=existing.session_id, code=code, issuedAt=existing.issued_at,
                     expiresAt=existing.expires_at, status=existing.status,
                 )
-            session.query(PairingCode).filter(
+            active_codes = session.scalars(select(PairingCode).where(
                 PairingCode.device_id == device.id, PairingCode.status == "ACTIVE"
-            ).update({"status": "REVOKED", "revoked_at": now}, synchronize_session=False)
+            )).all()
+            for active_code in active_codes:
+                active_code.status = "REVOKED"
+                active_code.revoked_at = now
+                _revoke_pairings_for_code(session, device.id, decrypt_pairing_code(
+                    active_code.code_ciphertext, settings.enrollment_secret
+                ), now)
             expires_at = now + timedelta(minutes=settings.pairing_ttl_minutes)
             try:
                 record, plain_code = issue_pairing_code(
@@ -535,6 +560,9 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             if record.status == "ACTIVE":
                 record.status = "REVOKED"
                 record.revoked_at = now
+                _revoke_pairings_for_code(session, device.id, decrypt_pairing_code(
+                    record.code_ciphertext, settings.enrollment_secret
+                ), now)
                 session.add(AuditEvent(actor_id=device.id, action="PAIRING_CODE_REVOKED", target_type="PAIRING_CODE", target_id=record.id))
                 session.commit()
             return PairingCodeResponse(

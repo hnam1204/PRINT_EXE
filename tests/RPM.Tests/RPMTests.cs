@@ -125,6 +125,18 @@ public class RPMTests
     }
 
     [Fact]
+    public void PairingCode_Generate_WithPreviousCode_AlwaysRotates()
+    {
+        string previousCode = "RPM-A7K2Q9";
+
+        string nextCode = RPMCrypto.GeneratePairingCode(previousCode);
+
+        Assert.NotEqual(previousCode, nextCode);
+        Assert.StartsWith("RPM-", nextCode);
+        Assert.Equal(10, nextCode.Length);
+    }
+
+    [Fact]
     public async Task Relay_And_Client_EndToEndCommunication_Succeeds()
     {
         int testPort = 9880;

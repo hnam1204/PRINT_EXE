@@ -74,6 +74,56 @@ def test_resolve_code_requires_client_and_host_approval(tmp_path):
     assert revoked.json()["status"] == "REVOKED"
 
 
+def test_rotating_code_revokes_existing_pairing(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}")
+    client = TestClient(app)
+    host_token = register(client, "host-01", "HOST")
+    client_token = register(client, "client-01", "CLIENT")
+    host_headers = {"Authorization": f"Bearer {host_token}"}
+    client_headers = {"Authorization": f"Bearer {client_token}"}
+
+    issued = client.post(
+        "/api/v1/pairing-codes/issue",
+        headers=host_headers,
+        json={"sessionId": "boot-1"},
+    ).json()
+    resolved = client.post(
+        "/api/v1/pairing-codes/resolve",
+        headers=client_headers,
+        json={"code": issued["code"]},
+    )
+    assert resolved.status_code == 201
+    pairing_id = resolved.json()["pairingId"]
+    approved = client.post(
+        f"/api/v1/pairings/{pairing_id}/decision",
+        headers=host_headers,
+        json={"approve": True},
+    )
+    assert approved.status_code == 200
+
+    rotated = client.post(
+        "/api/v1/pairing-codes/issue",
+        headers=host_headers,
+        json={"sessionId": "boot-2"},
+    )
+    assert rotated.status_code == 201
+    assert rotated.json()["code"] != issued["code"]
+
+    old_pairing = client.get(
+        f"/api/v1/pairings/{pairing_id}",
+        headers=client_headers,
+    )
+    assert old_pairing.status_code == 200
+    assert old_pairing.json()["status"] == "REVOKED"
+
+    old_code = client.post(
+        "/api/v1/pairing-codes/resolve",
+        headers=client_headers,
+        json={"code": issued["code"]},
+    )
+    assert old_code.status_code == 404
+
+
 def test_database_collision_causes_secure_retry(tmp_path, monkeypatch):
     app = create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}")
     client = TestClient(app)

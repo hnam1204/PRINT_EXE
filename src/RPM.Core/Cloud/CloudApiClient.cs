@@ -71,6 +71,9 @@ public sealed class CloudApiClient : IDisposable
     public Task<CloudPairingCodeResponse?> GetCurrentPairingCodeAsync(CancellationToken cancellationToken = default) =>
         GetAsync<CloudPairingCodeResponse>("api/v1/pairing-codes/current", cancellationToken);
 
+    public Task<CloudPairingCodeResponse?> RevokePairingCodeAsync(string sessionId, CancellationToken cancellationToken = default) =>
+        PostAsync<CloudPairingCodeResponse>("api/v1/pairing-codes/revoke", new { sessionId }, cancellationToken);
+
     public Task<CloudPairingResolution?> ResolvePairingCodeAsync(string code, CloudLocationEvidence? location = null, CancellationToken cancellationToken = default) =>
         PostAsync<CloudPairingResolution>("api/v1/pairing-codes/resolve", new
         {
