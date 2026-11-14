@@ -71,3 +71,4 @@ jobs:
             publish/RemotePrintManager_v${{ env.VERSION }}_Portable.zip
             publish/version.json
             publish/relay/RPM.Relay.exe
+

@@ -13,6 +13,8 @@ public class AppSettings
     public string PairingCode { get; set; } = string.Empty;
     public string RelayServerUrl { get; set; } = "ws://127.0.0.1:9090"; // default local relay or public broker
     public string SelectedPrinterName { get; set; } = string.Empty;
+    public List<string> SharedPrinterNames { get; set; } = new();
+    public List<string> Departments { get; set; } = new() { "Chung", "Kế toán", "Kinh doanh", "Hành chính", "Kỹ thuật", "Ban Giám Đốc" };
     public string EncryptionSecret { get; set; } = string.Empty;
     public bool AutoStartWithWindows { get; set; } = true;
     public bool MinimizeToSystemTray { get; set; } = true;

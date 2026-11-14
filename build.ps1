@@ -23,7 +23,11 @@ Get-Process -Name "*RemotePrintManager*", "*RPM*" -ErrorAction SilentlyContinue 
 Start-Sleep -Milliseconds 500
 
 if (Test-Path "publish") {
-    Remove-Item -Recurse -Force "publish"
+    try {
+        Remove-Item -Recurse -Force "publish" -ErrorAction Stop
+    } catch {
+        Get-ChildItem -Path "publish" -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # 2. Build solution & Run Automated Tests

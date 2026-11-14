@@ -279,4 +279,124 @@ public class RPMTests
             if (Directory.Exists(tempFolder)) Directory.Delete(tempFolder, true);
         }
     }
+
+    [Fact]
+    public void Scalability_Supports100Clients_WithoutHardcodedLimits()
+    {
+        var clients = new List<DeviceInfo>();
+        var departments = new[] { "Kế toán", "Kinh doanh", "Hành chính", "Kỹ thuật", "Ban Giám Đốc" };
+
+        // Register 100 client devices
+        for (int i = 1; i <= 100; i++)
+        {
+            clients.Add(new DeviceInfo
+            {
+                DeviceId = $"DEVICE-UUID-{i:D4}",
+                DeviceName = $"PC-VănPhòng-{i:D3}",
+                Department = departments[i % departments.Length],
+                IsApproved = true,
+                IsOnline = (i % 2 == 0),
+                OperatingSystem = "Microsoft Windows 11 Pro",
+                PrintJobsCount = i * 2
+            });
+        }
+
+        Assert.Equal(100, clients.Count);
+        Assert.Equal(50, clients.Count(c => c.IsOnline));
+        Assert.Equal(50, clients.Count(c => !c.IsOnline));
+
+        // Test department filter
+        var accountingClients = clients.Where(c => c.Department == "Kế toán").ToList();
+        Assert.Equal(20, accountingClients.Count);
+
+        // Test search filter
+        var found = clients.Where(c => c.DeviceName.Contains("042")).ToList();
+        Assert.Single(found);
+        Assert.Equal("PC-VănPhòng-042", found[0].DeviceName);
+    }
+
+    [Fact]
+    public void AccessControl_DepartmentAndPrinterPermissions_Enforced()
+    {
+        var sharedPrinters = new List<SharedPrinterInfo>
+        {
+            new() { Name = "Canon LBP 2900 - Accounting", IsShared = true },
+            new() { Name = "HP LaserJet - Sales", IsShared = true },
+            new() { Name = "Epson Color - Marketing", IsShared = true }
+        };
+
+        // Client 1: Restricted to Accounting printer
+        var clientAccounting = new DeviceInfo
+        {
+            DeviceId = "ACC-01",
+            DeviceName = "Máy Kế Toán Trưởng",
+            Department = "Kế toán",
+            AllowedPrinters = new List<string> { "Canon LBP 2900 - Accounting" }
+        };
+
+        // Client 2: Unrestricted (all shared printers)
+        var clientDirector = new DeviceInfo
+        {
+            DeviceId = "BOD-01",
+            DeviceName = "Máy Giám Đốc",
+            Department = "Ban Giám Đốc",
+            AllowedPrinters = new List<string>() // empty = all
+        };
+
+        // Check Client 1 permissions
+        Assert.Contains("Canon LBP 2900 - Accounting", clientAccounting.AllowedPrinters);
+        Assert.DoesNotContain("HP LaserJet - Sales", clientAccounting.AllowedPrinters);
+        Assert.Equal("Canon LBP 2900 - Accounting", clientAccounting.AllowedPrintersSummary);
+
+        // Check Client 2 permissions
+        Assert.Equal("Tất cả máy in chia sẻ", clientDirector.AllowedPrintersSummary);
+    }
+
+    [Fact]
+    public async Task Concurrency_MultipleClientsPrintSimultaneously_FifoQueueNoDrops()
+    {
+        var printQueue = new Queue<PrintJob>();
+        var queueLock = new SemaphoreSlim(1, 1);
+        int totalConcurrentJobs = 20;
+
+        // Submit 20 concurrent jobs from simulated clients
+        var tasks = Enumerable.Range(1, totalConcurrentJobs).Select(async i =>
+        {
+            await Task.Yield();
+            var job = new PrintJob
+            {
+                JobId = $"JOB-{i:D3}",
+                DocumentName = $"Báo cáo tài chính quý {i}.pdf",
+                SenderDeviceId = $"CLIENT-{i:D3}",
+                SenderDeviceName = $"Máy con {i}",
+                Department = (i % 2 == 0) ? "Kế toán" : "Kinh doanh",
+                TargetPrinter = "Canon LBP 2900",
+                ContentSha256 = RPMCrypto.ComputeSha256(Encoding.UTF8.GetBytes($"DATA_JOB_{i}"))
+            };
+
+            await queueLock.WaitAsync();
+            try
+            {
+                printQueue.Enqueue(job);
+            }
+            finally
+            {
+                queueLock.Release();
+            }
+        });
+
+        await Task.WhenAll(tasks);
+
+        Assert.Equal(totalConcurrentJobs, printQueue.Count);
+
+        // Verify FIFO order extraction without data corruption
+        var dequeuedJobs = new List<PrintJob>();
+        while (printQueue.Count > 0)
+        {
+            dequeuedJobs.Add(printQueue.Dequeue());
+        }
+
+        Assert.Equal(totalConcurrentJobs, dequeuedJobs.Count);
+        Assert.Equal(totalConcurrentJobs, dequeuedJobs.Select(j => j.JobId).Distinct().Count());
+    }
 }

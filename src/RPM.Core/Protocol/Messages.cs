@@ -17,6 +17,7 @@ public enum MessageType
     Heartbeat = 10,
     HeartbeatAck = 11,
     PrinterStatusUpdate = 12,
+    PrintersListUpdate = 13,
 
     // Print Workflow
     SubmitPrintJob = 20,
@@ -51,6 +52,7 @@ public class RegisterServerPayload
     public string ServerDeviceName { get; set; } = string.Empty;
     public string PairingCode { get; set; } = string.Empty;
     public SharedPrinterInfo? SharedPrinter { get; set; }
+    public List<SharedPrinterInfo> SharedPrinters { get; set; } = new();
 }
 
 public class ClientJoinPayload
@@ -66,6 +68,12 @@ public class ClientJoinResponsePayload
     public string Message { get; set; } = string.Empty;
     public string EncryptionSecret { get; set; } = string.Empty;
     public SharedPrinterInfo? SharedPrinter { get; set; }
+    public List<SharedPrinterInfo> AvailablePrinters { get; set; } = new();
+}
+
+public class PrintersListUpdatePayload
+{
+    public List<SharedPrinterInfo> Printers { get; set; } = new();
 }
 
 public class PrintJobPayload

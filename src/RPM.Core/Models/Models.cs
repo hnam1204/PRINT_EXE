@@ -27,6 +27,16 @@ public class DeviceInfo
     public bool IsApproved { get; set; } = false;
     public bool IsBlocked { get; set; } = false;
     public bool IsOnline { get; set; } = false;
+
+    // Extensibility & Enterprise fleet management
+    public string Department { get; set; } = "Chung";
+    public List<string> AllowedPrinters { get; set; } = new();
+    public int PrintJobsCount { get; set; } = 0;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string AllowedPrintersSummary => AllowedPrinters == null || AllowedPrinters.Count == 0
+        ? "Tất cả máy in chia sẻ"
+        : string.Join(", ", AllowedPrinters);
 }
 
 public class SharedPrinterInfo
@@ -46,8 +56,10 @@ public class PrintJob
 {
     public string JobId { get; set; } = Guid.NewGuid().ToString("N");
     public string DocumentName { get; set; } = "Document";
+    public string TargetPrinter { get; set; } = string.Empty;
     public string SenderDeviceId { get; set; } = string.Empty;
     public string SenderDeviceName { get; set; } = string.Empty;
+    public string Department { get; set; } = string.Empty;
     public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; set; }
     public int PageCount { get; set; } = 1;

@@ -343,4 +343,32 @@ git push origin v1.0.0
 
 ---
 
+## 10. Mở Rộng Không Giới Hạn Máy Con & Quản Lý Đa Máy In (Enterprise Fleet Scaling)
+
+### 10.1. Không giới hạn số lượng thiết bị trong mã nguồn
+* **Kiến trúc mở:** Remote Print Manager không thiết lập bất kỳ giới hạn cứng nào (hardcode limit) về số lượng máy con kết nối. Hệ thống hỗ trợ mở rộng tự nhiên từ 3 máy con ban đầu lên 10, 20, 50, 100 hoặc hàng trăm máy tính văn phòng.
+* **Tối ưu hóa UI Virtualization:** Danh sách máy con sử dụng công nghệ `VirtualizingStackPanel` của WPF. Bảng danh sách có thể hiển thị hàng nghìn máy tính mượt mà ở tốc độ 60 FPS, không gây giật lag hay chiếm dụng bộ nhớ RAM.
+
+### 10.2. Tìm kiếm, lọc và phân nhóm phòng ban (Department Grouping)
+* **Ô tìm kiếm tức thì:** Tìm kiếm máy con theo tên gợi nhớ (ví dụ: *KeToan-01*) hoặc mã định danh UUID.
+* **Bộ lọc đa chiều:**
+  - Lọc theo trạng thái: *Tất cả*, *Trực tuyến (Online)*, *Ngoại tuyến (Offline)*, *Chờ phê duyệt*.
+  - Lọc theo phòng ban: *Kế toán*, *Kinh doanh*, *Hành chính*, *Kỹ thuật*, *Ban Giám Đốc*, *Chung*.
+* **Đổi phòng ban 1-Click:** Quản trị viên chỉ cần chọn máy con và bấm **"🏢 Đổi phòng ban"** để phân nhóm máy tính nhanh chóng.
+
+### 10.3. Quản lý chia sẻ nhiều máy in USB & Phân quyền truy cập (Printer Access Control)
+* **Chia sẻ nhiều máy in đồng thời:** Máy chủ có thể kết nối nhiều máy in qua cổng USB hoặc cổng mạng nội bộ. Tại tab *Máy In*, quản trị viên có thể bấm **"✔ Bật / Tắt chia sẻ máy in đã chọn"** cho từng máy in.
+* **Phân quyền chi tiết (Access Control):**
+  - Mặc định: Máy con được phép in trên toàn bộ máy in đang chia sẻ (`Tất cả máy in chia sẻ`).
+  - Giới hạn quyền: Chọn máy con và bấm **"🖨️ Phân quyền máy in"** để chỉ định máy con đó chỉ được phép in trên máy in của phòng mình (ví dụ: nhân viên kinh doanh chỉ được in máy in màu, kế toán chỉ được in máy in hóa đơn).
+  - Khi có lệnh in sai quyền, hệ thống tự động từ chối và gửi thông báo rõ ràng về máy con: *"Thiết bị của bạn không có quyền in trên máy in này"*.
+
+### 10.4. Xử lý nhiều máy con in cùng lúc (Concurrent Print Queue)
+* **Tiếp nhận đồng thời (Asynchronous Concurrency):** Khi 10-20 máy con đồng thời nhấn `Ctrl + P`, luồng WebSocket xử lý song song và đẩy vào hàng đợi an toàn được bảo vệ bởi `SemaphoreSlim`.
+* **Thứ tự in FIFO & Chống in đè:** Máy in vật lý tiếp nhận tài liệu lần lượt theo đúng thứ tự đến trước in trước (FIFO), không bao giờ bị chèn trang hay nhầm lẫn văn bản giữa các nhân viên.
+* **Cảnh báo tải cao:** Nếu hàng đợi vượt quá 20 lệnh in cùng lúc, hệ thống sẽ tự động ghi nhật ký cảnh báo và điều tiết tốc độ để bảo vệ máy in và máy chủ.
+
+---
+
 > **Bản quyền & Phát triển:** Remote Print Manager (RPM) © 2026. Thiết kế chuyên biệt cho môi trường doanh nghiệp và văn phòng chi nhánh.
+

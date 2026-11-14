@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Windows;
+using System.Windows.Controls;
 using RPM.App.Services;
 using RPM.Core.Config;
 using RPM.Core.Models;
@@ -12,6 +13,7 @@ public partial class ServerView : UserControl
     private readonly ServerService _serverService;
     private readonly AppSettings _settings;
     private readonly ObservableCollection<SharedPrinterInfo> _printers = new();
+    private readonly ObservableCollection<DeviceInfo> _filteredClients = new();
     private readonly ObservableCollection<string> _logs = new();
 
     public event EventHandler? OnSwitchToClientModeRequested;
@@ -24,12 +26,16 @@ public partial class ServerView : UserControl
         _settings = settings;
 
         DgPrinters.ItemsSource = _printers;
-        DgClients.ItemsSource = _serverService.ConnectedClients;
+        DgClients.ItemsSource = _filteredClients;
         DgQueue.ItemsSource = _serverService.PrintJobs;
         LstActivityLog.ItemsSource = _logs;
 
         _serverService.OnLog += ServerService_OnLog;
-        _serverService.OnStatusChanged += (s, e) => Dispatcher.Invoke(UpdateDashboardUI);
+        _serverService.OnStatusChanged += (s, e) => Dispatcher.Invoke(() =>
+        {
+            ApplyClientFilters();
+            UpdateDashboardUI();
+        });
 
         Loaded += ServerView_Loaded;
     }
@@ -44,12 +50,24 @@ public partial class ServerView : UserControl
         ChkMinimizeTray.IsChecked = _settings.MinimizeToSystemTray;
         ChkNotifications.IsChecked = _settings.ShowDesktopNotifications;
 
+        InitDepartmentFilter();
         RefreshPrinters();
+        ApplyClientFilters();
         UpdateDashboardUI();
 
         ServerUpdateControl.Initialize(_settings);
         ServerUpdateControl.HasActivePrintJobsCheck = () => 
             _serverService.PrintJobs.Any(j => j.Status == PrintJobStatus.Printing || j.Status == PrintJobStatus.Pending);
+    }
+
+    private void InitDepartmentFilter()
+    {
+        CmbDepartmentFilter.Items.Clear();
+        CmbDepartmentFilter.Items.Add(new ComboBoxItem { Content = "Tất cả phòng ban", IsSelected = true });
+        foreach (var dept in _settings.Departments)
+        {
+            CmbDepartmentFilter.Items.Add(new ComboBoxItem { Content = dept });
+        }
     }
 
     private void ServerService_OnLog(object? sender, string message)
@@ -64,11 +82,15 @@ public partial class ServerView : UserControl
 
     private void UpdateDashboardUI()
     {
+        int sharedCount = _serverService.SharedPrinters.Count(p => p.IsShared);
         if (_serverService.ActiveSharedPrinter != null)
         {
-            TxtOverviewPrinterName.Text = _serverService.ActiveSharedPrinter.Name;
+            TxtOverviewPrinterName.Text = sharedCount > 1 
+                ? $"{_serverService.ActiveSharedPrinter.Name} (+{sharedCount - 1} máy in khác)" 
+                : _serverService.ActiveSharedPrinter.Name;
+
             TxtOverviewPrinterStatus.Text = _serverService.ActiveSharedPrinter.IsShared 
-                ? "Trạng thái: Đang chia sẻ trực tuyến" 
+                ? $"Đang chia sẻ {sharedCount} máy in trực tuyến" 
                 : "Trạng thái: Tạm dừng chia sẻ";
         }
         else
@@ -78,9 +100,12 @@ public partial class ServerView : UserControl
         }
 
         int onlineClients = _serverService.ConnectedClients.Count(c => c.IsOnline && c.IsApproved);
+        int totalApproved = _serverService.ConnectedClients.Count(c => c.IsApproved && !c.IsBlocked);
         int pendingClients = _serverService.ConnectedClients.Count(c => !c.IsApproved && !c.IsBlocked);
-        TxtOverviewClientsCount.Text = $"{onlineClients} / 3 Trực tuyến";
-        TxtOverviewPendingClients.Text = $"{pendingClients} máy con đang chờ phê duyệt";
+        int offlineClients = _serverService.ConnectedClients.Count(c => !c.IsOnline);
+
+        TxtOverviewClientsCount.Text = $"{onlineClients} / {totalApproved} Trực tuyến";
+        TxtOverviewPendingClients.Text = $"{pendingClients} máy con chờ phê duyệt | {offlineClients} ngoại tuyến";
 
         int completedJobs = _serverService.PrintJobs.Count(j => j.Status == PrintJobStatus.Completed);
         int pendingJobs = _serverService.PrintJobs.Count(j => j.Status == PrintJobStatus.Pending || j.Status == PrintJobStatus.Printing);
@@ -88,18 +113,64 @@ public partial class ServerView : UserControl
         TxtOverviewQueueStatus.Text = $"Hàng đợi: {pendingJobs} đang chờ xử lý";
 
         TxtRelayStatus.Text = _serverService.Relay.IsConnected ? "Đã kết nối ổn định (WSS)" : "Đang kết nối lại...";
+
+        TxtClientsStats.Text = $"Tổng: {_serverService.ConnectedClients.Count} thiết bị | Online: {onlineClients} | Chờ duyệt: {pendingClients} | Offline: {offlineClients}";
+    }
+
+    private void ApplyClientFilters()
+    {
+        string searchText = TxtSearchClient?.Text?.Trim().ToLowerInvariant() ?? string.Empty;
+        string statusFilter = (CmbStatusFilter?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Tất cả trạng thái";
+        string deptFilter = (CmbDepartmentFilter?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Tất cả phòng ban";
+
+        _filteredClients.Clear();
+        foreach (var client in _serverService.ConnectedClients)
+        {
+            // Search text filter
+            if (!string.IsNullOrEmpty(searchText))
+            {
+                bool matchName = client.DeviceName.ToLowerInvariant().Contains(searchText);
+                bool matchId = client.DeviceId.ToLowerInvariant().Contains(searchText);
+                bool matchDept = client.Department.ToLowerInvariant().Contains(searchText);
+                if (!matchName && !matchId && !matchDept) continue;
+            }
+
+            // Status filter
+            if (statusFilter == "Trực tuyến (Online)" && !client.IsOnline) continue;
+            if (statusFilter == "Ngoại tuyến (Offline)" && client.IsOnline) continue;
+            if (statusFilter == "Chờ phê duyệt" && (client.IsApproved || client.IsBlocked)) continue;
+
+            // Department filter
+            if (deptFilter != "Tất cả phòng ban" && !string.Equals(client.Department, deptFilter, StringComparison.OrdinalIgnoreCase)) continue;
+
+            _filteredClients.Add(client);
+        }
+    }
+
+    private void TxtSearchClient_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        ApplyClientFilters();
+    }
+
+    private void CmbFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        ApplyClientFilters();
+    }
+
+    private void BtnClearFilters_Click(object sender, RoutedEventArgs e)
+    {
+        TxtSearchClient.Text = string.Empty;
+        if (CmbStatusFilter != null) CmbStatusFilter.SelectedIndex = 0;
+        if (CmbDepartmentFilter != null) CmbDepartmentFilter.SelectedIndex = 0;
+        ApplyClientFilters();
     }
 
     private void RefreshPrinters()
     {
+        _serverService.LoadPrinters();
         _printers.Clear();
-        var installed = _serverService.PrinterService.GetInstalledPrinters();
-        foreach (var p in installed)
+        foreach (var p in _serverService.SharedPrinters)
         {
-            if (_serverService.ActiveSharedPrinter != null && p.Name == _serverService.ActiveSharedPrinter.Name)
-            {
-                p.IsShared = _serverService.ActiveSharedPrinter.IsShared;
-            }
             _printers.Add(p);
         }
     }
@@ -107,7 +178,7 @@ public partial class ServerView : UserControl
     private void BtnCopyPairingCode_Click(object sender, RoutedEventArgs e)
     {
         Clipboard.SetText(_settings.PairingCode);
-        MessageBox.Show($"Đã sao chép mã ghép đôi '{_settings.PairingCode}' vào bộ nhớ tạm!\nBạn hãy gửi mã này cho 3 máy con.", "Sao chép thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageBox.Show($"Đã sao chép mã ghép đôi '{_settings.PairingCode}' vào bộ nhớ tạm!\nBạn hãy gửi mã này cho các máy con để kết nối.", "Sao chép thành công", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void BtnRescanPrinters_Click(object sender, RoutedEventArgs e)
@@ -116,14 +187,28 @@ public partial class ServerView : UserControl
         MessageBox.Show($"Đã quét thấy {_printers.Count} máy in trên máy tính.", "Quét máy in", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
-    private void BtnSetSharedPrinter_Click(object sender, RoutedEventArgs e)
+    private void BtnToggleSharedPrinter_Click(object sender, RoutedEventArgs e)
     {
         if (DgPrinters.SelectedItem is SharedPrinterInfo selected)
         {
-            _serverService.SetSharedPrinter(selected.Name);
+            _serverService.TogglePrinterSharing(selected.Name);
             RefreshPrinters();
             UpdateDashboardUI();
-            MessageBox.Show($"Đã chọn '{selected.Name}' làm máy in chia sẻ cho công ty!", "Thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        else
+        {
+            MessageBox.Show("Vui lòng chọn một máy in từ danh sách trước.", "Chưa chọn máy in", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void BtnSetDefaultPrinter_Click(object sender, RoutedEventArgs e)
+    {
+        if (DgPrinters.SelectedItem is SharedPrinterInfo selected)
+        {
+            _serverService.SetDefaultPrinter(selected.Name);
+            RefreshPrinters();
+            UpdateDashboardUI();
+            MessageBox.Show($"Đã chọn '{selected.Name}' làm máy in chính mặc định!", "Thành công", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         else
         {
@@ -158,7 +243,10 @@ public partial class ServerView : UserControl
 
     private void BtnPauseSharing_Click(object sender, RoutedEventArgs e)
     {
-        _serverService.PauseSharing();
+        foreach (var p in _serverService.SharedPrinters.Where(p => p.IsShared).ToList())
+        {
+            _serverService.TogglePrinterSharing(p.Name, false);
+        }
         RefreshPrinters();
         UpdateDashboardUI();
 
@@ -172,9 +260,9 @@ public partial class ServerView : UserControl
         if (DgClients.SelectedItem is DeviceInfo client)
         {
             await _serverService.ApproveClientAsync(client);
-            DgClients.Items.Refresh();
+            ApplyClientFilters();
             UpdateDashboardUI();
-            MessageBox.Show($"Đã phê duyệt máy con '{client.DeviceName}'. Máy con có thể in tài liệu ngay bây giờ!", "Phê duyệt thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show($"Đã phê duyệt máy con '{client.DeviceName}' (Phòng: {client.Department}).\nMáy con có thể in tài liệu ngay bây giờ!", "Phê duyệt thành công", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         else
         {
@@ -189,9 +277,84 @@ public partial class ServerView : UserControl
             if (MessageBox.Show($"Bạn có chắc chắn muốn thu hồi quyền in của '{client.DeviceName}'?", "Xác nhận thu hồi", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
             {
                 await _serverService.RevokeClientAsync(client);
-                DgClients.Items.Refresh();
+                ApplyClientFilters();
                 UpdateDashboardUI();
             }
+        }
+        else
+        {
+            MessageBox.Show("Vui lòng chọn máy con muốn thu hồi quyền.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void BtnChangeDepartment_Click(object sender, RoutedEventArgs e)
+    {
+        if (DgClients.SelectedItem is DeviceInfo client)
+        {
+            var depts = _settings.Departments;
+            int currentIndex = depts.IndexOf(client.Department);
+            int nextIndex = (currentIndex + 1) % depts.Count;
+            string nextDept = depts[nextIndex];
+
+            _serverService.SetClientDepartment(client.DeviceId, nextDept);
+            ApplyClientFilters();
+            UpdateDashboardUI();
+            MessageBox.Show($"Đã chuyển máy con '{client.DeviceName}' sang phòng ban: '{nextDept}'", "Cập nhật phòng ban", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        else
+        {
+            MessageBox.Show("Vui lòng chọn máy con muốn đổi phòng ban.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void BtnAssignPrinters_Click(object sender, RoutedEventArgs e)
+    {
+        if (DgClients.SelectedItem is DeviceInfo client)
+        {
+            var sharedPrinters = _serverService.SharedPrinters.Where(p => p.IsShared).Select(p => p.Name).ToList();
+            if (sharedPrinters.Count == 0)
+            {
+                MessageBox.Show("Chưa có máy in nào đang được chia sẻ. Vui lòng vào tab Máy In để bật chia sẻ trước.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // Cycle between All Printers -> First Printer -> Specific combination
+            if (client.AllowedPrinters.Count == 0)
+            {
+                // Restrict to first shared printer
+                _serverService.SetClientAllowedPrinters(client.DeviceId, new List<string> { sharedPrinters[0] });
+                MessageBox.Show($"Đã phân quyền cho máy '{client.DeviceName}': CHỈ ĐƯỢC DÙNG '{sharedPrinters[0]}'.", "Phân quyền máy in", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                // Reset to all shared printers
+                _serverService.SetClientAllowedPrinters(client.DeviceId, new List<string>());
+                MessageBox.Show($"Đã phân quyền cho máy '{client.DeviceName}': ĐƯỢC DÙNG TẤT CẢ CÁC MÁY IN CHIA SẺ.", "Phân quyền máy in", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+
+            ApplyClientFilters();
+            UpdateDashboardUI();
+        }
+        else
+        {
+            MessageBox.Show("Vui lòng chọn máy con muốn phân quyền máy in.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void BtnDeleteClient_Click(object sender, RoutedEventArgs e)
+    {
+        if (DgClients.SelectedItem is DeviceInfo client)
+        {
+            if (MessageBox.Show($"Bạn có chắc chắn muốn xóa máy con '{client.DeviceName}' ({client.DeviceId}) khỏi danh sách quản lý?", "Xác nhận xóa", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
+            {
+                _serverService.DeleteClient(client.DeviceId);
+                ApplyClientFilters();
+                UpdateDashboardUI();
+            }
+        }
+        else
+        {
+            MessageBox.Show("Vui lòng chọn máy con muốn xóa.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 

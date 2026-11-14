@@ -25,6 +25,7 @@ public class ServerService : IDisposable
 
     public ObservableCollection<DeviceInfo> ConnectedClients { get; } = new();
     public ObservableCollection<PrintJob> PrintJobs { get; } = new();
+    public ObservableCollection<SharedPrinterInfo> SharedPrinters { get; } = new();
     public SharedPrinterInfo? ActiveSharedPrinter { get; private set; }
 
     public event EventHandler<string>? OnLog;
@@ -68,23 +69,8 @@ public class ServerService : IDisposable
             ConfigManager.Save(_settings);
         }
 
-        // Detect default printer if not set
-        var installed = _printerService.GetInstalledPrinters();
-        if (string.IsNullOrEmpty(_settings.SelectedPrinterName) && installed.Count > 0)
-        {
-            var def = installed.FirstOrDefault(p => p.IsDefault) ?? installed[0];
-            _settings.SelectedPrinterName = def.Name;
-            ConfigManager.Save(_settings);
-        }
-
-        if (!string.IsNullOrEmpty(_settings.SelectedPrinterName))
-        {
-            ActiveSharedPrinter = installed.FirstOrDefault(p => p.Name == _settings.SelectedPrinterName);
-            if (ActiveSharedPrinter != null)
-            {
-                ActiveSharedPrinter.IsShared = true;
-            }
-        }
+        // Load and detect all installed printers and shared configuration
+        LoadPrinters();
 
         // Auto-start embedded relay if server is configured for local address
         if (_settings.RelayServerUrl.Contains("127.0.0.1") || _settings.RelayServerUrl.Contains("localhost"))
@@ -109,29 +95,98 @@ public class ServerService : IDisposable
         await _relayClient.StartAsync(_settings.RelayServerUrl);
     }
 
-    public void SetSharedPrinter(string printerName)
+    public void LoadPrinters()
     {
+        SharedPrinters.Clear();
         var installed = _printerService.GetInstalledPrinters();
-        var target = installed.FirstOrDefault(p => p.Name == printerName);
-        if (target != null)
+        foreach (var p in installed)
         {
-            ActiveSharedPrinter = target;
-            ActiveSharedPrinter.IsShared = true;
-            _settings.SelectedPrinterName = printerName;
-            ConfigManager.Save(_settings);
+            bool isShared = _settings.SharedPrinterNames.Contains(p.Name, StringComparer.OrdinalIgnoreCase)
+                || (!string.IsNullOrEmpty(_settings.SelectedPrinterName) && string.Equals(p.Name, _settings.SelectedPrinterName, StringComparison.OrdinalIgnoreCase));
 
+            p.IsShared = isShared;
+            if (isShared && ActiveSharedPrinter == null)
+            {
+                ActiveSharedPrinter = p;
+            }
+            SharedPrinters.Add(p);
+        }
+
+        if (ActiveSharedPrinter == null && SharedPrinters.Any(p => p.IsShared))
+        {
+            ActiveSharedPrinter = SharedPrinters.First(p => p.IsShared);
+        }
+    }
+
+    public void TogglePrinterSharing(string printerName, bool? forceState = null)
+    {
+        var printer = SharedPrinters.FirstOrDefault(p => p.Name == printerName);
+        if (printer == null)
+        {
+            var installed = _printerService.GetInstalledPrinters();
+            printer = installed.FirstOrDefault(p => p.Name == printerName);
+            if (printer != null) SharedPrinters.Add(printer);
+        }
+
+        if (printer != null)
+        {
+            printer.IsShared = forceState ?? !printer.IsShared;
+            if (printer.IsShared)
+            {
+                if (!_settings.SharedPrinterNames.Contains(printer.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    _settings.SharedPrinterNames.Add(printer.Name);
+                }
+                if (ActiveSharedPrinter == null)
+                {
+                    ActiveSharedPrinter = printer;
+                    _settings.SelectedPrinterName = printer.Name;
+                }
+                OnLog?.Invoke(this, $"[Máy In] Đã BẬT chia sẻ máy in: {printer.Name}");
+            }
+            else
+            {
+                _settings.SharedPrinterNames.RemoveAll(n => string.Equals(n, printer.Name, StringComparison.OrdinalIgnoreCase));
+                if (ActiveSharedPrinter?.Name == printer.Name)
+                {
+                    ActiveSharedPrinter = SharedPrinters.FirstOrDefault(p => p.IsShared);
+                    _settings.SelectedPrinterName = ActiveSharedPrinter?.Name ?? string.Empty;
+                }
+                OnLog?.Invoke(this, $"[Máy In] Đã TẮT chia sẻ máy in: {printer.Name}");
+            }
+            ConfigManager.Save(_settings);
             BroadcastPrinterStatus();
             OnStatusChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
+    public void SetDefaultPrinter(string printerName)
+    {
+        var target = SharedPrinters.FirstOrDefault(p => p.Name == printerName);
+        if (target != null)
+        {
+            target.IsShared = true;
+            if (!_settings.SharedPrinterNames.Contains(printerName, StringComparer.OrdinalIgnoreCase))
+            {
+                _settings.SharedPrinterNames.Add(printerName);
+            }
+            ActiveSharedPrinter = target;
+            _settings.SelectedPrinterName = printerName;
+            ConfigManager.Save(_settings);
+
+            BroadcastPrinterStatus();
+            OnStatusChanged?.Invoke(this, EventArgs.Empty);
+            OnLog?.Invoke(this, $"[Máy In] Đã chọn máy in mặc định chính: {printerName}");
+        }
+    }
+
+    public void SetSharedPrinter(string printerName) => SetDefaultPrinter(printerName);
+
     public void PauseSharing()
     {
         if (ActiveSharedPrinter != null)
         {
-            ActiveSharedPrinter.IsShared = false;
-            BroadcastPrinterStatus();
-            OnStatusChanged?.Invoke(this, EventArgs.Empty);
+            TogglePrinterSharing(ActiveSharedPrinter.Name, false);
         }
     }
 
@@ -139,10 +194,24 @@ public class ServerService : IDisposable
     {
         if (ActiveSharedPrinter != null)
         {
-            ActiveSharedPrinter.IsShared = true;
-            BroadcastPrinterStatus();
-            OnStatusChanged?.Invoke(this, EventArgs.Empty);
+            TogglePrinterSharing(ActiveSharedPrinter.Name, true);
         }
+    }
+
+    public List<SharedPrinterInfo> GetPrintersForClient(DeviceInfo client)
+    {
+        var shared = SharedPrinters.Where(p => p.IsShared).ToList();
+        if (shared.Count == 0 && ActiveSharedPrinter != null && ActiveSharedPrinter.IsShared)
+        {
+            shared.Add(ActiveSharedPrinter);
+        }
+
+        if (client.AllowedPrinters == null || client.AllowedPrinters.Count == 0)
+        {
+            return shared;
+        }
+
+        return shared.Where(p => client.AllowedPrinters.Contains(p.Name, StringComparer.OrdinalIgnoreCase)).ToList();
     }
 
     public async Task ApproveClientAsync(DeviceInfo client)
@@ -151,14 +220,16 @@ public class ServerService : IDisposable
         client.IsBlocked = false;
         SaveClientList();
 
-        // Send approval back to client
+        var permittedPrinters = GetPrintersForClient(client);
+
         var response = new ClientJoinResponsePayload
         {
             Approved = true,
             IsPending = false,
             Message = "Máy chủ đã chấp thuận thiết bị của bạn.",
             EncryptionSecret = _settings.EncryptionSecret,
-            SharedPrinter = ActiveSharedPrinter
+            SharedPrinter = permittedPrinters.FirstOrDefault() ?? ActiveSharedPrinter,
+            AvailablePrinters = permittedPrinters
         };
 
         var packet = new NetworkPacket
@@ -171,7 +242,7 @@ public class ServerService : IDisposable
         };
 
         await _relayClient.SendPacketAsync(packet);
-        OnLog?.Invoke(this, $"[Duyệt] Đã chấp thuận máy con: {client.DeviceName} ({client.DeviceId})");
+        OnLog?.Invoke(this, $"[Duyệt] Đã chấp thuận máy con: {client.DeviceName} (Phòng: {client.Department}) - Quyền: {client.AllowedPrintersSummary}");
     }
 
     public async Task RevokeClientAsync(DeviceInfo client)
@@ -193,11 +264,91 @@ public class ServerService : IDisposable
         OnLog?.Invoke(this, $"[Thu hồi] Đã thu hồi quyền máy con: {client.DeviceName}");
     }
 
+    public void SetClientDepartment(string deviceId, string department)
+    {
+        var client = ConnectedClients.FirstOrDefault(c => c.DeviceId == deviceId);
+        if (client != null)
+        {
+            client.Department = department;
+            SaveClientList();
+            OnLog?.Invoke(this, $"[Phòng ban] Cập nhật '{client.DeviceName}' sang phòng: {department}");
+            OnStatusChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    public void SetClientAllowedPrinters(string deviceId, List<string> allowedPrinters)
+    {
+        var client = ConnectedClients.FirstOrDefault(c => c.DeviceId == deviceId);
+        if (client != null)
+        {
+            client.AllowedPrinters = allowedPrinters;
+            SaveClientList();
+            OnLog?.Invoke(this, $"[Phân quyền] Cập nhật máy in cho '{client.DeviceName}': {client.AllowedPrintersSummary}");
+            if (client.IsApproved && client.IsOnline)
+            {
+                _ = ApproveClientAsync(client);
+            }
+            OnStatusChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    public void DeleteClient(string deviceId)
+    {
+        var client = ConnectedClients.FirstOrDefault(c => c.DeviceId == deviceId);
+        if (client != null)
+        {
+            Application.Current?.Dispatcher.Invoke(() =>
+            {
+                ConnectedClients.Remove(client);
+            });
+            SaveClientList();
+            OnLog?.Invoke(this, $"[Xóa thiết bị] Đã xóa '{client.DeviceName}' khỏi danh sách.");
+            OnStatusChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     private void SaveClientList()
     {
         _settings.ApprovedClients = ConnectedClients.ToList();
         ConfigManager.Save(_settings);
         OnStatusChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void BroadcastPrinterStatus()
+    {
+        try
+        {
+            var sharedList = SharedPrinters.Where(p => p.IsShared).ToList();
+            var payload = new PrintersListUpdatePayload
+            {
+                Printers = sharedList
+            };
+
+            var packet = new NetworkPacket
+            {
+                Type = MessageType.PrintersListUpdate,
+                SenderId = _settings.DeviceId,
+                PairingCode = _settings.PairingCode,
+                PayloadJson = JsonSerializer.Serialize(payload)
+            };
+
+            _ = _relayClient.SendPacketAsync(packet);
+
+            if (ActiveSharedPrinter != null)
+            {
+                _ = _relayClient.SendPacketAsync(new NetworkPacket
+                {
+                    Type = MessageType.PrinterStatusUpdate,
+                    SenderId = _settings.DeviceId,
+                    PairingCode = _settings.PairingCode,
+                    PayloadJson = JsonSerializer.Serialize(ActiveSharedPrinter)
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            OnLog?.Invoke(this, $"[Lỗi cập nhật máy in] {ex.Message}");
+        }
     }
 
     private async void Relay_OnConnected(object? sender, EventArgs e)
@@ -210,7 +361,8 @@ public class ServerService : IDisposable
             ServerDeviceId = _settings.DeviceId,
             ServerDeviceName = _settings.DeviceName,
             PairingCode = _settings.PairingCode,
-            SharedPrinter = ActiveSharedPrinter
+            SharedPrinter = ActiveSharedPrinter,
+            SharedPrinters = SharedPrinters.Where(p => p.IsShared).ToList()
         };
 
         var packet = new NetworkPacket
@@ -338,6 +490,26 @@ public class ServerService : IDisposable
         var job = payload.JobInfo;
         job.SenderDeviceId = senderDevice.DeviceId;
         job.SenderDeviceName = senderDevice.DeviceName;
+        job.Department = senderDevice.Department;
+
+        // Resolve target printer
+        string targetPrinterName = !string.IsNullOrWhiteSpace(job.TargetPrinter)
+            ? job.TargetPrinter
+            : (ActiveSharedPrinter?.Name ?? string.Empty);
+        job.TargetPrinter = targetPrinterName;
+
+        // Granular access control check per device
+        if (senderDevice.AllowedPrinters != null && senderDevice.AllowedPrinters.Count > 0)
+        {
+            if (!senderDevice.AllowedPrinters.Contains(targetPrinterName, StringComparer.OrdinalIgnoreCase))
+            {
+                OnLog?.Invoke(this, $"[Từ chối] Máy con '{senderDevice.DeviceName}' ({senderDevice.Department}) không có quyền in trên '{targetPrinterName}'.");
+                job.Status = PrintJobStatus.Failed;
+                job.StatusMessage = $"Thiết bị của bạn không có quyền in trên máy in '{targetPrinterName}'.";
+                await NotifyJobProgressAsync(job);
+                return;
+            }
+        }
 
         // Anti-duplicate protection: check content hash within last 10 minutes
         if (!string.IsNullOrEmpty(job.ContentSha256) && _recentlyPrintedHashes.Contains(job.ContentSha256))
@@ -357,22 +529,30 @@ public class ServerService : IDisposable
         {
             PrintJobs.Insert(0, job);
             _settings.PrintHistory.Insert(0, job);
-            if (_settings.PrintHistory.Count > 100)
+            if (_settings.PrintHistory.Count > 200)
             {
                 _settings.PrintHistory.RemoveAt(_settings.PrintHistory.Count - 1);
             }
             ConfigManager.Save(_settings);
         });
 
-        // Enqueue job
+        // Enqueue job thread-safely
+        int queueCount = 0;
         await _queueLock.WaitAsync();
         try
         {
             _printQueue.Enqueue(job);
+            queueCount = _printQueue.Count;
         }
         finally
         {
             _queueLock.Release();
+        }
+
+        // Alert if queue load exceeds high capacity
+        if (queueCount >= 20)
+        {
+            OnLog?.Invoke(this, $"[Cảnh báo tải cao] Đang có {queueCount} lệnh in trong hàng đợi. Hệ thống đang tự động điều phối theo thứ tự FIFO.");
         }
 
         _ = ProcessPrintQueueAsync();
@@ -401,16 +581,22 @@ public class ServerService : IDisposable
 
             if (job == null) break;
 
-            if (ActiveSharedPrinter == null || !ActiveSharedPrinter.IsShared)
+            string destPrinter = !string.IsNullOrWhiteSpace(job.TargetPrinter)
+                ? job.TargetPrinter
+                : (ActiveSharedPrinter?.Name ?? string.Empty);
+
+            var printerInfo = SharedPrinters.FirstOrDefault(p => string.Equals(p.Name, destPrinter, StringComparison.OrdinalIgnoreCase)) ?? ActiveSharedPrinter;
+
+            if (printerInfo == null || !printerInfo.IsShared)
             {
                 job.Status = PrintJobStatus.Failed;
-                job.StatusMessage = "Máy in đang tạm dừng chia sẻ.";
+                job.StatusMessage = $"Máy in '{destPrinter}' đang tạm dừng chia sẻ.";
                 await NotifyJobProgressAsync(job);
                 continue;
             }
 
             job.Status = PrintJobStatus.Printing;
-            job.StatusMessage = "Đang gửi dữ liệu tới máy in USB...";
+            job.StatusMessage = $"Đang gửi dữ liệu tới máy in USB ({destPrinter})...";
             await NotifyJobProgressAsync(job);
 
             bool printed = false;
@@ -419,7 +605,7 @@ public class ServerService : IDisposable
             if (!string.IsNullOrEmpty(job.LocalTempFilePath) && File.Exists(job.LocalTempFilePath))
             {
                 printed = _printerService.PrintFileDirectly(
-                    ActiveSharedPrinter.Name,
+                    destPrinter,
                     job.LocalTempFilePath,
                     job.DocumentName,
                     out errMsg
@@ -435,7 +621,16 @@ public class ServerService : IDisposable
                 {
                     _recentlyPrintedHashes.Add(job.ContentSha256);
                 }
-                OnLog?.Invoke(this, $"[In thành công] {job.DocumentName} từ máy {job.SenderDeviceName}");
+
+                // Track per-device print job count
+                var client = ConnectedClients.FirstOrDefault(c => c.DeviceId == job.SenderDeviceId);
+                if (client != null)
+                {
+                    client.PrintJobsCount++;
+                    SaveClientList();
+                }
+
+                OnLog?.Invoke(this, $"[In thành công] {job.DocumentName} từ {job.SenderDeviceName} ({job.Department}) -> {destPrinter}");
             }
             else
             {
@@ -470,18 +665,6 @@ public class ServerService : IDisposable
         };
 
         await _relayClient.SendPacketAsync(packet);
-    }
-
-    private void BroadcastPrinterStatus()
-    {
-        var packet = new NetworkPacket
-        {
-            Type = MessageType.PrinterStatusUpdate,
-            SenderId = _settings.DeviceId,
-            PairingCode = _settings.PairingCode,
-            PayloadJson = JsonSerializer.Serialize(ActiveSharedPrinter)
-        };
-        _ = _relayClient.SendPacketAsync(packet);
     }
 
     public void Dispose()

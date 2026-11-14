@@ -23,6 +23,7 @@ public class ClientService : IDisposable
     public LocalIppServer IppServer => _ippServer;
 
     public ObservableCollection<PrintJob> PrintHistory { get; } = new();
+    public ObservableCollection<SharedPrinterInfo> AvailablePrinters { get; } = new();
     public SharedPrinterInfo? RemotePrinter => _remotePrinter;
     public bool IsApproved => _isApproved;
     public string ConnectionStatus => _connectionStatus;
@@ -140,6 +141,23 @@ public class ClientService : IDisposable
                             _connectionStatus = "Đã kết nối & Phê duyệt thành công";
                             _settings.EncryptionSecret = res.EncryptionSecret;
                             _remotePrinter = res.SharedPrinter;
+
+                            Application.Current?.Dispatcher.Invoke(() =>
+                            {
+                                AvailablePrinters.Clear();
+                                if (res.AvailablePrinters != null && res.AvailablePrinters.Count > 0)
+                                {
+                                    foreach (var p in res.AvailablePrinters)
+                                    {
+                                        AvailablePrinters.Add(p);
+                                    }
+                                }
+                                else if (_remotePrinter != null)
+                                {
+                                    AvailablePrinters.Add(_remotePrinter);
+                                }
+                            });
+
                             ConfigManager.Save(_settings);
 
                             if (_remotePrinter != null)
@@ -147,7 +165,7 @@ public class ClientService : IDisposable
                                 _ippServer.PrinterName = $"{_remotePrinter.Name} (Remote)";
                             }
 
-                            OnLog?.Invoke(this, "[Thành công] Đã được máy chủ phê duyệt! Máy in sẵn sàng.");
+                            OnLog?.Invoke(this, $"[Thành công] Đã được máy chủ phê duyệt! Nhận danh sách {AvailablePrinters.Count} máy in được cấp quyền.");
                         }
                         else
                         {
@@ -155,6 +173,32 @@ public class ClientService : IDisposable
                             _connectionStatus = res.IsPending ? "Đang chờ máy chủ duyệt..." : "Bị từ chối kết nối.";
                             OnLog?.Invoke(this, $"[Thông báo] {res.Message}");
                         }
+                        OnStateChanged?.Invoke(this, EventArgs.Empty);
+                    }
+                    break;
+                }
+
+                case MessageType.PrintersListUpdate:
+                {
+                    var updatedList = JsonSerializer.Deserialize<PrintersListUpdatePayload>(packet.PayloadJson);
+                    if (updatedList?.Printers != null)
+                    {
+                        Application.Current?.Dispatcher.Invoke(() =>
+                        {
+                            AvailablePrinters.Clear();
+                            foreach (var p in updatedList.Printers)
+                            {
+                                AvailablePrinters.Add(p);
+                            }
+                            if (_remotePrinter != null)
+                            {
+                                _remotePrinter = AvailablePrinters.FirstOrDefault(p => p.Name == _remotePrinter.Name) ?? AvailablePrinters.FirstOrDefault();
+                            }
+                            else
+                            {
+                                _remotePrinter = AvailablePrinters.FirstOrDefault();
+                            }
+                        });
                         OnStateChanged?.Invoke(this, EventArgs.Empty);
                     }
                     break;

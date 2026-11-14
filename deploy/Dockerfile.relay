@@ -27,3 +27,4 @@ EXPOSE 9090
 ENV PORT=9090
 
 ENTRYPOINT ["dotnet", "RPM.Relay.dll"]
+

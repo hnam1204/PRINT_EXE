@@ -54,8 +54,8 @@
                         <TextBlock Grid.Row="1" TextWrapping="Wrap" LineHeight="22" FontSize="13" 
                                    Foreground="{StaticResource TextMainBrush}" Margin="0,0,0,24">
                             • Tự động quét và phát hiện các máy in USB đang kết nối.<LineBreak/>
-                            • Tạo mã ghép đôi (Pairing Code) cho 3 máy con.<LineBreak/>
-                            • Kiểm soát, phê duyệt và thu hồi quyền in của từng máy.<LineBreak/>
+                            • Tạo mã ghép đôi kết nối không giới hạn số lượng máy con.<LineBreak/>
+                            • Kiểm soát, phân quyền phòng ban và máy in của từng thiết bị.<LineBreak/>
                             • Điều phối hàng đợi in FIFO, bảo vệ chống in trùng lặp.
                         </TextBlock>
 
@@ -80,7 +80,7 @@
                             </Border>
                             <TextBlock Text="CHẾ ĐỘ MÁY CON" FontSize="18" FontWeight="Bold" 
                                        Foreground="{StaticResource SuccessBrush}" HorizontalAlignment="Center"/>
-                            <TextBlock Text="(3 máy tính văn phòng in từ xa)" FontSize="12" 
+                            <TextBlock Text="(Máy tính văn phòng in tài liệu từ xa)" FontSize="12" 
                                        Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
                         </StackPanel>
 

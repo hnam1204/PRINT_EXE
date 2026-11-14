@@ -49,6 +49,11 @@
    * Tự động bật máy chủ trung gian ngay trong chế độ Máy Chủ mà không cần cài đặt phần mềm thứ ba.
 8. **Cập Nhật Trực Tiếp 1-Click (Canary Testing):**
    * Tự động phát hiện bản cập nhật mới, xác thực mã băm SHA-256 và thay thế tệp thực thi mà không làm mất cấu hình kết nối.
+9. **Kết Nối Không Giới Hạn Máy Con & Quản Lý Đa Máy In:**
+   * Không giới hạn số lượng máy con trong mã nguồn (mở rộng linh hoạt 10, 20, 50, 100+ máy).
+   * Tìm kiếm tức thì, bộ lọc trạng thái và phân nhóm theo phòng ban (Kế toán, Kinh doanh, Hành chính, Kỹ thuật...).
+   * Chia sẻ nhiều máy in USB đồng thời và phân quyền sử dụng máy in chi tiết cho từng máy con.
+   * Điều phối hàng đợi in đồng thời (Concurrent Queue) không bị nghẽn lệnh hoặc in đè tài liệu.
 
 ---
 
