@@ -46,6 +46,10 @@ public partial class ServerView : UserControl
 
         RefreshPrinters();
         UpdateDashboardUI();
+
+        ServerUpdateControl.Initialize(_settings);
+        ServerUpdateControl.HasActivePrintJobsCheck = () => 
+            _serverService.PrintJobs.Any(j => j.Status == PrintJobStatus.Printing || j.Status == PrintJobStatus.Pending);
     }
 
     private void ServerService_OnLog(object? sender, string message)
@@ -157,6 +161,10 @@ public partial class ServerView : UserControl
         _serverService.PauseSharing();
         RefreshPrinters();
         UpdateDashboardUI();
+
+        ServerUpdateControl.Initialize(_settings);
+        ServerUpdateControl.HasActivePrintJobsCheck = () => 
+            _serverService.PrintJobs.Any(j => j.Status == PrintJobStatus.Printing || j.Status == PrintJobStatus.Pending);
     }
 
     private async void BtnApproveClient_Click(object sender, RoutedEventArgs e)

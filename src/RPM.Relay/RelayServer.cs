@@ -79,6 +79,49 @@ public class RelayServer
                 }
                 else
                 {
+                    string path = ctx.Request.Url?.AbsolutePath.ToLowerInvariant() ?? "/";
+
+                    if (path == "/version.json")
+                    {
+                        string versionFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "version.json");
+                        if (!File.Exists(versionFile))
+                        {
+                            versionFile = Path.Combine(Directory.GetCurrentDirectory(), "version.json");
+                        }
+
+                        if (File.Exists(versionFile))
+                        {
+                            byte[] vBytes = await File.ReadAllBytesAsync(versionFile);
+                            ctx.Response.StatusCode = 200;
+                            ctx.Response.ContentType = "application/json; charset=utf-8";
+                            ctx.Response.ContentLength64 = vBytes.Length;
+                            ctx.Response.OutputStream.Write(vBytes, 0, vBytes.Length);
+                            ctx.Response.Close();
+                            continue;
+                        }
+                    }
+                    else if (path.StartsWith("/download/"))
+                    {
+                        string fileName = Path.GetFileName(ctx.Request.Url!.LocalPath);
+                        string downloadFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "updates", fileName);
+                        if (!File.Exists(downloadFile))
+                        {
+                            downloadFile = Path.Combine(Directory.GetCurrentDirectory(), "updates", fileName);
+                        }
+
+                        if (File.Exists(downloadFile))
+                        {
+                            byte[] fBytes = await File.ReadAllBytesAsync(downloadFile);
+                            ctx.Response.StatusCode = 200;
+                            ctx.Response.ContentType = "application/octet-stream";
+                            ctx.Response.AddHeader("Content-Disposition", $"attachment; filename=\"{fileName}\"");
+                            ctx.Response.ContentLength64 = fBytes.Length;
+                            ctx.Response.OutputStream.Write(fBytes, 0, fBytes.Length);
+                            ctx.Response.Close();
+                            continue;
+                        }
+                    }
+
                     // HTTP Health Check
                     ctx.Response.StatusCode = 200;
                     ctx.Response.ContentType = "application/json; charset=utf-8";

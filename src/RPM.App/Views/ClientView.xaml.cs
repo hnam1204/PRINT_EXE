@@ -43,6 +43,10 @@ public partial class ClientView : UserControl
         ChkClientNotifications.IsChecked = _settings.ShowDesktopNotifications;
 
         UpdateUI();
+
+        ClientUpdateControl.Initialize(_settings);
+        ClientUpdateControl.HasActivePrintJobsCheck = () => 
+            _clientService.PrintHistory.Any(j => j.Status == PrintJobStatus.Printing || j.Status == PrintJobStatus.Pending);
     }
 
     private void ClientService_OnLog(object? sender, string message)

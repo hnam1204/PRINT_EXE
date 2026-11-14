@@ -1,0 +1,149 @@
+<UserControl x:Class="RPM.App.Views.UpdateControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="Transparent">
+    <StackPanel Margin="0,5,0,0">
+        <!-- Main Update Card -->
+        <Border Style="{StaticResource CardBorder}" Background="#FFFFFF" Margin="0,0,0,15">
+            <StackPanel Margin="6">
+                <!-- Header -->
+                <Grid Margin="0,0,0,16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0" Text="🚀" FontSize="26" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                    
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="CẬP NHẬT &amp; NÂNG CẤP PHẦN MỀM" FontSize="15" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
+                        <TextBlock Text="Nâng cấp phiên bản mới trực tiếp, giữ nguyên toàn bộ cấu hình và máy in đã kết nối" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
+                    </StackPanel>
+
+                    <!-- Status Pill -->
+                    <Border Grid.Column="2" x:Name="BorderStatusBadge" Background="#F0F6FF" CornerRadius="12" Padding="12,5" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse x:Name="DotUpdateStatus" Width="8" Height="8" Fill="{StaticResource PrimaryBrush}" Margin="0,0,6,0"/>
+                            <TextBlock x:Name="TxtStatusBadge" Text="Sẵn sàng kiểm tra" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource PrimaryBrush}"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <!-- Version Info Grid -->
+                <Grid Margin="0,0,0,18">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="15"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="15"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Current Version -->
+                    <Border Grid.Column="0" Background="#F8F9FA" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                        <StackPanel>
+                            <TextBlock Text="PHIÊN BẢN HIỆN TẠI" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
+                            <TextBlock x:Name="TxtCurrentVersion" Text="V1.0.0" FontSize="18" FontWeight="Bold" Foreground="{StaticResource TextMainBrush}" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Latest Version -->
+                    <Border Grid.Column="2" Background="#F8F9FA" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                        <StackPanel>
+                            <TextBlock Text="PHIÊN BẢN MỚI NHẤT" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
+                            <TextBlock x:Name="TxtLatestVersion" Text="Chưa kiểm tra" FontSize="18" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Release Date -->
+                    <Border Grid.Column="4" Background="#F8F9FA" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                        <StackPanel>
+                            <TextBlock Text="NGÀY PHÁT HÀNH" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
+                            <TextBlock x:Name="TxtReleaseDate" Text="--" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <!-- Action Buttons -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                    <Button x:Name="BtnCheckUpdate" Style="{StaticResource PrimaryBtn}" Content="🔍 Kiểm tra cập nhật" Click="BtnCheckUpdate_Click" Margin="0,0,10,0" Height="38"/>
+                    <Button x:Name="BtnUpdateNow" Style="{StaticResource SuccessBtn}" Content="⚡ Cập nhật ngay" Click="BtnUpdateNow_Click" Margin="0,0,10,0" Height="38" Visibility="Collapsed"/>
+                    <Button x:Name="BtnToggleChangelog" Style="{StaticResource SecondaryBtn}" Content="📝 Xem nội dung thay đổi" Click="BtnToggleChangelog_Click" Margin="0,0,10,0" Height="38" Visibility="Collapsed"/>
+                </StackPanel>
+
+                <!-- Progress Bar Area -->
+                <StackPanel x:Name="PanelProgress" Visibility="Collapsed" Margin="0,0,0,14">
+                    <Grid Margin="0,0,0,6">
+                        <TextBlock x:Name="TxtProgressStatus" Text="Đang tải gói nâng cấp..." FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource PrimaryBrush}"/>
+                        <TextBlock x:Name="TxtProgressPercentage" Text="0%" HorizontalAlignment="Right" FontSize="12" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
+                    </Grid>
+                    <ProgressBar x:Name="PbDownload" Height="10" Maximum="100" Value="0" Foreground="{StaticResource PrimaryBrush}"/>
+                </StackPanel>
+
+                <!-- Changelog Box -->
+                <Border x:Name="BorderChangelog" Visibility="Collapsed" Background="#F0F8FF" BorderBrush="#BEE3F8" BorderThickness="1" CornerRadius="6" Padding="14" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="CÁC NÂNG CẤP VÀ SỬA LỖI TRONG BẢN MỚI:" FontSize="12" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,0,0,8"/>
+                        <ItemsControl x:Name="IcChangelog">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Margin="0,3">
+                                        <TextBlock Text="• " FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
+                                        <TextBlock Text="{Binding}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMainBrush}"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- Settings Row -->
+                <Grid Margin="0,4,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <CheckBox x:Name="ChkAutoCheck" Content="Tự động kiểm tra bản cập nhật mới khi mở phần mềm" 
+                              FontSize="12" VerticalAlignment="Center" IsChecked="True" 
+                              Checked="ChkAutoCheck_Changed" Unchecked="ChkAutoCheck_Changed"/>
+
+                    <Button Grid.Column="1" Style="{StaticResource SecondaryBtn}" Content="🕒 Lịch sử cập nhật" 
+                            Click="BtnViewHistory_Click" Padding="10,4" FontSize="11"/>
+                </Grid>
+
+                <!-- Update Feed URL Config -->
+                <Expander Header="Cấu hình nâng cao địa chỉ máy chủ cập nhật (Feed URL)" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,10,0,0">
+                    <StackPanel Margin="0,8,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="10"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" x:Name="TxtFeedUrl" Style="{StaticResource ModernTextBox}" FontSize="11"/>
+                            <Button Grid.Column="2" Style="{StaticResource SecondaryBtn}" Content="Lưu URL" Click="BtnSaveFeedUrl_Click" Padding="10,4" FontSize="11"/>
+                        </Grid>
+                        <TextBlock Text="* Mặc định sử dụng Cloud Relay nội bộ hoặc URL GitHub Releases / Web Server." FontSize="10" FontStyle="Italic" Foreground="{StaticResource TextMutedBrush}" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Expander>
+
+                <!-- Update History List -->
+                <Expander x:Name="ExpHistory" Header="Lịch sử các lần nâng cấp thành công trên máy này" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,6,0,0">
+                    <DataGrid x:Name="DgUpdateHistory" AutoGenerateColumns="False" IsReadOnly="True" 
+                              Height="140" Background="White" BorderBrush="{StaticResource BorderBrush}" 
+                              HeadersVisibility="Column" GridLinesVisibility="Horizontal" Margin="0,8,0,0">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Từ Phiên Bản" Binding="{Binding FromVersion}" Width="100"/>
+                            <DataGridTextColumn Header="Lên Phiên Bản" Binding="{Binding ToVersion}" Width="110"/>
+                            <DataGridTextColumn Header="Thời Gian Nâng Cấp" Binding="{Binding InstalledAt, StringFormat='dd/MM/yyyy HH:mm'}" Width="140"/>
+                            <DataGridTextColumn Header="Trạng Thái" Binding="{Binding Status}" Width="100"/>
+                            <DataGridTextColumn Header="Ghi Chú" Binding="{Binding Notes}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Expander>
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</UserControl>

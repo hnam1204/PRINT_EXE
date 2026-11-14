@@ -1,6 +1,7 @@
 <UserControl x:Class="RPM.App.Views.ServerView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:RPM.App.Views"
              Background="{StaticResource BgBrush}">
     <Grid>
         <Grid.RowDefinitions>
@@ -227,37 +228,42 @@
             <!-- 5. CÀI ĐẶT -->
             <TabItem Header="⚙️ Cài Đặt" FontSize="14" FontWeight="SemiBold">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,15,0,0">
-                    <Border Style="{StaticResource CardBorder}" MaxWidth="700" HorizontalAlignment="Left">
-                        <StackPanel Margin="10">
-                            <TextBlock Text="Cấu Hình Máy Chủ" FontSize="16" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,0,0,16"/>
+                    <StackPanel MaxWidth="720" HorizontalAlignment="Left">
+                        <!-- Update & Upgrade Section -->
+                        <views:UpdateControl x:Name="ServerUpdateControl" Margin="0,0,0,15"/>
 
-                            <TextBlock Text="Tên hiển thị của máy chủ:" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                            <TextBox x:Name="TxtServerName" Style="{StaticResource ModernTextBox}" Margin="0,0,0,16"/>
+                        <Border Style="{StaticResource CardBorder}" Margin="0,0,0,20">
+                            <StackPanel Margin="10">
+                                <TextBlock Text="Cấu Hình Máy Chủ" FontSize="16" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,0,0,16"/>
 
-                            <TextBlock Text="Mã kết nối (Pairing Code):" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                            <Grid Margin="0,0,0,16">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="10"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox Grid.Column="0" x:Name="TxtSettingPairingCode" Style="{StaticResource ModernTextBox}"/>
-                                <Button Grid.Column="2" Style="{StaticResource SecondaryBtn}" Content="Sinh mã mới" Click="BtnRegenerateCode_Click"/>
-                            </Grid>
+                                <TextBlock Text="Tên hiển thị của máy chủ:" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                <TextBox x:Name="TxtServerName" Style="{StaticResource ModernTextBox}" Margin="0,0,0,16"/>
 
-                            <TextBlock Text="Địa chỉ Relay Broker (WebSocket URL):" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                            <TextBox x:Name="TxtRelayUrl" Style="{StaticResource ModernTextBox}" Margin="0,0,0,20"/>
+                                <TextBlock Text="Mã kết nối (Pairing Code):" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                <Grid Margin="0,0,0,16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="10"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Grid.Column="0" x:Name="TxtSettingPairingCode" Style="{StaticResource ModernTextBox}"/>
+                                    <Button Grid.Column="2" Style="{StaticResource SecondaryBtn}" Content="Sinh mã mới" Click="BtnRegenerateCode_Click"/>
+                                </Grid>
 
-                            <CheckBox x:Name="ChkAutoStart" Content="Tự động khởi động cùng Windows" FontSize="13" Margin="0,0,0,10" IsChecked="True"/>
-                            <CheckBox x:Name="ChkMinimizeTray" Content="Thu nhỏ xuống Khay hệ thống (System Tray) khi tắt ứng dụng" FontSize="13" Margin="0,0,0,10" IsChecked="True"/>
-                            <CheckBox x:Name="ChkNotifications" Content="Hiện thông báo Desktop khi có máy con xin kết nối hoặc có lệnh in" FontSize="13" Margin="0,0,0,24" IsChecked="True"/>
+                                <TextBlock Text="Địa chỉ Relay Broker (WebSocket URL):" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                <TextBox x:Name="TxtRelayUrl" Style="{StaticResource ModernTextBox}" Margin="0,0,0,20"/>
 
-                            <StackPanel Orientation="Horizontal">
-                                <Button Style="{StaticResource PrimaryBtn}" Content="Lưu Cài Đặt" Click="BtnSaveSettings_Click" Margin="0,0,15,0"/>
-                                <Button Style="{StaticResource SecondaryBtn}" Content="🔄 Đổi sang Chế Độ Máy Con" Click="BtnSwitchToClient_Click"/>
+                                <CheckBox x:Name="ChkAutoStart" Content="Tự động khởi động cùng Windows" FontSize="13" Margin="0,0,0,10" IsChecked="True"/>
+                                <CheckBox x:Name="ChkMinimizeTray" Content="Thu nhỏ xuống Khay hệ thống (System Tray) khi tắt ứng dụng" FontSize="13" Margin="0,0,0,10" IsChecked="True"/>
+                                <CheckBox x:Name="ChkNotifications" Content="Hiện thông báo Desktop khi có máy con xin kết nối hoặc có lệnh in" FontSize="13" Margin="0,0,0,24" IsChecked="True"/>
+
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Style="{StaticResource PrimaryBtn}" Content="Lưu Cài Đặt" Click="BtnSaveSettings_Click" Margin="0,0,15,0"/>
+                                    <Button Style="{StaticResource SecondaryBtn}" Content="🔄 Đổi sang Chế Độ Máy Con" Click="BtnSwitchToClient_Click"/>
+                                </StackPanel>
                             </StackPanel>
-                        </StackPanel>
-                    </Border>
+                        </Border>
+                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
         </TabControl>

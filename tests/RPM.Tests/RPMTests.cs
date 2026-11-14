@@ -4,6 +4,7 @@ using System.Text.Json;
 using RPM.Core.Models;
 using RPM.Core.Protocol;
 using RPM.Core.Security;
+using RPM.Core.Update;
 using RPM.Networking;
 using RPM.Printing;
 using RPM.Relay;
@@ -185,6 +186,98 @@ public class RPMTests
         finally
         {
             ippServer.Stop();
+        }
+    }
+
+    [Fact]
+    public void UpdateService_IsNewerVersion_SemanticComparison_Works()
+    {
+        Assert.True(UpdateService.IsNewerVersion("1.0.0", "1.0.1"));
+        Assert.True(UpdateService.IsNewerVersion("V1.0.0", "v1.0.1"));
+        Assert.True(UpdateService.IsNewerVersion("1.0.9", "1.1.0"));
+        Assert.True(UpdateService.IsNewerVersion("1.9.9", "2.0.0"));
+
+        Assert.False(UpdateService.IsNewerVersion("1.0.1", "1.0.0"));
+        Assert.False(UpdateService.IsNewerVersion("1.0.0", "1.0.0"));
+        Assert.False(UpdateService.IsNewerVersion("2.0.0", "1.0.5"));
+    }
+
+    [Fact]
+    public async Task UpdateService_CheckForUpdates_ParsesManifestAndDetectsNewVersion()
+    {
+        string tempJsonPath = Path.Combine(Path.GetTempPath(), $"version_{Guid.NewGuid():N}.json");
+        try
+        {
+            var manifest = new UpdateManifest
+            {
+                Version = "1.0.1",
+                ReleaseDate = DateTime.UtcNow,
+                DownloadUrl = "http://example.com/RemotePrintManager.exe",
+                Sha256 = "abc1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+                Changelog = new List<string>
+                {
+                    "Tự động kết nối lại khi có mạng",
+                    "Khắc phục lỗi treo hàng đợi in",
+                    "Cải tiến giao diện Cập nhật & Nâng cấp"
+                }
+            };
+
+            await File.WriteAllTextAsync(tempJsonPath, JsonSerializer.Serialize(manifest));
+
+            var result = await UpdateService.CheckForUpdatesAsync(tempJsonPath, "1.0.0");
+
+            Assert.True(result.HasUpdate);
+            Assert.Equal("1.0.1", result.LatestVersion);
+            Assert.NotNull(result.Manifest);
+            Assert.Equal(3, result.Manifest.Changelog.Count);
+            Assert.Contains("Tự động kết nối lại", result.Manifest.Changelog[0]);
+        }
+        finally
+        {
+            if (File.Exists(tempJsonPath)) File.Delete(tempJsonPath);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateService_DownloadAndVerify_ValidatesSha256Checksum()
+    {
+        string tempFolder = Path.Combine(Path.GetTempPath(), $"rpm_update_test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempFolder);
+
+        string mockExeSource = Path.Combine(tempFolder, "MockApp.exe");
+        byte[] mockBytes = Encoding.UTF8.GetBytes("MOCK BINARY CONTENT FOR UPDATE TEST 2026");
+        await File.WriteAllBytesAsync(mockExeSource, mockBytes);
+
+        string expectedSha256 = RPMCrypto.ComputeSha256(mockBytes);
+
+        try
+        {
+            var validManifest = new UpdateManifest
+            {
+                Version = "1.0.1",
+                DownloadUrl = mockExeSource,
+                Sha256 = expectedSha256
+            };
+
+            var (successValid, _, validFile) = await UpdateService.DownloadUpdateAsync(validManifest);
+            Assert.True(successValid);
+            Assert.True(File.Exists(validFile));
+            if (File.Exists(validFile)) File.Delete(validFile);
+
+            var invalidManifest = new UpdateManifest
+            {
+                Version = "1.0.1",
+                DownloadUrl = mockExeSource,
+                Sha256 = "0000000000000000000000000000000000000000000000000000000000000000" // Corrupted hash
+            };
+
+            var (successInvalid, errorMsg, _) = await UpdateService.DownloadUpdateAsync(invalidManifest);
+            Assert.False(successInvalid);
+            Assert.Contains("Mã SHA-256 không khớp", errorMsg);
+        }
+        finally
+        {
+            if (Directory.Exists(tempFolder)) Directory.Delete(tempFolder, true);
         }
     }
 }

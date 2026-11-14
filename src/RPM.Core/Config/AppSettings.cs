@@ -1,10 +1,12 @@
 using System.Text.Json;
 using RPM.Core.Models;
+using RPM.Core.Update;
 
 namespace RPM.Core.Config;
 
 public class AppSettings
 {
+    public string AppVersion { get; set; } = "1.0.0";
     public AppRole Role { get; set; } = AppRole.Unconfigured;
     public string DeviceId { get; set; } = Guid.NewGuid().ToString("N");
     public string DeviceName { get; set; } = Environment.MachineName;
@@ -18,6 +20,11 @@ public class AppSettings
     public int LocalIppPort { get; set; } = 9199;
     public List<DeviceInfo> ApprovedClients { get; set; } = new();
     public List<PrintJob> PrintHistory { get; set; } = new();
+    
+    // Auto-update & upgrade configuration
+    public string UpdateFeedUrl { get; set; } = "http://127.0.0.1:9090/version.json";
+    public bool AutoCheckUpdates { get; set; } = true;
+    public List<UpdateHistoryItem> UpdateHistory { get; set; } = new();
 }
 
 public static class ConfigManager
@@ -79,6 +86,16 @@ public static class ConfigManager
     public static string GetTempJobsFolder()
     {
         string folder = Path.Combine(AppDataFolder, "PrintJobs");
+        if (!Directory.Exists(folder))
+        {
+            Directory.CreateDirectory(folder);
+        }
+        return folder;
+    }
+
+    public static string GetUpdatesFolder()
+    {
+        string folder = Path.Combine(AppDataFolder, "Updates");
         if (!Directory.Exists(folder))
         {
             Directory.CreateDirectory(folder);

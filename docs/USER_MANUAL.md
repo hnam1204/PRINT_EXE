@@ -49,3 +49,42 @@ Sau khi cài đặt xong bước trên, nhân viên **hoàn toàn không cần t
 2. **Chống in trùng:** Hệ thống tự động tính toán mã băm SHA-256 của từng file in. Nếu có lệnh in trùng lặp trong thời gian ngắn do bấm nhầm hoặc rớt mạng kết nối lại, hệ thống sẽ tự động lọc và cảnh báo, tránh lãng phí giấy mực.
 3. **Mất mạng & Khôi phục:** Khi máy chủ mất mạng hoặc máy in tắt nguồn, máy con sẽ nhận thông báo cảnh báo rõ ràng. Khi có mạng trở lại, hệ thống tự động kết nối lại mà không yêu cầu người dùng nhập lại mã.
 4. **Phân quyền chặt chẽ:** Máy chủ có toàn quyền **Tạm dừng** hoặc **Thu hồi quyền in (Revoke)** của bất kỳ máy con nào chỉ với 1 click.
+
+---
+
+## V. Quy Trình Cập Nhật & Nâng Cấp Phần Mềm Trực Tiếp
+
+### 1. Dành Cho Nhà Phát Triển (Tạo & Phát Hành Phiên Bản Mới)
+Khi có cải tiến mã nguồn hoặc sửa lỗi (ví dụ nâng cấp lên **V1.0.1**):
+1. Chỉnh sửa mã nguồn trong dự án và chạy kịch bản đóng gói:
+   ```powershell
+   .\build.ps1 -Version "1.0.1" -Changelog @(
+       "Tối ưu tốc độ truyền tải tài liệu",
+       "Tự động kết nối lại máy chủ khi mạng Internet phục hồi",
+       "Khắc phục sự cố nhận diện máy in USB"
+   )
+   ```
+2. Hệ thống sẽ tự động:
+   - Chạy 8 bộ test kiểm thử tự động.
+   - Biên dịch phiên bản `RemotePrintManager.exe` mới.
+   - Tính toán mã băm kiểm tra tính toàn vẹn **SHA-256**.
+   - Tạo file `publish/version.json` chứa thông tin phiên bản và liên kết tải.
+3. Đẩy file `RemotePrintManager.exe` và `version.json` lên máy chủ Relay hoặc GitHub Releases/Web Server.
+
+### 2. Dành Cho Người Dùng (Cập Nhật 1-Click Trên Máy Chủ & Máy Con)
+1. Mở phần mềm, vào tab **Cài đặt**.
+2. Tại khu vực **"Cập Nhật & Nâng Cấp Phần Mềm"**:
+   - Nếu phần mềm bật tính năng tự động kiểm tra, badge sẽ hiển thị: **"Có bản mới V1.0.1"**.
+   - Hoặc người dùng bấm nút **"🔍 Kiểm tra cập nhật"**.
+   - Bấm **"📝 Xem nội dung thay đổi"** để đọc chi tiết các tính năng mới và lỗi đã khắc phục.
+3. Nhấn nút **"⚡ Cập nhật ngay"**:
+   - Phần mềm kiểm tra nếu đang có lệnh in dở dang, sẽ hỏi xác nhận để không làm hỏng tài liệu đang in.
+   - Hiển thị thanh tiến trình tải xuống (0% → 100%).
+   - Tự động kiểm tra mã băm SHA-256 để đảm bảo file tải về không bị lỗi hay can thiệp.
+   - Tự động thay thế tệp thực thi, tạo bản sao lưu an toàn (`.bak`) và khởi động lại phần mềm.
+
+### 3. Quy Trình Cập Nhật Thử Nghiệm (Canary Testing)
+- Để đảm bảo an toàn tuyệt đối, người quản trị có thể chỉ bấm **Cập nhật ngay** trên **Máy con số 1** trước.
+- Sau khi máy con số 1 nâng cấp lên V1.0.1 thành công và in thử nghiệm hoàn hảo, các máy còn lại (máy chủ và 2 máy con khác) mới thực hiện bấm nâng cấp.
+- **Bảo toàn dữ liệu 100%:** Sau khi nâng cấp, toàn bộ vai trò (Server/Client), mã ghép đôi, máy in đã chia sẻ, danh sách máy con đã duyệt và lịch sử in ấn được giữ nguyên vẹn hoàn toàn trong `%AppData%\RemotePrintManager\config.json`.
+
