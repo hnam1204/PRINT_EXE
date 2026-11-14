@@ -472,6 +472,11 @@ public class ServerService : IDisposable
         if (joinPayload == null) return;
 
         var client = joinPayload.ClientDevice;
+        if (string.IsNullOrWhiteSpace(client.DeviceId))
+        {
+            client.DeviceId = packet.SenderId;
+        }
+
         var existing = ConnectedClients.FirstOrDefault(c => c.DeviceId == client.DeviceId);
 
         Application.Current?.Dispatcher.Invoke(() =>
@@ -491,7 +496,16 @@ public class ServerService : IDisposable
                 existing.LastSeen = DateTime.UtcNow;
                 existing.IsOnline = true;
             }
+
+            // Persist and notify on the UI thread so the bound device list
+            // refreshes for both new requests and reconnecting clients.
+            SaveClientList();
         });
+
+        if (Application.Current == null)
+        {
+            SaveClientList();
+        }
 
         if (existing != null && existing.IsApproved && !existing.IsBlocked)
         {

@@ -46,7 +46,7 @@ if ($LASTEXITCODE -ne 0) {
 # 3. Publish the self-contained updater first so it can also be embedded in the main EXE.
 Write-Host "`n[3/5] Dang dong goi Single-File Executable cho RPM.App..." -ForegroundColor Gray
 $updaterPublish = "publish/updater"
-dotnet publish src/RPM.Updater/RPM.Updater.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o $updaterPublish
+dotnet publish src/RPM.Updater/RPM.Updater.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=None -o $updaterPublish
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Publish RPM.Updater that bai!" -ForegroundColor Red
     Exit 1
@@ -55,7 +55,7 @@ $embeddedUpdater = (Join-Path $scriptDir "$updaterPublish/RPM.Updater.exe")
 
 # The runtime and WPF native dependencies are embedded so customers do not need .NET installed.
 $tempPublish = "publish/temp-app"
-dotnet publish src/RPM.App/RPM.App.csproj -c Release -r win-x64 --self-contained true -p:Version=$Version -p:AssemblyVersion=$Version.0 -p:FileVersion=$Version.0 -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true "-p:EmbeddedUpdaterPath=$embeddedUpdater" -p:DebugType=None -o $tempPublish
+dotnet publish src/RPM.App/RPM.App.csproj -c Release -r win-x64 --self-contained true -p:Version=$Version -p:AssemblyVersion=$Version.0 -p:FileVersion=$Version.0 -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true "-p:EmbeddedUpdaterPath=$embeddedUpdater" -p:DebugType=None -o $tempPublish
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Publish RPM.App that bai!" -ForegroundColor Red
     Exit 1
@@ -71,7 +71,7 @@ Remove-Item -Recurse -Force "publish/updater" -ErrorAction SilentlyContinue
 
 # 4. Publish Standalone Cloud Relay Broker
 Write-Host "`n[4/5] Dang dong goi RPM.Relay Broker..." -ForegroundColor Gray
-dotnet publish src/RPM.Relay/RPM.Relay.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o publish/relay
+dotnet publish src/RPM.Relay/RPM.Relay.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=None -o publish/relay
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Publish RPM.Relay that bai!" -ForegroundColor Red
     Exit 1

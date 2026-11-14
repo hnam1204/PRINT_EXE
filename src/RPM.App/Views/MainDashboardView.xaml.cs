@@ -59,7 +59,14 @@ public partial class MainDashboardView : UserControl
         // Register background sync events
         if (_serverService != null)
         {
-            _serverService.OnStatusChanged += (s, e) => Dispatcher.Invoke(UpdateServerUI);
+            _serverService.OnStatusChanged += (s, e) => Dispatcher.Invoke(() =>
+            {
+                UpdateServerUI();
+                if (_isSettingsOpen && _currentSettingsTab == SettingsTab.Devices)
+                {
+                    ApplyClientFilters();
+                }
+            });
             _serverService.PrintJobs.CollectionChanged += (s, e) => Dispatcher.Invoke(() =>
             {
                 RefreshRecentJobs();
@@ -524,7 +531,9 @@ public partial class MainDashboardView : UserControl
 
             if (!client.IsApproved && !client.IsBlocked) pendingCount++;
 
-            if (!string.IsNullOrEmpty(searchText) && !client.DeviceName.Contains(searchText, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!string.IsNullOrEmpty(searchText) &&
+                !client.DeviceName.Contains(searchText, StringComparison.OrdinalIgnoreCase) &&
+                !client.DeviceId.Contains(searchText, StringComparison.OrdinalIgnoreCase)) continue;
 
             if (statusFilter == "Trực tuyến" && (!client.IsApproved || !client.IsOnline)) continue;
             if (statusFilter == "Ngoại tuyến" && (!client.IsApproved || client.IsOnline)) continue;
