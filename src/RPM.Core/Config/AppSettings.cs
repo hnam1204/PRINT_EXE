@@ -1,4 +1,7 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Security.Cryptography;
+using System.Text;
 using RPM.Core.Models;
 using RPM.Core.Update;
 
@@ -11,7 +14,7 @@ public class AppSettings
     public string DeviceId { get; set; } = Guid.NewGuid().ToString("N");
     public string DeviceName { get; set; } = Environment.MachineName;
     public string PairingCode { get; set; } = string.Empty;
-    public string RelayServerUrl { get; set; } = "ws://127.0.0.1:9090"; // default local relay or public broker
+    public string RelayServerUrl { get; set; } = "ws://127.0.0.1:9090"; // loopback is allowed; public relays must use wss://
     public string SelectedPrinterName { get; set; } = string.Empty;
     public List<string> SharedPrinterNames { get; set; } = new();
     public List<string> Departments { get; set; } = new() { "Chung", "Kế toán", "Kinh doanh", "Hành chính", "Kỹ thuật", "Ban Giám Đốc" };
@@ -56,6 +59,10 @@ public static class ConfigManager
                 var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOpts);
                 if (settings != null)
                 {
+                    bool wasPlaintext = !string.IsNullOrWhiteSpace(settings.EncryptionSecret) &&
+                        !settings.EncryptionSecret.StartsWith("dpapi:", StringComparison.Ordinal);
+                    settings.EncryptionSecret = Unprotect(settings.EncryptionSecret);
+                    if (wasPlaintext) Save(settings);
                     return settings;
                 }
             }
@@ -79,7 +86,10 @@ public static class ConfigManager
                 Directory.CreateDirectory(AppDataFolder);
             }
 
-            string json = JsonSerializer.Serialize(settings, JsonOpts);
+            var root = JsonNode.Parse(JsonSerializer.Serialize(settings, JsonOpts))?.AsObject()
+                ?? throw new InvalidOperationException("Unable to serialize application settings.");
+            root["EncryptionSecret"] = Protect(settings.EncryptionSecret);
+            string json = root.ToJsonString(JsonOpts);
             File.WriteAllText(ConfigFilePath, json);
         }
         catch (Exception ex)
@@ -106,5 +116,29 @@ public static class ConfigManager
             Directory.CreateDirectory(folder);
         }
         return folder;
+    }
+
+    private static string Protect(string value)
+    {
+#pragma warning disable CA1416
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        if (value.StartsWith("dpapi:", StringComparison.Ordinal)) return value;
+        byte[] protectedBytes = ProtectedData.Protect(Encoding.UTF8.GetBytes(value), null, DataProtectionScope.CurrentUser);
+        return "dpapi:" + Convert.ToBase64String(protectedBytes);
+#pragma warning restore CA1416
+    }
+
+    private static string Unprotect(string value)
+    {
+#pragma warning disable CA1416
+        if (string.IsNullOrEmpty(value) || !value.StartsWith("dpapi:", StringComparison.Ordinal)) return value;
+        try
+        {
+            byte[] plaintext = ProtectedData.Unprotect(Convert.FromBase64String(value[6..]), null, DataProtectionScope.CurrentUser);
+            return Encoding.UTF8.GetString(plaintext);
+        }
+        catch (CryptographicException) { return string.Empty; }
+        catch (FormatException) { return string.Empty; }
+#pragma warning restore CA1416
     }
 }

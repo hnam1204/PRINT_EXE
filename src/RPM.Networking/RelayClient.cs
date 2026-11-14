@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -23,6 +24,8 @@ public class RelayClient : IDisposable
     private int _consecutiveFails = 0;
     private bool _wasConnectedBefore = false;
 
+    public string PairingCode { get; set; } = string.Empty;
+
     public bool IsConnected => _ws != null && _ws.State == WebSocketState.Open;
 
     public event EventHandler? OnConnected;
@@ -32,6 +35,13 @@ public class RelayClient : IDisposable
 
     public Task StartAsync(string relayUrl)
     {
+        if (!Uri.TryCreate(relayUrl, UriKind.Absolute, out var uri) ||
+            (uri.Scheme is not ("ws" or "wss")) ||
+            (uri.Scheme == "ws" && !IsLoopback(uri.Host)))
+        {
+            throw new ArgumentException("Public relay connections must use wss://; ws:// is allowed only for loopback.", nameof(relayUrl));
+        }
+
         _relayUrl = relayUrl;
         _shouldAutoReconnect = true;
         _ = Task.Run(ConnectInternalAsync);
@@ -147,7 +157,11 @@ public class RelayClient : IDisposable
             try
             {
                 var packet = JsonSerializer.Deserialize<NetworkPacket>(json);
-                if (packet != null)
+                if (packet != null &&
+                    PacketSecurity.IsValidPairingCode(PairingCode) &&
+                    string.Equals(packet.PairingCode, PairingCode, StringComparison.OrdinalIgnoreCase) &&
+                    PacketSecurity.VerifyAuthTag(packet, PairingCode) &&
+                    PacketSecurity.IsFresh(packet, DateTime.UtcNow))
                 {
                     OnPacketReceived?.Invoke(this, packet);
                 }
@@ -162,6 +176,16 @@ public class RelayClient : IDisposable
     public async Task<bool> SendPacketAsync(NetworkPacket packet)
     {
         if (!IsConnected || _ws == null) return false;
+
+        if (!PacketSecurity.IsValidPairingCode(PairingCode) ||
+            !string.Equals(packet.PairingCode, PairingCode, StringComparison.OrdinalIgnoreCase))
+        {
+            OnLog?.Invoke(this, "Từ chối gửi packet: mã ghép đôi không khớp phiên.");
+            return false;
+        }
+
+        packet.Timestamp = DateTime.UtcNow;
+        packet.AuthTagBase64 = PacketSecurity.ComputeAuthTag(packet, PairingCode);
 
         await _sendLock.WaitAsync();
         try
@@ -251,4 +275,8 @@ public class RelayClient : IDisposable
         _ws?.Dispose();
         _sendLock.Dispose();
     }
+
+    private static bool IsLoopback(string host) =>
+        string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+        IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address);
 }

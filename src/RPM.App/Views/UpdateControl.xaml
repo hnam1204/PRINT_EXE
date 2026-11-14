@@ -17,8 +17,8 @@
                     <Path Grid.Column="0" Data="{StaticResource GeoRefresh}" Fill="{StaticResource PrimaryBrush}" Width="22" Height="22" Stretch="Uniform" VerticalAlignment="Center" Margin="0,0,14,0"/>
                     
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                        <TextBlock Text="CẬP NHẬT &amp; NÂNG CẤP PHẦN MỀM" FontSize="15" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
-                        <TextBlock Text="Nâng cấp phiên bản mới trực tiếp, bảo toàn 100% dữ liệu ghép đôi, máy in và lịch sử hoạt động" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
+                        <TextBlock Text="CẬP NHẬT" FontSize="15" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
+                        <TextBlock Text="Cập nhật phần mềm và giữ nguyên dữ liệu." FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
                     </StackPanel>
 
                     <!-- Status Pill -->
@@ -45,7 +45,7 @@
                     <!-- Current Version -->
                     <Border Grid.Column="0" Background="{StaticResource BgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12">
                         <StackPanel>
-                            <TextBlock Text="PHIÊN BẢN ĐANG DÙNG" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
+                            <TextBlock Text="ĐANG DÙNG" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
                             <TextBlock x:Name="TxtCurrentVersion" Text="V1.0.0" FontSize="16" FontWeight="Bold" Foreground="{StaticResource TextMainBrush}" Margin="0,4,0,0"/>
                         </StackPanel>
                     </Border>
@@ -53,15 +53,15 @@
                     <!-- Release Channel -->
                     <Border Grid.Column="2" Background="{StaticResource BgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12">
                         <StackPanel>
-                            <TextBlock Text="KÊNH PHÁT HÀNH" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
-                            <TextBlock x:Name="TxtCurrentChannel" Text="Chính thức (Stable)" FontSize="13" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,6,0,0"/>
+                            <TextBlock Text="KÊNH" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
+                            <TextBlock x:Name="TxtCurrentChannel" Text="Bản chính thức" FontSize="13" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,6,0,0"/>
                         </StackPanel>
                     </Border>
 
                     <!-- Latest Version -->
                     <Border Grid.Column="4" Background="{StaticResource BgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12">
                         <StackPanel>
-                            <TextBlock Text="BẢN MỚI NHẤT" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
+                            <TextBlock Text="BẢN MỚI" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
                             <TextBlock x:Name="TxtLatestVersion" Text="Chưa kiểm tra" FontSize="16" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,4,0,0"/>
                         </StackPanel>
                     </Border>
@@ -69,7 +69,7 @@
                     <!-- Release Date -->
                     <Border Grid.Column="6" Background="{StaticResource BgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12">
                         <StackPanel>
-                            <TextBlock Text="NGÀY PHÁT HÀNH" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
+                            <TextBlock Text="NGÀY RA MẮT" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
                             <TextBlock x:Name="TxtReleaseDate" Text="--" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}" Margin="0,6,0,0"/>
                         </StackPanel>
                     </Border>
@@ -77,16 +77,24 @@
 
                 <!-- Action Buttons -->
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
-                    <Button x:Name="BtnCheckUpdate" Style="{StaticResource SecondaryBtn}" Content="🔍 Kiểm tra cập nhật" Click="BtnCheckUpdate_Click" Margin="0,0,10,0" Height="40" Padding="16,8"/>
-                    <Button x:Name="BtnUpdateNow" Style="{StaticResource PrimaryBtn}" Content="⚡ Cập nhật &amp; Nâng cấp" Click="BtnUpdateNow_Click" Margin="0,0,10,0" Height="40" Padding="20,8" Visibility="Collapsed"/>
-                    <Button x:Name="BtnRollback" Style="{StaticResource SecondaryBtn}" Content="↺ Khôi phục phiên bản trước" Click="BtnRollback_Click" Margin="0,0,10,0" Height="40" Padding="14,8" Visibility="Collapsed"/>
-                    <Button x:Name="BtnToggleChangelog" Style="{StaticResource SecondaryBtn}" Content="📝 Xem nội dung thay đổi" Click="BtnToggleChangelog_Click" Margin="0,0,10,0" Height="40" Padding="14,8" Visibility="Collapsed"/>
+                    <Button x:Name="BtnCheckUpdate" Style="{StaticResource SecondaryBtn}" Click="BtnCheckUpdate_Click" Margin="0,0,10,0" Height="40" Padding="16,8">
+                        <StackPanel Orientation="Horizontal"><Path Data="{StaticResource GeoSignal}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/><TextBlock Text="Kiểm tra"/></StackPanel>
+                    </Button>
+                    <Button x:Name="BtnUpdateNow" Style="{StaticResource PrimaryBtn}" Click="BtnUpdateNow_Click" Margin="0,0,10,0" Height="40" Padding="20,8" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal"><Path Data="{StaticResource GeoRocket}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/><TextBlock Text="Cập nhật ngay"/></StackPanel>
+                    </Button>
+                    <Button x:Name="BtnRollback" Style="{StaticResource SecondaryBtn}" Click="BtnRollback_Click" Margin="0,0,10,0" Height="40" Padding="14,8" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal"><Path Data="{StaticResource GeoRestart}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/><TextBlock Text="Khôi phục bản cũ"/></StackPanel>
+                    </Button>
+                    <Button x:Name="BtnToggleChangelog" Style="{StaticResource SecondaryBtn}" Click="BtnToggleChangelog_Click" Margin="0,0,10,0" Height="40" Padding="14,8" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal"><Path Data="{StaticResource GeoDocument}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/><TextBlock Text="Xem thay đổi"/></StackPanel>
+                    </Button>
                 </StackPanel>
 
                 <!-- Progress Bar Area -->
                 <StackPanel x:Name="PanelProgress" Visibility="Collapsed" Margin="0,0,0,14">
                     <Grid Margin="0,0,0,6">
-                        <TextBlock x:Name="TxtProgressStatus" Text="Đang tải gói nâng cấp..." FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource PrimaryBrush}"/>
+                        <TextBlock x:Name="TxtProgressStatus" Text="Đang tải..." FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource PrimaryBrush}"/>
                         <TextBlock x:Name="TxtProgressPercentage" Text="0%" HorizontalAlignment="Right" FontSize="12" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
                     </Grid>
                     <ProgressBar x:Name="PbDownload" Height="10" Maximum="100" Value="0" Foreground="{StaticResource PrimaryBrush}"/>
@@ -95,7 +103,7 @@
                 <!-- Changelog Box -->
                 <Border x:Name="BorderChangelog" Visibility="Collapsed" Background="{StaticResource BgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,14">
                     <StackPanel>
-                        <TextBlock Text="CÁC NÂNG CẤP VÀ SỬA LỖI TRONG BẢN MỚI:" FontSize="12" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,0,0,8"/>
+                        <TextBlock Text="THAY ĐỔI TRONG BẢN MỚI:" FontSize="12" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,0,0,8"/>
                         <ItemsControl x:Name="IcChangelog">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
@@ -123,11 +131,11 @@
 
                         <!-- Auto Check & Auto Install -->
                         <StackPanel Grid.Row="0" Grid.Column="0">
-                            <CheckBox x:Name="ChkAutoCheck" Content="Tự động kiểm tra bản cập nhật mới (khi mở phần mềm và định kỳ mỗi giờ)" 
+                            <CheckBox x:Name="ChkAutoCheck" Content="Tự kiểm tra bản mới mỗi giờ" 
                                       FontSize="12" Margin="0,0,0,8" IsChecked="True" 
                                       Checked="ChkAutoCheck_Changed" Unchecked="ChkAutoCheck_Changed"/>
                             
-                            <CheckBox x:Name="ChkAutoInstall" Content="Tự động cài đặt khi phát hiện bản mới (ưu tiên in xong trước, không làm gián đoạn tài liệu)" 
+                            <CheckBox x:Name="ChkAutoInstall" Content="Tự cập nhật sau khi in xong" 
                                       FontSize="12" Margin="0,0,0,0" IsChecked="False" 
                                       Checked="ChkAutoInstall_Changed" Unchecked="ChkAutoInstall_Changed"/>
                         </StackPanel>
@@ -136,8 +144,8 @@
                         <StackPanel Grid.Row="0" Grid.Column="1" VerticalAlignment="Center">
                             <TextBlock Text="Kênh cập nhật máy tính này:" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4"/>
                             <ComboBox x:Name="CmbChannel" Width="210" Height="30" SelectionChanged="CmbChannel_SelectionChanged">
-                                <ComboBoxItem Content="Chính thức (Stable) - Mặc định" Tag="Stable"/>
-                                <ComboBoxItem Content="Thử nghiệm (Beta) - Test trước" Tag="Beta"/>
+                                <ComboBoxItem Content="Bản chính thức" Tag="Stable"/>
+                                <ComboBoxItem Content="Bản thử nghiệm" Tag="Beta"/>
                             </ComboBox>
                         </StackPanel>
                     </Grid>
@@ -150,11 +158,12 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <TextBlock Text="* Bản cập nhật luôn giữ nguyên vai trò máy chủ/máy con, mã ghép đôi và danh sách máy in." 
+                    <TextBlock Text="* Cập nhật không xóa cài đặt và máy in." 
                                FontSize="11" FontStyle="Italic" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center"/>
 
-                    <Button Grid.Column="1" Style="{StaticResource SecondaryBtn}" Content="🕒 Lịch sử cập nhật" 
-                            Click="BtnViewHistory_Click" Padding="12,5" FontSize="11"/>
+                    <Button Grid.Column="1" Style="{StaticResource SecondaryBtn}" Click="BtnViewHistory_Click" Padding="12,5" FontSize="11">
+                        <StackPanel Orientation="Horizontal"><Path Data="{StaticResource GeoQueue}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/><TextBlock Text="Lịch sử"/></StackPanel>
+                    </Button>
                 </Grid>
 
                 <!-- Update Feed URL Config -->
@@ -167,9 +176,9 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBox Grid.Column="0" x:Name="TxtFeedUrl" Style="{StaticResource ModernTextBox}" FontSize="11"/>
-                            <Button Grid.Column="2" Style="{StaticResource SecondaryBtn}" Content="Lưu URL" Click="BtnSaveFeedUrl_Click" Padding="10,4" FontSize="11"/>
+                            <Button Grid.Column="2" Style="{StaticResource SecondaryBtn}" Content="Lưu địa chỉ" Click="BtnSaveFeedUrl_Click" Padding="10,4" FontSize="11"/>
                         </Grid>
-                        <TextBlock Text="* Mặc định sử dụng Cloud Relay nội bộ http://127.0.0.1:9090/version.json hoặc URL GitHub Releases công ty." FontSize="10" FontStyle="Italic" Foreground="{StaticResource TextMutedBrush}" Margin="0,4,0,0"/>
+                        <TextBlock Text="* Địa chỉ này dùng để tìm bản cập nhật." FontSize="10" FontStyle="Italic" Foreground="{StaticResource TextMutedBrush}" Margin="0,4,0,0"/>
                     </StackPanel>
                 </Expander>
 

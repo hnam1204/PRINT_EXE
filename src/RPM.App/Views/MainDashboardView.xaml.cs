@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -17,9 +18,7 @@ public enum SettingsTab
     General,
     Printers,
     Devices,
-    Queue,
-    Diagnostics,
-    Update
+    Queue
 }
 
 public partial class MainDashboardView : UserControl
@@ -33,7 +32,6 @@ public partial class MainDashboardView : UserControl
     private readonly ObservableCollection<SharedPrinterInfo> _sharedPrinters = new();
     private readonly ObservableCollection<DeviceInfo> _filteredClients = new();
     private readonly ObservableCollection<PrintJob> _allJobs = new();
-    private readonly ObservableCollection<AuditCheckItem> _auditItems = new();
 
     private bool _isViewLoaded = false;
     private bool _isSettingsOpen = false;
@@ -55,7 +53,6 @@ public partial class MainDashboardView : UserControl
         DgPrinters.ItemsSource = _sharedPrinters;
         DgClients.ItemsSource = _filteredClients;
         DgQueue.ItemsSource = _allJobs;
-        DgAuditItems.ItemsSource = _auditItems;
 
         // Register background sync events
         if (_serverService != null)
@@ -96,7 +93,6 @@ public partial class MainDashboardView : UserControl
             PanelClientMode.Visibility = Visibility.Collapsed;
             BtnTabDevices.Visibility = Visibility.Visible;
 
-            TxtServerHostName.Text = _settings.DeviceName;
             TxtServerPairingCode.Text = _settings.PairingCode;
 
             UpdateServerUI();
@@ -125,7 +121,8 @@ public partial class MainDashboardView : UserControl
         _isSettingsOpen = true;
         ViewHome.Visibility = Visibility.Collapsed;
         ViewSettings.Visibility = Visibility.Visible;
-        BtnHeaderBackToHome.Visibility = Visibility.Visible;
+        BtnHeaderSettingsIcon.Data = (Geometry)Application.Current.Resources["GeoArrowLeft"];
+        BtnHeaderSettingsText.Text = "Quay lại";
 
         SelectSettingsTab(tab);
     }
@@ -135,9 +132,10 @@ public partial class MainDashboardView : UserControl
         _isSettingsOpen = false;
         ViewHome.Visibility = Visibility.Visible;
         ViewSettings.Visibility = Visibility.Collapsed;
-        BtnHeaderBackToHome.Visibility = Visibility.Collapsed;
+        BtnHeaderSettingsIcon.Data = (Geometry)Application.Current.Resources["GeoSettings"];
+        BtnHeaderSettingsText.Text = "Cài đặt";
 
-        TxtRoleSubtitle.Text = _settings.Role == AppRole.Server ? "MÁY CHỦ IN ẤN (SERVER)" : "MÁY CON IN TỪ XA (CLIENT)";
+        TxtRoleSubtitle.Text = _settings.Role == AppRole.Server ? "MÁY CHỦ" : "MÁY CON";
 
         if (_settings.Role == AppRole.Server) UpdateServerUI();
         else UpdateClientUI();
@@ -153,43 +151,31 @@ public partial class MainDashboardView : UserControl
         TabContentPrinters.Visibility = (tab == SettingsTab.Printers) ? Visibility.Visible : Visibility.Collapsed;
         TabContentDevices.Visibility = (tab == SettingsTab.Devices) ? Visibility.Visible : Visibility.Collapsed;
         TabContentQueue.Visibility = (tab == SettingsTab.Queue) ? Visibility.Visible : Visibility.Collapsed;
-        TabContentDiagnostics.Visibility = (tab == SettingsTab.Diagnostics) ? Visibility.Visible : Visibility.Collapsed;
-        TabContentUpdate.Visibility = (tab == SettingsTab.Update) ? Visibility.Visible : Visibility.Collapsed;
 
         // Update Tab button active states with ZERO template recreation (Ultra-fast & butter smooth)
         BtnTabGeneral.Tag = (tab == SettingsTab.General) ? "Active" : "Inactive";
         BtnTabPrinters.Tag = (tab == SettingsTab.Printers) ? "Active" : "Inactive";
         BtnTabDevices.Tag = (tab == SettingsTab.Devices) ? "Active" : "Inactive";
         BtnTabQueue.Tag = (tab == SettingsTab.Queue) ? "Active" : "Inactive";
-        BtnTabDiagnostics.Tag = (tab == SettingsTab.Diagnostics) ? "Active" : "Inactive";
-        BtnTabUpdate.Tag = (tab == SettingsTab.Update) ? "Active" : "Inactive";
 
         // Update Subtitle and trigger non-blocking asynchronous loads
         switch (tab)
         {
             case SettingsTab.General:
-                TxtRoleSubtitle.Text = "CÀI ĐẶT: THIẾT LẬP HỆ THỐNG";
+                TxtRoleSubtitle.Text = "CÀI ĐẶT: CHUNG";
                 LoadGeneralSettingsView();
                 break;
             case SettingsTab.Printers:
-                TxtRoleSubtitle.Text = "CÀI ĐẶT: QUẢN LÝ MÁY IN";
+                TxtRoleSubtitle.Text = "CÀI ĐẶT: MÁY IN";
                 LoadPrintersViewAsync();
                 break;
             case SettingsTab.Devices:
-                TxtRoleSubtitle.Text = "CÀI ĐẶT: QUẢN LÝ THIẾT BỊ MÁY CON";
+                TxtRoleSubtitle.Text = "CÀI ĐẶT: THIẾT BỊ";
                 LoadDevicesView();
                 break;
             case SettingsTab.Queue:
-                TxtRoleSubtitle.Text = "CÀI ĐẶT: HÀNG ĐỢI LỆNH IN";
+                TxtRoleSubtitle.Text = "CÀI ĐẶT: LỆNH IN";
                 LoadQueueView();
-                break;
-            case SettingsTab.Diagnostics:
-                TxtRoleSubtitle.Text = "CÀI ĐẶT: CHẨN ĐOÁN HỆ THỐNG";
-                LoadDiagnosticsViewAsync();
-                break;
-            case SettingsTab.Update:
-                TxtRoleSubtitle.Text = "CÀI ĐẶT: CẬP NHẬT PHẦN MỀM";
-                LoadUpdateView();
                 break;
         }
     }
@@ -203,30 +189,30 @@ public partial class MainDashboardView : UserControl
         if (_serverService == null) return;
 
         bool isOnline = _serverService.Relay.IsConnected;
-        TxtHeaderStatus.Text = isOnline ? "Máy chủ đang hoạt động (Online)" : "Máy chủ nội bộ (Sẵn sàng)";
+        TxtHeaderStatus.Text = isOnline ? "Đang hoạt động" : "Sẵn sàng";
         DotStatus.Fill = (SolidColorBrush)Application.Current.Resources["SuccessBrush"];
         PillStatus.Background = (SolidColorBrush)Application.Current.Resources["SuccessLightBrush"];
         TxtHeaderStatus.Foreground = (SolidColorBrush)Application.Current.Resources["SuccessBrush"];
 
-        TxtServerConnectionStatus.Text = isOnline ? "Đã kết nối Relay Broker (WSS)" : "Chạy máy chủ nội bộ trên cổng 9090";
+        TxtServerConnectionStatus.Text = isOnline ? "Đã kết nối" : "Đang chạy cục bộ";
 
         int sharedCount = _serverService.SharedPrinters.Count(p => p.IsShared);
         if (_serverService.ActiveSharedPrinter != null)
         {
             TxtSharedPrinterName.Text = _serverService.ActiveSharedPrinter.Name;
-            TxtSharedPrinterPort.Text = $"Cổng: {_serverService.ActiveSharedPrinter.PortName} • Đang chia sẻ {sharedCount} máy in";
+            TxtSharedPrinterPort.Text = $"Cổng: {_serverService.ActiveSharedPrinter.PortName} • {sharedCount} máy dùng chung";
             TxtActivePrinterSummary.Text = $"Máy in chính: {_serverService.ActiveSharedPrinter.Name}";
         }
         else
         {
             TxtSharedPrinterName.Text = "Chưa chọn máy in";
-            TxtSharedPrinterPort.Text = "Nhấn 'Đổi máy in...' để chọn máy in chia sẻ";
-            TxtActivePrinterSummary.Text = "Máy in: Chưa chọn máy in";
+            TxtSharedPrinterPort.Text = "Chọn máy in để dùng chung";
+            TxtActivePrinterSummary.Text = "Chưa chọn máy in";
         }
 
         int onlineClients = _serverService.ConnectedClients.Count(c => c.IsOnline && c.IsApproved);
         int pendingClients = _serverService.ConnectedClients.Count(c => !c.IsApproved && !c.IsBlocked);
-        TxtServerClientsSummary.Text = $"{_serverService.ConnectedClients.Count} máy con ({onlineClients} trực tuyến • {pendingClients} chờ duyệt)";
+        TxtServerClientsSummary.Text = $"{_serverService.ConnectedClients.Count} máy ({onlineClients} đang dùng • {pendingClients} chờ duyệt)";
 
         RefreshRecentJobs();
     }
@@ -236,7 +222,7 @@ public partial class MainDashboardView : UserControl
         if (_clientService == null) return;
 
         bool isApproved = _clientService.IsApproved;
-        TxtHeaderStatus.Text = isApproved ? "Đã kết nối máy chủ (Sẵn sàng)" : _clientService.ConnectionStatus;
+        TxtHeaderStatus.Text = isApproved ? "Đã kết nối" : _clientService.ConnectionStatus;
 
         if (isApproved)
         {
@@ -261,21 +247,21 @@ public partial class MainDashboardView : UserControl
             BorderApprovalStatus.Background = (SolidColorBrush)Application.Current.Resources["WarningLightBrush"];
             TxtClientApprovalStatus.Foreground = (SolidColorBrush)Application.Current.Resources["WarningBrush"];
 
-            TxtClientConnectBtnText.Text = "Kết nối in ấn";
+            TxtClientConnectBtnText.Text = "Kết nối";
             BtnClientConnectToggle.Style = (Style)Application.Current.Resources["PrimaryBtn"];
         }
 
         if (_clientService.RemotePrinter != null)
         {
             TxtClientPrinterName.Text = _clientService.RemotePrinter.Name;
-            TxtClientPrinterStatus.Text = $"Cổng: 127.0.0.1:{_settings.LocalIppPort} (RFC 8011 IPP)";
-            TxtActivePrinterSummary.Text = $"Máy in từ xa: {_clientService.RemotePrinter.Name}";
+            TxtClientPrinterStatus.Text = $"Cổng: 127.0.0.1:{_settings.LocalIppPort}";
+            TxtActivePrinterSummary.Text = $"Máy in: {_clientService.RemotePrinter.Name}";
         }
         else
         {
             TxtClientPrinterName.Text = "Chưa kết nối máy in";
             TxtClientPrinterStatus.Text = "Vui lòng kết nối tới máy chủ";
-            TxtActivePrinterSummary.Text = "Máy in: Đang chờ kết nối";
+            TxtActivePrinterSummary.Text = "Đang chờ kết nối";
         }
 
         RefreshRecentJobs();
@@ -314,14 +300,15 @@ public partial class MainDashboardView : UserControl
         ChkSettingsMinimizeTray.IsChecked = _settings.MinimizeToSystemTray;
         ChkSettingsNotifications.IsChecked = _settings.ShowDesktopNotifications;
 
-        TxtSwitchRoleBtn.Text = _settings.Role == AppRole.Server ? "⇄ Đổi sang Chế độ Máy Con" : "⇄ Đổi sang Chế độ Máy Chủ";
+        TxtSwitchRoleBtn.Text = _settings.Role == AppRole.Server ? "Dùng làm máy con" : "Dùng làm máy chủ";
+        ConfigureUpdateControl();
     }
 
     private void BtnSettingsRegenerateCode_Click(object sender, RoutedEventArgs e)
     {
         _settings.PairingCode = RPMCrypto.GeneratePairingCode();
         TxtSettingsPairingCode.Text = _settings.PairingCode;
-        MessageBox.Show($"Đã sinh mã ghép đôi mới: '{_settings.PairingCode}'.\nNhớ nhấn 'Lưu cấu hình cài đặt' để áp dụng.", "Mã mới", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageBox.Show($"Mã mới: {_settings.PairingCode}.\nBấm Lưu để dùng mã này.", "Mã mới", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void BtnSaveSettings_Click(object sender, RoutedEventArgs e)
@@ -337,7 +324,6 @@ public partial class MainDashboardView : UserControl
 
         if (_settings.Role == AppRole.Server)
         {
-            TxtServerHostName.Text = _settings.DeviceName;
             TxtServerPairingCode.Text = _settings.PairingCode;
             UpdateServerUI();
         }
@@ -347,17 +333,17 @@ public partial class MainDashboardView : UserControl
             UpdateClientUI();
         }
 
-        MessageBox.Show("Đã lưu toàn bộ cấu hình thiết lập thành công!", "Lưu thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageBox.Show("Đã lưu cài đặt.", "Đã lưu", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void BtnSwitchRole_Click(object sender, RoutedEventArgs e)
     {
         var targetRole = _settings.Role == AppRole.Server ? AppRole.Client : AppRole.Server;
-        string targetRoleName = targetRole == AppRole.Server ? "MÁY CHỦ" : "MÁY CON";
+        string targetRoleName = targetRole == AppRole.Server ? "máy chủ" : "máy con";
 
         var confirm = MessageBox.Show(
-            $"Bạn có chắc chắn muốn chuyển đổi vai trò phần mềm sang [{targetRoleName}]?\n\nỨng dụng sẽ áp dụng vai trò mới và bảo toàn 100% cấu hình hiện tại.",
-            "Xác nhận đổi vai trò",
+            $"Đổi sang {targetRoleName}?\n\nCài đặt hiện tại vẫn được giữ nguyên.",
+            "Đổi vai trò",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question
         );
@@ -438,38 +424,25 @@ public partial class MainDashboardView : UserControl
         }
 
         if (btn != null) btn.IsEnabled = true;
-        MessageBox.Show($"Đã quét thấy {_sharedPrinters.Count} máy in trên hệ thống Windows.", "Quét máy in", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageBox.Show($"Đã tìm thấy {_sharedPrinters.Count} máy in.", "Máy in", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
-    private void BtnPrintersToggleShare_Click(object sender, RoutedEventArgs e)
+    private void BtnPrinterToggleRowShare_Click(object sender, RoutedEventArgs e)
     {
-        if (_serverService == null) return;
-        if (DgPrinters.SelectedItem is SharedPrinterInfo selected)
-        {
-            _serverService.TogglePrinterSharing(selected.Name);
-            LoadPrintersViewAsync();
-            UpdateServerUI();
-        }
-        else
-        {
-            MessageBox.Show("Vui lòng chọn một máy in từ danh sách để bật/tắt chia sẻ.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
+        if (_serverService == null || (sender as Button)?.DataContext is not SharedPrinterInfo printer) return;
+
+        _serverService.TogglePrinterSharing(printer.Name);
+        LoadPrintersViewAsync();
+        UpdateServerUI();
     }
 
-    private void BtnPrintersSetDefault_Click(object sender, RoutedEventArgs e)
+    private void BtnPrinterSetRowDefault_Click(object sender, RoutedEventArgs e)
     {
-        if (_serverService == null) return;
-        if (DgPrinters.SelectedItem is SharedPrinterInfo selected)
-        {
-            _serverService.SetDefaultPrinter(selected.Name);
-            LoadPrintersViewAsync();
-            UpdateServerUI();
-            MessageBox.Show($"Đã đặt '{selected.Name}' làm máy in chính để chia sẻ qua mạng!", "Thành công", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-        else
-        {
-            MessageBox.Show("Vui lòng chọn một máy in để đặt làm máy in chính.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
+        if (_serverService == null || (sender as Button)?.DataContext is not SharedPrinterInfo printer) return;
+
+        _serverService.SetDefaultPrinter(printer.Name);
+        LoadPrintersViewAsync();
+        UpdateServerUI();
     }
 
     private async void BtnPrintersTestPrint_Click(object sender, RoutedEventArgs e)
@@ -491,7 +464,7 @@ public partial class MainDashboardView : UserControl
 
             if (ok)
             {
-                MessageBox.Show($"Đã gửi trang in kiểm tra tới '{printerName}'. Vui lòng kiểm tra khay giấy máy in!", "Thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show($"Đã gửi trang in thử tới '{printerName}'.", "In thử", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             else
             {
@@ -500,7 +473,7 @@ public partial class MainDashboardView : UserControl
         }
         else
         {
-            MessageBox.Show("Vui lòng chọn máy in để in trang kiểm tra.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("Hãy chọn máy in trước.", "Chưa chọn máy in", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -529,7 +502,7 @@ public partial class MainDashboardView : UserControl
         if (!_isViewLoaded || _serverService == null) return;
 
         string searchText = TxtSearchClient?.Text?.Trim().ToLowerInvariant() ?? string.Empty;
-        string statusFilter = (CmbStatusFilter?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Tất cả trạng thái";
+        string statusFilter = (CmbStatusFilter?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Tất cả";
         string deptFilter = (CmbDepartmentFilter?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Tất cả phòng ban";
 
         _filteredClients.Clear();
@@ -552,8 +525,8 @@ public partial class MainDashboardView : UserControl
                 if (!matchName && !matchId && !matchDept) continue;
             }
 
-            if (statusFilter == "Trực tuyến (Online)" && !client.IsOnline) continue;
-            if (statusFilter == "Ngoại tuyến (Offline)" && client.IsOnline) continue;
+            if (statusFilter == "Đang kết nối" && !client.IsOnline) continue;
+            if (statusFilter == "Mất kết nối" && client.IsOnline) continue;
             if (statusFilter == "Chờ phê duyệt" && (client.IsApproved || client.IsBlocked)) continue;
 
             if (deptFilter != "Tất cả phòng ban" && !string.Equals(client.Department, deptFilter, StringComparison.OrdinalIgnoreCase)) continue;
@@ -563,7 +536,7 @@ public partial class MainDashboardView : UserControl
 
         if (TxtClientStats != null)
         {
-            TxtClientStats.Text = $"Tổng: {_serverService.ConnectedClients.Count} thiết bị | Online: {onlineCount} | Chờ duyệt: {pendingCount} | Offline: {offlineCount}";
+            TxtClientStats.Text = $"Tổng: {_serverService.ConnectedClients.Count} | Đang kết nối: {onlineCount} | Chờ duyệt: {pendingCount} | Mất kết nối: {offlineCount}";
         }
     }
 
@@ -593,11 +566,11 @@ public partial class MainDashboardView : UserControl
             await _serverService.ApproveClientAsync(client);
             ApplyClientFilters();
             UpdateServerUI();
-            MessageBox.Show($"Đã phê duyệt máy con '{client.DeviceName}'. Máy có thể in ấn ngay bây giờ!", "Phê duyệt thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show($"Đã cho phép máy '{client.DeviceName}'.", "Đã cho phép", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         else
         {
-            MessageBox.Show("Vui lòng chọn máy con từ danh sách để phê duyệt.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("Hãy chọn máy cần cho phép.", "Chưa chọn máy", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -613,11 +586,11 @@ public partial class MainDashboardView : UserControl
 
             _serverService.SetClientDepartment(client.DeviceId, nextDept);
             ApplyClientFilters();
-            MessageBox.Show($"Đã chuyển máy con '{client.DeviceName}' sang phòng: '{nextDept}'.", "Đổi phòng ban", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show($"Đã chuyển máy '{client.DeviceName}' sang phòng '{nextDept}'.", "Đổi phòng", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         else
         {
-            MessageBox.Show("Vui lòng chọn máy con muốn đổi phòng ban.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("Hãy chọn máy cần đổi phòng.", "Chưa chọn máy", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -629,25 +602,25 @@ public partial class MainDashboardView : UserControl
             var sharedPrinters = _serverService.SharedPrinters.Where(p => p.IsShared).Select(p => p.Name).ToList();
             if (sharedPrinters.Count == 0)
             {
-                MessageBox.Show("Chưa có máy in nào đang được chia sẻ.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Chưa có máy in dùng chung.", "Chưa có máy in", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             if (client.AllowedPrinters.Count == 0)
             {
                 _serverService.SetClientAllowedPrinters(client.DeviceId, new List<string> { sharedPrinters[0] });
-                MessageBox.Show($"Đã phân quyền cho '{client.DeviceName}': CHỈ ĐƯỢC IN TRÊN '{sharedPrinters[0]}'.", "Phân quyền", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show($"Máy '{client.DeviceName}' chỉ được in trên '{sharedPrinters[0]}'.", "Đã lưu", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             else
             {
                 _serverService.SetClientAllowedPrinters(client.DeviceId, new List<string>());
-                MessageBox.Show($"Đã phân quyền cho '{client.DeviceName}': ĐƯỢC PHÉP DÙNG TẤT CẢ MÁY IN CHIA SẺ.", "Phân quyền", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show($"Máy '{client.DeviceName}' được dùng tất cả máy in chung.", "Đã lưu", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             ApplyClientFilters();
         }
         else
         {
-            MessageBox.Show("Vui lòng chọn máy con để phân quyền máy in.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("Hãy chọn máy trước.", "Chưa chọn máy", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -656,7 +629,7 @@ public partial class MainDashboardView : UserControl
         if (_serverService == null) return;
         if (DgClients.SelectedItem is DeviceInfo client)
         {
-            if (MessageBox.Show($"Bạn có chắc chắn muốn thu hồi quyền truy cập của máy '{client.DeviceName}'?", "Xác nhận", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            if (MessageBox.Show($"Bỏ quyền của máy '{client.DeviceName}'?", "Xác nhận", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
             {
                 await _serverService.RevokeClientAsync(client);
                 ApplyClientFilters();
@@ -665,7 +638,7 @@ public partial class MainDashboardView : UserControl
         }
         else
         {
-            MessageBox.Show("Vui lòng chọn máy con để thu hồi quyền.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("Hãy chọn máy trước.", "Chưa chọn máy", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -674,7 +647,7 @@ public partial class MainDashboardView : UserControl
         if (_serverService == null) return;
         if (DgClients.SelectedItem is DeviceInfo client)
         {
-            if (MessageBox.Show($"Bạn có chắc chắn muốn xóa máy '{client.DeviceName}' khỏi hệ thống?", "Xác nhận xóa", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
+            if (MessageBox.Show($"Xóa máy '{client.DeviceName}' khỏi danh sách?", "Xác nhận xóa", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
             {
                 _serverService.DeleteClient(client.DeviceId);
                 ApplyClientFilters();
@@ -683,7 +656,7 @@ public partial class MainDashboardView : UserControl
         }
         else
         {
-            MessageBox.Show("Vui lòng chọn máy con cần xóa.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("Hãy chọn máy cần xóa.", "Chưa chọn máy", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -728,11 +701,11 @@ public partial class MainDashboardView : UserControl
 
         if (restarted)
         {
-            MessageBox.Show("Đã khởi động lại dịch vụ Windows Print Spooler thành công! Hàng đợi in ấn đã được giải phóng.", "Thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("Đã khởi động lại dịch vụ in.", "Đã xong", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         else
         {
-            MessageBox.Show($"Không thể tự động khởi động dịch vụ Spooler: {err}\nVui lòng chạy ứng dụng với quyền 'Run as administrator'.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show($"Không khởi động được dịch vụ in: {err}\nHãy mở ứng dụng bằng quyền quản trị.", "Lỗi dịch vụ in", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -752,59 +725,10 @@ public partial class MainDashboardView : UserControl
     }
 
     // =========================================================
-    // TAB: DIAGNOSTICS (NON-BLOCKING BACKGROUND AUDIT)
+    // UPDATE CONTROL EMBEDDED IN GENERAL SETTINGS
     // =========================================================
 
-    private async void LoadDiagnosticsViewAsync()
-    {
-        if (_auditItems.Count == 0)
-        {
-            TxtDiagSummary.Text = "Đang kiểm tra hệ thống...";
-        }
-
-        List<SharedPrinterInfo>? printers = _serverService?.SharedPrinters?.ToList();
-        var audit = await Task.Run(() => LiveSystemAuditor.RunAudit(_settings, printers));
-
-        _auditItems.Clear();
-        foreach (var item in audit.Items)
-        {
-            _auditItems.Add(item);
-        }
-
-        TxtDiagScore.Text = $"{audit.VerifiedOperationalPercent:F1}% HOẠT ĐỘNG";
-        TxtDiagSummary.Text = $"{audit.PassCount} PASS • {audit.BlockedCount} BLOCKED • {audit.RealDataCount + audit.CachedDataCount} REAL";
-        TxtDiagSpecs.Text = $"Máy tính: {audit.MachineName} • {audit.OperatingSystem}";
-    }
-
-    private async void BtnRerunDiagnostics_Click(object sender, RoutedEventArgs e)
-    {
-        var btn = sender as Button;
-        if (btn != null) btn.IsEnabled = false;
-
-        TxtDiagSummary.Text = "Đang kiểm toán lại toàn bộ hệ thống...";
-
-        List<SharedPrinterInfo>? printers = _serverService?.SharedPrinters?.ToList();
-        var audit = await Task.Run(() => LiveSystemAuditor.RunAudit(_settings, printers));
-
-        _auditItems.Clear();
-        foreach (var item in audit.Items)
-        {
-            _auditItems.Add(item);
-        }
-
-        TxtDiagScore.Text = $"{audit.VerifiedOperationalPercent:F1}% HOẠT ĐỘNG";
-        TxtDiagSummary.Text = $"{audit.PassCount} PASS • {audit.BlockedCount} BLOCKED • {audit.RealDataCount + audit.CachedDataCount} REAL";
-        TxtDiagSpecs.Text = $"Máy tính: {audit.MachineName} • {audit.OperatingSystem}";
-
-        if (btn != null) btn.IsEnabled = true;
-        MessageBox.Show("Đã hoàn tất kiểm toán hệ thống trên máy thật!", "Chẩn đoán", MessageBoxButton.OK, MessageBoxImage.Information);
-    }
-
-    // =========================================================
-    // TAB: UPDATE
-    // =========================================================
-
-    private void LoadUpdateView()
+    private void ConfigureUpdateControl()
     {
         SettingsUpdateControl.Initialize(_settings);
         SettingsUpdateControl.HasActivePrintJobsCheck = () =>
@@ -823,29 +747,74 @@ public partial class MainDashboardView : UserControl
     private void BtnTabPrinters_Click(object sender, RoutedEventArgs e) => SelectSettingsTab(SettingsTab.Printers);
     private void BtnTabDevices_Click(object sender, RoutedEventArgs e) => SelectSettingsTab(SettingsTab.Devices);
     private void BtnTabQueue_Click(object sender, RoutedEventArgs e) => SelectSettingsTab(SettingsTab.Queue);
-    private void BtnTabDiagnostics_Click(object sender, RoutedEventArgs e) => SelectSettingsTab(SettingsTab.Diagnostics);
-    private void BtnTabUpdate_Click(object sender, RoutedEventArgs e) => SelectSettingsTab(SettingsTab.Update);
 
     // =========================================================
     // GLOBAL BUTTON HANDLERS
     // =========================================================
 
-    private void BtnBackToHome_Click(object sender, RoutedEventArgs e) => CloseSettings();
-    private void BtnOpenSettings_Click(object sender, RoutedEventArgs e) => OpenSettings(SettingsTab.General);
+    private void BtnOpenSettings_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isSettingsOpen)
+        {
+            CloseSettings();
+        }
+        else
+        {
+            OpenSettings(SettingsTab.General);
+        }
+    }
 
     private void BtnOpenPrinterDialog_Click(object sender, RoutedEventArgs e) => OpenSettings(SettingsTab.Printers);
+    private void BtnOpenDevices_Click(object sender, RoutedEventArgs e) => OpenSettings(SettingsTab.Devices);
     private void BtnOpenQueueDialog_Click(object sender, RoutedEventArgs e) => OpenSettings(SettingsTab.Queue);
+    private void BtnOpenUpdate_Click(object sender, RoutedEventArgs e) => OpenSettings(SettingsTab.General);
+    private void BtnOpenDiagnostics_Click(object sender, RoutedEventArgs e) => OpenDiagnosticsDialog();
+
+    private void OpenDiagnosticsDialog()
+    {
+        var dialog = new MachineDiagnosticsDialog(_settings, _serverService, _clientService)
+        {
+            Owner = Window.GetWindow(this)
+        };
+        dialog.ShowDialog();
+    }
 
     private void BtnMinimize_Click(object sender, RoutedEventArgs e) => OnMinimizeRequested?.Invoke(this, EventArgs.Empty);
 
     private async void BtnCopyPairingCode_Click(object sender, RoutedEventArgs e)
     {
-        Clipboard.SetText(_settings.PairingCode);
+        bool copied = false;
+        const int maxAttempts = 5;
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                Clipboard.SetText(_settings.PairingCode);
+                copied = true;
+                break;
+            }
+            catch (ExternalException ex) when ((uint)ex.HResult == 0x800401D0u)
+            {
+                // Another process may briefly own the Windows clipboard.
+                if (attempt < maxAttempts) await Task.Delay(80 * attempt);
+            }
+        }
+
+        if (!copied)
+        {
+            MessageBox.Show(
+                "Không thể sao chép lúc này vì bộ nhớ tạm đang được ứng dụng khác sử dụng. Hãy thử lại sau ít giây.",
+                "Không thể sao chép",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
 
         // Tactile micro-feedback directly on button
         if (TxtCopyPairingCode != null)
         {
-            TxtCopyPairingCode.Text = "✓ Đã sao chép";
+            TxtCopyPairingCode.Text = "✓ Đã chép";
             if (BtnCopyPairingCode != null)
             {
                 BtnCopyPairingCode.Background = (SolidColorBrush)Application.Current.Resources["SuccessBrush"];
@@ -853,7 +822,7 @@ public partial class MainDashboardView : UserControl
 
             await Task.Delay(1500);
 
-            TxtCopyPairingCode.Text = "Sao chép";
+            TxtCopyPairingCode.Text = "Chép mã";
             if (BtnCopyPairingCode != null)
             {
                 BtnCopyPairingCode.ClearValue(BackgroundProperty);
@@ -867,7 +836,7 @@ public partial class MainDashboardView : UserControl
 
         if (_clientService.IsApproved)
         {
-            if (MessageBox.Show("Bạn có muốn ngắt kết nối với máy chủ hiện tại?", "Xác nhận", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            if (MessageBox.Show("Ngắt kết nối máy chủ?", "Xác nhận", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
             {
                 await _clientService.DisconnectAsync();
                 UpdateClientUI();
@@ -878,7 +847,7 @@ public partial class MainDashboardView : UserControl
             string code = TxtClientCodeInput.Text.Trim();
             if (string.IsNullOrEmpty(code))
             {
-                MessageBox.Show("Vui lòng nhập mã ghép đôi (ví dụ: RPM-8197).", "Chưa nhập mã", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Hãy nhập mã kết nối.", "Thiếu mã", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -894,18 +863,18 @@ public partial class MainDashboardView : UserControl
         if (_clientService == null) return;
         if (!_clientService.IsApproved)
         {
-            MessageBox.Show("Máy con chưa được máy chủ phê duyệt kết nối. Vui lòng kết nối và nhờ máy chủ bấm Phê duyệt trước.", "Chưa được duyệt", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("Máy chủ chưa cho phép kết nối.", "Chưa được phép", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
         bool ok = await _clientService.SendTestPrintAsync();
         if (ok)
         {
-            MessageBox.Show($"Đã gửi lệnh in trang kiểm tra thành công!", "In kiểm tra", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("Đã gửi lệnh in thử.", "In thử", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         else
         {
-            MessageBox.Show("Không thể gửi lệnh in. Hãy chắc chắn rằng máy chủ đang mở và kết nối mạng ổn định.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("Không gửi được lệnh in. Hãy kiểm tra máy chủ và mạng.", "Lỗi in", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 }

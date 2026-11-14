@@ -3,11 +3,13 @@ using System.Net.Http;
 using System.Text.Json;
 using RPM.Core.Config;
 using RPM.Core.Security;
+using System.Text.RegularExpressions;
 
 namespace RPM.Core.Update;
 
 public class UpdateService
 {
+    private const long MaxUpdateBytes = 200L * 1024 * 1024;
     private static readonly HttpClient HttpClient = new() { Timeout = TimeSpan.FromSeconds(30) };
 
     public static async Task<UpdateCheckResult> CheckForUpdatesAsync(string feedUrl, string currentVersion, string targetChannel = "Stable")
@@ -64,6 +66,12 @@ public class UpdateService
             result.Channel = manifest.Channel ?? "Stable";
             result.Manifest = manifest;
 
+            if (!UpdateSecurity.VerifyManifest(manifest))
+            {
+                result.ErrorMessage = "Manifest cập nhật không có chữ ký số hợp lệ.";
+                return result;
+            }
+
             // Semantic comparison
             bool isNewer = IsNewerVersion(currentVersion, manifest.Version);
             if (isNewer)
@@ -101,7 +109,16 @@ public class UpdateService
     {
         try
         {
+            if (!UpdateSecurity.VerifyManifest(manifest))
+            {
+                return (false, "Từ chối cập nhật: manifest không có chữ ký số hợp lệ.", string.Empty);
+            }
+
             string updatesFolder = ConfigManager.GetUpdatesFolder();
+            if (!Regex.IsMatch(manifest.Version, @"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$"))
+            {
+                return (false, "Từ chối cập nhật: version không hợp lệ.", string.Empty);
+            }
             string targetFile = Path.Combine(updatesFolder, $"RemotePrintManager_v{manifest.Version}.new.exe");
 
             if (File.Exists(targetFile))
@@ -112,8 +129,19 @@ public class UpdateService
             if (manifest.DownloadUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || 
                 manifest.DownloadUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             {
+                if (!Uri.TryCreate(manifest.DownloadUrl, UriKind.Absolute, out var downloadUri) ||
+                    (downloadUri.Scheme == "http" && !IsLoopback(downloadUri.Host)))
+                {
+                    return (false, "Từ chối tải cập nhật qua HTTP không an toàn.", string.Empty);
+                }
+
                 using var response = await HttpClient.GetAsync(manifest.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, ct);
                 response.EnsureSuccessStatusCode();
+
+                if (response.Content.Headers.ContentLength is > MaxUpdateBytes)
+                {
+                    return (false, "Từ chối cập nhật: gói tải xuống quá lớn.", string.Empty);
+                }
 
                 long? totalBytes = response.Content.Headers.ContentLength;
 
@@ -126,6 +154,12 @@ public class UpdateService
 
                 while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length, ct)) != 0)
                 {
+                    if (totalRead + bytesRead > MaxUpdateBytes)
+                    {
+                        await fileStream.DisposeAsync();
+                        File.Delete(targetFile);
+                        return (false, "Từ chối cập nhật: gói tải xuống quá lớn.", string.Empty);
+                    }
                     await fileStream.WriteAsync(buffer, 0, bytesRead, ct);
                     totalRead += bytesRead;
 
@@ -228,6 +262,10 @@ start """" ""{currentExePath}"" --updated
             return false;
         }
     }
+
+    private static bool IsLoopback(string host) =>
+        string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+        System.Net.IPAddress.TryParse(host, out var address) && System.Net.IPAddress.IsLoopback(address);
 
     public static bool RollbackAndRestart(out string errorMessage)
     {

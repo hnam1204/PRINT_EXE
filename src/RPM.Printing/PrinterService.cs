@@ -155,10 +155,10 @@ public class PrinterService
                 if (e.Graphics == null) return;
 
                 var g = e.Graphics;
-                using var titleFont = new Font("Segoe UI", 18, FontStyle.Bold);
-                using var subtitleFont = new Font("Segoe UI", 12, FontStyle.Bold);
-                using var bodyFont = new Font("Segoe UI", 10, FontStyle.Regular);
-                using var smallFont = new Font("Segoe UI", 8, FontStyle.Italic);
+                using var titleFont = new Font("Be Vietnam Pro", 18, FontStyle.Bold);
+                using var subtitleFont = new Font("Be Vietnam Pro", 12, FontStyle.Bold);
+                using var bodyFont = new Font("Be Vietnam Pro", 10, FontStyle.Regular);
+                using var smallFont = new Font("Be Vietnam Pro", 8, FontStyle.Italic);
                 using var pen = new Pen(Color.FromArgb(0, 120, 215), 2);
                 using var linePen = new Pen(Color.LightGray, 1);
                 using var blueBrush = new SolidBrush(Color.FromArgb(0, 120, 215));

@@ -19,6 +19,9 @@
   <ItemGroup>
     <Resource Include="Assets\logo.png" />
     <Resource Include="Assets\app.ico" />
+    <Resource Include="Assets\BeVietnamPro-Regular.ttf" />
+    <Resource Include="Assets\BeVietnamPro-SemiBold.ttf" />
+    <Resource Include="Assets\BeVietnamPro-Bold.ttf" />
   </ItemGroup>
 
 </Project>

@@ -71,7 +71,7 @@ public partial class UpdateControl : UserControl
     private void LoadSettingsUI()
     {
         TxtCurrentVersion.Text = $"V{_settings.AppVersion}";
-        TxtCurrentChannel.Text = _settings.UpdateChannel == "Beta" ? "Thử nghiệm (Beta)" : "Chính thức (Stable)";
+        TxtCurrentChannel.Text = _settings.UpdateChannel == "Beta" ? "Bản thử nghiệm" : "Bản chính thức";
         TxtFeedUrl.Text = _settings.UpdateFeedUrl;
         ChkAutoCheck.IsChecked = _settings.AutoCheckUpdates;
         ChkAutoInstall.IsChecked = _settings.AutoInstallUpdates;
@@ -102,7 +102,7 @@ public partial class UpdateControl : UserControl
     private async Task CheckForUpdatesInternalAsync(bool silent)
     {
         BtnCheckUpdate.IsEnabled = false;
-        SetStatusState("Đang kiểm tra...", PrimaryColor, LightPrimaryColor);
+        SetStatusState("Đang kiểm tra", PrimaryColor, LightPrimaryColor);
 
         var result = await UpdateService.CheckForUpdatesAsync(_settings.UpdateFeedUrl, _settings.AppVersion, _settings.UpdateChannel);
 
@@ -113,14 +113,14 @@ public partial class UpdateControl : UserControl
 
         if (!string.IsNullOrEmpty(result.ErrorMessage))
         {
-            SetStatusState("Kiểm tra thất bại", DangerColor, LightRedColor);
+            SetStatusState("Không kiểm tra được", DangerColor, LightRedColor);
             TxtLatestVersion.Text = "Không xác định";
             if (!silent)
             {
                 MessageBox.Show(
-                    $"Không thể kiểm tra bản cập nhật mới:\n{result.ErrorMessage}\n\n" +
-                    "Vui lòng kiểm tra lại địa chỉ máy chủ cập nhật trong phần cấu hình nâng cao.", 
-                    "Lỗi kiểm tra cập nhật", 
+                    $"Không kiểm tra được bản mới:\n{result.ErrorMessage}\n\n" +
+                    "Hãy kiểm tra địa chỉ cập nhật.", 
+                    "Lỗi cập nhật", 
                     MessageBoxButton.OK, 
                     MessageBoxImage.Warning);
             }
@@ -157,13 +157,13 @@ public partial class UpdateControl : UserControl
             }
 
             // Prompt user with exact office-friendly message
-            string promptText = $"Đã có phiên bản Remote Print Manager V{result.LatestVersion}.\n\n" +
+            string promptText = $"Có bản mới V{result.LatestVersion}.\n\n" +
                                (string.IsNullOrWhiteSpace(result.Manifest?.ReleaseNotes) 
-                                   ? "Phiên bản mới cải thiện khả năng kết nối và khắc phục lỗi hoạt động." 
+                                   ? "Bản mới sửa lỗi và kết nối tốt hơn." 
                                    : result.Manifest.ReleaseNotes) +
-                               "\n\nBạn có muốn cập nhật & nâng cấp ngay bây giờ không?";
+                               "\n\nCập nhật ngay?";
 
-            var choice = MessageBox.Show(promptText, "Cập nhật Remote Print Manager", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            var choice = MessageBox.Show(promptText, "Có bản mới", MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (choice == MessageBoxResult.Yes)
             {
                 BtnUpdateNow_Click(this, new RoutedEventArgs());
@@ -171,7 +171,7 @@ public partial class UpdateControl : UserControl
         }
         else
         {
-            SetStatusState("Bạn đang sử dụng phiên bản mới nhất", SuccessColor, LightGreenColor);
+            SetStatusState("Đang dùng bản mới nhất", SuccessColor, LightGreenColor);
             BtnUpdateNow.Visibility = Visibility.Collapsed;
             BtnToggleChangelog.Visibility = Visibility.Collapsed;
             BorderChangelog.Visibility = Visibility.Collapsed;
@@ -179,9 +179,9 @@ public partial class UpdateControl : UserControl
             if (!silent)
             {
                 MessageBox.Show(
-                    $"Bạn đang sử dụng phiên bản Remote Print Manager mới nhất (V{_settings.AppVersion}).\n" +
-                    $"Kênh phát hành hiện tại: {_settings.UpdateChannel}.\nKhông cần nâng cấp.", 
-                    "Thông báo phiên bản", 
+                    $"Bạn đang dùng bản mới nhất V{_settings.AppVersion}.\n" +
+                    "Không cần cập nhật.", 
+                    "Cập nhật", 
                     MessageBoxButton.OK, 
                     MessageBoxImage.Information);
             }
@@ -196,11 +196,10 @@ public partial class UpdateControl : UserControl
         if (HasActivePrintJobsCheck != null && HasActivePrintJobsCheck.Invoke())
         {
             var choice = MessageBox.Show(
-                "Hệ thống đang có lệnh in tài liệu đang xử lý trong hàng đợi.\n\n" +
-                "Bạn có muốn chờ tài liệu in xong rồi mới nâng cấp để tránh làm gián đoạn bản in không?\n\n" +
-                "[Yes] Chờ in xong rồi mới nâng cấp.\n" +
-                "[No] Nâng cấp ngay bây giờ.",
-                "Cảnh báo gián đoạn in ấn",
+                "Đang có lệnh in.\n\n" +
+                "Bạn muốn chờ in xong không?\n\n" +
+                "Chọn Có để chờ hoặc Không để cập nhật ngay.",
+                "Đang in",
                 MessageBoxButton.YesNoCancel,
                 MessageBoxImage.Warning
             );
@@ -216,13 +215,13 @@ public partial class UpdateControl : UserControl
         BtnCheckUpdate.IsEnabled = false;
         BtnRollback.IsEnabled = false;
         PanelProgress.Visibility = Visibility.Visible;
-        SetStatusState("Đang tải bản cập nhật...", PrimaryColor, LightPrimaryColor);
+        SetStatusState("Đang tải bản mới", PrimaryColor, LightPrimaryColor);
 
         var progress = new Progress<int>(percent =>
         {
             PbDownload.Value = percent;
             TxtProgressPercentage.Text = $"{percent}%";
-            TxtProgressStatus.Text = $"Đang tải xuống gói nâng cấp... {percent}%";
+            TxtProgressStatus.Text = $"Đang tải... {percent}%";
         });
 
         var (success, msg, targetFile) = await UpdateService.DownloadUpdateAsync(_availableManifest, progress);
@@ -233,14 +232,14 @@ public partial class UpdateControl : UserControl
             BtnUpdateNow.IsEnabled = true;
             BtnCheckUpdate.IsEnabled = true;
             BtnRollback.IsEnabled = true;
-            SetStatusState("Cập nhật thất bại", DangerColor, LightRedColor);
-            MessageBox.Show($"Quá trình tải bản nâng cấp thất bại:\n{msg}", "Lỗi tải cập nhật", MessageBoxButton.OK, MessageBoxImage.Error);
+            SetStatusState("Cập nhật lỗi", DangerColor, LightRedColor);
+            MessageBox.Show($"Không tải được bản mới:\n{msg}", "Lỗi cập nhật", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
 
         // 3. Apply Update and Restart
-        SetStatusState("Đang cài đặt & khởi động lại...", SuccessColor, LightGreenColor);
-        TxtProgressStatus.Text = "Đang áp dụng bản cập nhật và khởi động lại phần mềm...";
+        SetStatusState("Đang cài đặt", SuccessColor, LightGreenColor);
+        TxtProgressStatus.Text = "Đang cài đặt và khởi động lại...";
 
         // Record history before restarting
         var historyItem = new UpdateHistoryItem
@@ -250,7 +249,7 @@ public partial class UpdateControl : UserControl
             Channel = _availableManifest.Channel,
             InstalledAt = DateTime.UtcNow,
             Status = "Thành công",
-            Notes = $"Nâng cấp trực tiếp lên V{_availableManifest.Version} ({_availableManifest.Channel})"
+            Notes = $"Cập nhật lên V{_availableManifest.Version} ({_availableManifest.Channel})"
         };
 
         _settings.AppVersion = _availableManifest.Version;
@@ -262,8 +261,8 @@ public partial class UpdateControl : UserControl
         bool restarted = UpdateService.ApplyUpdateAndRestart(targetFile, out string err);
         if (!restarted)
         {
-            SetStatusState("Cập nhật thất bại", DangerColor, LightRedColor);
-            MessageBox.Show($"Không thể tự động áp dụng bản nâng cấp: {err}", "Lỗi áp dụng", MessageBoxButton.OK, MessageBoxImage.Error);
+            SetStatusState("Cập nhật lỗi", DangerColor, LightRedColor);
+            MessageBox.Show($"Không cài được bản mới: {err}", "Lỗi cập nhật", MessageBoxButton.OK, MessageBoxImage.Error);
             BtnUpdateNow.IsEnabled = true;
             BtnCheckUpdate.IsEnabled = true;
             BtnRollback.IsEnabled = true;
@@ -277,9 +276,8 @@ public partial class UpdateControl : UserControl
     private void BtnRollback_Click(object sender, RoutedEventArgs e)
     {
         var choice = MessageBox.Show(
-            "Bạn có chắc chắn muốn khôi phục lại phiên bản Remote Print Manager trước đó không?\n\n" +
-            "Hệ thống sẽ giữ nguyên toàn bộ cấu hình, danh sách máy in đã ghép nối và lịch sử của bạn.",
-            "Xác nhận khôi phục phiên bản (Rollback)",
+            "Khôi phục bản cũ?\n\nCài đặt và máy in vẫn được giữ nguyên.",
+            "Khôi phục bản cũ",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question
         );
@@ -289,7 +287,7 @@ public partial class UpdateControl : UserControl
             bool ok = UpdateService.RollbackAndRestart(out string err);
             if (!ok)
             {
-                MessageBox.Show($"Không thể khôi phục phiên bản trước: {err}", "Lỗi khôi phục", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Không khôi phục được: {err}", "Lỗi khôi phục", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             else
             {
@@ -330,7 +328,7 @@ public partial class UpdateControl : UserControl
         {
             string channel = item.Tag?.ToString() ?? "Stable";
             _settings.UpdateChannel = channel;
-            TxtCurrentChannel.Text = channel == "Beta" ? "Thử nghiệm (Beta)" : "Chính thức (Stable)";
+            TxtCurrentChannel.Text = channel == "Beta" ? "Bản thử nghiệm" : "Bản chính thức";
             ConfigManager.Save(_settings);
         }
     }
@@ -341,7 +339,7 @@ public partial class UpdateControl : UserControl
         {
             _settings.UpdateFeedUrl = TxtFeedUrl.Text.Trim();
             ConfigManager.Save(_settings);
-            MessageBox.Show("Đã lưu địa chỉ máy chủ cập nhật!", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("Đã lưu địa chỉ cập nhật.", "Đã lưu", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
 

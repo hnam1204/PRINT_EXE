@@ -21,7 +21,7 @@ internal class Program
         try
         {
             server.Start(port);
-            Console.WriteLine($"[INFO] Relay broker running at http://0.0.0.0:{port}/ and ws://0.0.0.0:{port}/");
+            Console.WriteLine($"[INFO] Relay broker listening on internal HTTP/WebSocket port {port}. Put it behind a TLS reverse proxy and expose only https:// / wss:// externally.");
             Console.WriteLine("[INFO] Press Ctrl+C to terminate server.");
 
             var tcs = new TaskCompletionSource();

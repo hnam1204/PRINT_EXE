@@ -31,6 +31,7 @@ public enum MessageType
 
 public class NetworkPacket
 {
+    public string PacketId { get; set; } = Guid.NewGuid().ToString("N");
     public MessageType Type { get; set; }
     public string SenderId { get; set; } = string.Empty;
     public string TargetId { get; set; } = string.Empty;
@@ -44,6 +45,7 @@ public class NetworkPacket
     public string? EncryptedPayloadBase64 { get; set; }
     public string? NonceBase64 { get; set; }
     public string? TagBase64 { get; set; }
+    public string? AuthTagBase64 { get; set; }
 }
 
 public class RegisterServerPayload

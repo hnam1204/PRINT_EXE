@@ -12,7 +12,7 @@ public static class RPMCrypto
     /// </summary>
     public static byte[] DeriveKey(string secret)
     {
-        using var pbkdf2 = new Rfc2898DeriveBytes(secret, Salt, 10000, HashAlgorithmName.SHA256);
+        using var pbkdf2 = new Rfc2898DeriveBytes(secret, Salt, 600_000, HashAlgorithmName.SHA512);
         return pbkdf2.GetBytes(32);
     }
 
@@ -62,12 +62,27 @@ public static class RPMCrypto
     }
 
     /// <summary>
-    /// Generates a human-friendly pairing code like "RPM-8821" or "RPM-7345".
+    /// Generates a short pairing code like "RPM-A7K2Q9".
     /// </summary>
     public static string GeneratePairingCode()
     {
-        int number = RandomNumberGenerator.GetInt32(1000, 9999);
-        return $"RPM-{number}";
+        const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        Span<byte> random = stackalloc byte[6];
+        Span<char> code = stackalloc char[6];
+        int maxAcceptable = byte.MaxValue - (byte.MaxValue % alphabet.Length);
+        int index = 0;
+        while (index < code.Length)
+        {
+            RandomNumberGenerator.Fill(random);
+            foreach (byte value in random)
+            {
+                if (value >= maxAcceptable) continue;
+                code[index++] = alphabet[value % alphabet.Length];
+                if (index == code.Length) break;
+            }
+        }
+
+        return $"RPM-{new string(code)}";
     }
 }
 

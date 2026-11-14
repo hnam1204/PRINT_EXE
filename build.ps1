@@ -1,6 +1,7 @@
 param(
     [string]$Version = "1.0.1",
     [string]$Channel = "Beta",
+    [string]$DownloadBaseUrl = "https://relay.example.invalid",
     [string[]]$Changelog = @(
         "Toi gian hoan toan Trang chu: Bo thanh toolbar day man hinh, gom 100% chuc nang vao trung tam Cai dat",
         "Tich hop 6 tab in-page trong Cai dat: Thiet lap chung, May in, Thiet bi, Hang doi in, Chan doan, Cap nhat",
@@ -63,8 +64,22 @@ if ($LASTEXITCODE -ne 0) {
 # Clean all debug symbols and temporary artifacts in publish directory
 Get-ChildItem -Path "publish" -Recurse -Filter "*.pdb" | Remove-Item -Force -ErrorAction SilentlyContinue
 
-# 5. Generate Manifest version.json with SHA-256 Checksum
-Write-Host "`n[5/5] Dang tinh toan ma SHA-256 va tao version.json cho he thong cap nhat..." -ForegroundColor Gray
+# 5. Generate a signed manifest. The private key must be injected by the release pipeline.
+Write-Host "`n[5/5] Dang tinh toan SHA-256 va ky so version.json..." -ForegroundColor Gray
+
+$signingKeyPem = [Environment]::GetEnvironmentVariable("RPM_UPDATE_PRIVATE_KEY_PEM")
+$signingKeyPath = Join-Path $scriptDir "secrets/update-private-key.pem"
+if ([string]::IsNullOrWhiteSpace($signingKeyPem) -and (Test-Path -LiteralPath $signingKeyPath)) {
+    $signingKeyPem = Get-Content -Raw -LiteralPath $signingKeyPath
+}
+if ([string]::IsNullOrWhiteSpace($signingKeyPem)) {
+    Write-Host "[ERROR] Missing update signing key. Set RPM_UPDATE_PRIVATE_KEY_PEM or provide secrets/update-private-key.pem." -ForegroundColor Red
+    Exit 1
+}
+if (-not $DownloadBaseUrl.StartsWith("https://", [StringComparison]::OrdinalIgnoreCase)) {
+    Write-Host "[ERROR] DownloadBaseUrl must use HTTPS." -ForegroundColor Red
+    Exit 1
+}
 
 $fileHash = (Get-FileHash -Path "publish/RemotePrintManager.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
 
@@ -72,12 +87,31 @@ $manifestObj = [ordered]@{
     version = $Version
     channel = $Channel
     releaseDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    downloadUrl = "http://127.0.0.1:9090/download/RemotePrintManager.exe"
+    downloadUrl = "$($DownloadBaseUrl.TrimEnd('/'))/download/RemotePrintManager.exe"
     sha256 = $fileHash
     minSupportedVersion = "1.0.0"
     changelog = $Changelog
     releaseNotes = "Phien ban V$Version ($Channel) voi giao dien One-Screen Minimal Desktop va nhan dien NHN Blue."
 }
+
+$rsa = [System.Security.Cryptography.RSA]::Create()
+$rsa.ImportFromPem($signingKeyPem)
+$canonical = @(
+    $manifestObj.version,
+    $manifestObj.channel,
+    ([DateTime]::Parse($manifestObj.releaseDate).ToUniversalTime().ToString("O")),
+    $manifestObj.downloadUrl,
+    $manifestObj.sha256,
+    $manifestObj.minSupportedVersion,
+    $(if ($manifestObj.isCritical) { "true" } else { "false" }),
+    ($manifestObj.changelog -join "`n"),
+    $manifestObj.releaseNotes
+) -join "`n"
+$manifestObj.signatureBase64 = [Convert]::ToBase64String($rsa.SignData(
+    [Text.Encoding]::UTF8.GetBytes($canonical),
+    [System.Security.Cryptography.HashAlgorithmName]::SHA256,
+    [System.Security.Cryptography.RSASignaturePadding]::Pss))
+$rsa.Dispose()
 
 $manifestJson = $manifestObj | ConvertTo-Json -Depth 5
 $manifestJson | Set-Content -Path "publish/version.json" -Encoding UTF8

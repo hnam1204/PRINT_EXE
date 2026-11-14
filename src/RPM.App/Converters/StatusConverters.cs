@@ -39,7 +39,7 @@ public class BoolToDefaultTextConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        return value is true ? "★ Mặc định" : "Phụ";
+        return value is true ? "Mặc định" : "Phụ";
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
@@ -59,7 +59,7 @@ public class BoolToOnlineTextConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        return value is true ? "● Trực tuyến" : "○ Ngoại tuyến";
+        return value is true ? "Đang kết nối" : "Mất kết nối";
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
@@ -163,9 +163,9 @@ public class LevelToTextConverter : IValueConverter
         {
             return level switch
             {
-                RPM.Core.Diagnostics.CompatibilityLevel.Compatible => "● Tương thích",
+                RPM.Core.Diagnostics.CompatibilityLevel.Compatible => "Tương thích",
                 RPM.Core.Diagnostics.CompatibilityLevel.NeedsSetup => "▲ Cần thiết lập",
-                RPM.Core.Diagnostics.CompatibilityLevel.Incompatible => "✕ Không tương thích",
+                RPM.Core.Diagnostics.CompatibilityLevel.Incompatible => "Không tương thích",
                 _ => "Chưa xác định"
             };
         }
@@ -225,10 +225,10 @@ public class AuditStatusToTextConverter : IValueConverter
         {
             return status switch
             {
-                RPM.Core.Diagnostics.AuditStatus.Pass => "✔ PASS",
-                RPM.Core.Diagnostics.AuditStatus.Fail => "✕ FAIL",
+                RPM.Core.Diagnostics.AuditStatus.Pass => "PASS",
+                RPM.Core.Diagnostics.AuditStatus.Fail => "FAIL",
                 RPM.Core.Diagnostics.AuditStatus.Blocked => "▲ BLOCKED",
-                RPM.Core.Diagnostics.AuditStatus.NotTested => "○ NOT TESTED",
+                RPM.Core.Diagnostics.AuditStatus.NotTested => "NOT TESTED",
                 _ => status.ToString()
             };
         }

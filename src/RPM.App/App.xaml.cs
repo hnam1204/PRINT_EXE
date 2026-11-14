@@ -13,7 +13,7 @@ public partial class App : System.Windows.Application
         {
             MessageBox.Show(
                 $"Phát hiện ngoại lệ ứng dụng:\n{e.Exception.Message}\n\nChi tiết:\n{e.Exception.StackTrace}",
-                "Lỗi Hệ Thống Remote Print Manager",
+                "Lỗi hệ thống",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             e.Handled = true;

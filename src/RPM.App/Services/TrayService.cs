@@ -52,9 +52,9 @@ public class TrayService : IDisposable
         };
 
         var contextMenu = new ContextMenuStrip();
-        var openItem = new ToolStripMenuItem("Mở Remote Print Manager", null, (s, e) => ShowMainWindow());
+        var openItem = new ToolStripMenuItem("Mở ứng dụng", null, (s, e) => ShowMainWindow());
         var hideItem = new ToolStripMenuItem("Ẩn cửa sổ", null, (s, e) => HideMainWindow());
-        var exitItem = new ToolStripMenuItem("Thoát hoàn toàn", null, (s, e) => ExitApp());
+        var exitItem = new ToolStripMenuItem("Thoát", null, (s, e) => ExitApp());
 
         contextMenu.Items.Add(openItem);
         contextMenu.Items.Add(hideItem);

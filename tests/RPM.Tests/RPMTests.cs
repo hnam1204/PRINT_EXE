@@ -47,15 +47,35 @@ public class RPMTests
     }
 
     [Fact]
+    public void PacketSecurity_RejectsTamperingAndExpiredPackets()
+    {
+        string pairingCode = "RPM-A7K2Q9";
+        var packet = new NetworkPacket
+        {
+            Type = MessageType.Heartbeat,
+            SenderId = "CLIENT-A",
+            PairingCode = pairingCode,
+            Timestamp = DateTime.UtcNow
+        };
+        packet.AuthTagBase64 = PacketSecurity.ComputeAuthTag(packet, pairingCode);
+
+        Assert.True(PacketSecurity.VerifyAuthTag(packet, pairingCode));
+        packet.TargetId = "SERVER-B";
+        Assert.False(PacketSecurity.VerifyAuthTag(packet, pairingCode));
+        packet.TargetId = string.Empty;
+        packet.Timestamp = DateTime.UtcNow.AddMinutes(-10);
+        Assert.False(PacketSecurity.IsFresh(packet, DateTime.UtcNow));
+    }
+
+    [Fact]
     public void PairingCode_Generate_ValidFormat()
     {
         for (int i = 0; i < 20; i++)
         {
             string code = RPMCrypto.GeneratePairingCode();
             Assert.StartsWith("RPM-", code);
-            Assert.Equal(8, code.Length);
-            Assert.True(int.TryParse(code.Substring(4), out int num));
-            Assert.InRange(num, 1000, 9999);
+            Assert.Equal(10, code.Length);
+            Assert.True(code[4..].All(char.IsAsciiLetterOrDigit));
         }
     }
 
@@ -69,11 +89,13 @@ public class RPMTests
         try
         {
             string relayUrl = $"ws://127.0.0.1:{testPort}/";
-            string pairingCode = "RPM-9999";
+            string pairingCode = "RPM-A7K2Q9";
             string secretKey = "RPM_TEST_SHARED_SECRET";
 
             var serverClient = new RelayClient();
             var clientA = new RelayClient();
+            serverClient.PairingCode = pairingCode;
+            clientA.PairingCode = pairingCode;
 
             var serverReceivedPacketTcs = new TaskCompletionSource<NetworkPacket>();
             var clientReceivedResponseTcs = new TaskCompletionSource<NetworkPacket>();
@@ -226,9 +248,10 @@ public class RPMTests
 
             var result = await UpdateService.CheckForUpdatesAsync(tempJsonPath, "1.0.0");
 
-            Assert.True(result.HasUpdate);
+            Assert.False(result.HasUpdate);
             Assert.Equal("1.0.1", result.LatestVersion);
             Assert.NotNull(result.Manifest);
+            Assert.Contains("chữ ký số", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(3, result.Manifest.Changelog.Count);
             Assert.Contains("Tự động kết nối lại", result.Manifest.Changelog[0]);
         }
@@ -259,9 +282,9 @@ public class RPMTests
                 Sha256 = expectedSha256
             };
 
-            var (successValid, _, validFile) = await UpdateService.DownloadUpdateAsync(validManifest);
-            Assert.True(successValid);
-            Assert.True(File.Exists(validFile));
+            var (successValid, validMessage, validFile) = await UpdateService.DownloadUpdateAsync(validManifest);
+            Assert.False(successValid);
+            Assert.Contains("chữ ký số", validMessage, StringComparison.OrdinalIgnoreCase);
             if (File.Exists(validFile)) File.Delete(validFile);
 
             var invalidManifest = new UpdateManifest
@@ -273,7 +296,7 @@ public class RPMTests
 
             var (successInvalid, errorMsg, _) = await UpdateService.DownloadUpdateAsync(invalidManifest);
             Assert.False(successInvalid);
-            Assert.Contains("Mã SHA-256 không khớp", errorMsg);
+            Assert.Contains("chữ ký số", errorMsg, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -486,11 +509,12 @@ public class RPMTests
             Assert.False(stableResult.HasUpdate);
             Assert.Equal("1.0.2", stableResult.LatestVersion);
 
-            // Client on BETA channel (e.g. Test computer) accepts beta release
+            // Unsigned manifests are rejected for every channel.
             var betaResult = await UpdateService.CheckForUpdatesAsync(tempJson, "1.0.0", "Beta");
-            Assert.True(betaResult.HasUpdate);
+            Assert.False(betaResult.HasUpdate);
             Assert.Equal("1.0.2", betaResult.LatestVersion);
             Assert.Equal("Beta", betaResult.Channel);
+            Assert.Contains("chữ ký số", betaResult.ErrorMessage, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

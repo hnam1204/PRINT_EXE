@@ -4,6 +4,7 @@ using System.Windows;
 using RPM.Core.Config;
 using RPM.Core.Models;
 using RPM.Core.Protocol;
+using RPM.Core.Security;
 using RPM.Networking;
 using RPM.Printing;
 
@@ -17,6 +18,7 @@ public class ServerService : IDisposable
     private readonly Queue<PrintJob> _printQueue = new();
     private readonly SemaphoreSlim _queueLock = new(1, 1);
     private readonly HashSet<string> _recentlyPrintedHashes = new();
+    private const int MaxQueuedJobs = 100;
     private RelayServer? _embeddedRelay;
     private bool _isProcessingQueue;
 
@@ -57,11 +59,13 @@ public class ServerService : IDisposable
 
     public async Task StartAsync()
     {
-        if (string.IsNullOrWhiteSpace(_settings.PairingCode))
+        if (!PacketSecurity.IsValidPairingCode(_settings.PairingCode))
         {
             _settings.PairingCode = Core.Security.RPMCrypto.GeneratePairingCode();
             ConfigManager.Save(_settings);
         }
+
+        _relayClient.PairingCode = _settings.PairingCode;
 
         if (string.IsNullOrWhiteSpace(_settings.EncryptionSecret))
         {
@@ -105,6 +109,10 @@ public class ServerService : IDisposable
                 || (!string.IsNullOrEmpty(_settings.SelectedPrinterName) && string.Equals(p.Name, _settings.SelectedPrinterName, StringComparison.OrdinalIgnoreCase));
 
             p.IsShared = isShared;
+            if (!string.IsNullOrWhiteSpace(_settings.SelectedPrinterName))
+            {
+                p.IsDefault = string.Equals(p.Name, _settings.SelectedPrinterName, StringComparison.OrdinalIgnoreCase);
+            }
             if (isShared && ActiveSharedPrinter == null)
             {
                 ActiveSharedPrinter = p;
@@ -152,6 +160,10 @@ public class ServerService : IDisposable
                     ActiveSharedPrinter = SharedPrinters.FirstOrDefault(p => p.IsShared);
                     _settings.SelectedPrinterName = ActiveSharedPrinter?.Name ?? string.Empty;
                 }
+                foreach (var item in SharedPrinters)
+                {
+                    item.IsDefault = ActiveSharedPrinter != null && string.Equals(item.Name, ActiveSharedPrinter.Name, StringComparison.OrdinalIgnoreCase);
+                }
                 OnLog?.Invoke(this, $"[Máy In] Đã TẮT chia sẻ máy in: {printer.Name}");
             }
             ConfigManager.Save(_settings);
@@ -172,6 +184,10 @@ public class ServerService : IDisposable
             }
             ActiveSharedPrinter = target;
             _settings.SelectedPrinterName = printerName;
+            foreach (var item in SharedPrinters)
+            {
+                item.IsDefault = string.Equals(item.Name, printerName, StringComparison.OrdinalIgnoreCase);
+            }
             ConfigManager.Save(_settings);
 
             BroadcastPrinterStatus();
@@ -232,16 +248,13 @@ public class ServerService : IDisposable
             AvailablePrinters = permittedPrinters
         };
 
-        var packet = new NetworkPacket
-        {
-            Type = MessageType.ClientJoinResponse,
-            SenderId = _settings.DeviceId,
-            TargetId = client.DeviceId,
-            PairingCode = _settings.PairingCode,
-            PayloadJson = JsonSerializer.Serialize(response)
-        };
-
-        await _relayClient.SendPacketAsync(packet);
+        await _relayClient.SendEncryptedPayloadAsync(
+            MessageType.ClientJoinResponse,
+            _settings.DeviceId,
+            client.DeviceId,
+            _settings.PairingCode,
+            response,
+            _settings.PairingCode);
         OnLog?.Invoke(this, $"[Duyệt] Đã chấp thuận máy con: {client.DeviceName} (Phòng: {client.Department}) - Quyền: {client.AllowedPrintersSummary}");
     }
 
@@ -508,6 +521,13 @@ public class ServerService : IDisposable
             return;
         }
 
+        if (string.IsNullOrWhiteSpace(payload.DataBase64) ||
+            payload.DataBase64.Length > ((PacketSecurity.MaxPrintJobBytes + 2) / 3) * 4 + 4)
+        {
+            OnLog?.Invoke(this, "[Từ chối] Tài liệu in vượt quá giới hạn kích thước.");
+            return;
+        }
+
         var job = payload.JobInfo;
         job.SenderDeviceId = senderDevice.DeviceId;
         job.SenderDeviceName = senderDevice.DeviceName;
@@ -539,12 +559,50 @@ public class ServerService : IDisposable
             return;
         }
 
-        byte[] rawBytes = Convert.FromBase64String(payload.DataBase64);
+        byte[] rawBytes;
+        try
+        {
+            rawBytes = Convert.FromBase64String(payload.DataBase64);
+        }
+        catch (FormatException)
+        {
+            OnLog?.Invoke(this, "[Từ chối] Dữ liệu tài liệu in không hợp lệ.");
+            return;
+        }
 
-        // Save to temporary print job cache
-        string tempFile = Path.Combine(ConfigManager.GetTempJobsFolder(), $"{job.JobId}_{job.DocumentName}");
-        await File.WriteAllBytesAsync(tempFile, rawBytes);
-        job.LocalTempFilePath = tempFile;
+        if (rawBytes.Length == 0 || rawBytes.Length > PacketSecurity.MaxPrintJobBytes)
+        {
+            OnLog?.Invoke(this, "[Từ chối] Tài liệu in vượt quá giới hạn kích thước.");
+            return;
+        }
+
+        await _queueLock.WaitAsync();
+        try
+        {
+            if (_printQueue.Count >= MaxQueuedJobs)
+            {
+                OnLog?.Invoke(this, "[Từ chối] Hàng đợi in đang đầy.");
+                return;
+            }
+
+            // Never derive a filesystem path from a client-controlled document name.
+            string safeExtension = payload.FileExtension?.ToLowerInvariant() switch
+            {
+                ".pdf" => ".pdf",
+                ".ps" => ".ps",
+                ".txt" => ".txt",
+                ".prn" => ".prn",
+                _ => ".bin"
+            };
+            string tempFile = Path.Combine(ConfigManager.GetTempJobsFolder(), $"{Guid.NewGuid():N}{safeExtension}");
+            await File.WriteAllBytesAsync(tempFile, rawBytes);
+            job.LocalTempFilePath = tempFile;
+            _printQueue.Enqueue(job);
+        }
+        finally
+        {
+            _queueLock.Release();
+        }
 
         Application.Current?.Dispatcher.Invoke(() =>
         {
@@ -557,18 +615,10 @@ public class ServerService : IDisposable
             ConfigManager.Save(_settings);
         });
 
-        // Enqueue job thread-safely
-        int queueCount = 0;
+        int queueCount;
         await _queueLock.WaitAsync();
-        try
-        {
-            _printQueue.Enqueue(job);
-            queueCount = _printQueue.Count;
-        }
-        finally
-        {
-            _queueLock.Release();
-        }
+        try { queueCount = _printQueue.Count; }
+        finally { _queueLock.Release(); }
 
         // Alert if queue load exceeds high capacity
         if (queueCount >= 20)

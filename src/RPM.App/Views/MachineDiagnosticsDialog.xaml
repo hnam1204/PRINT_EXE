@@ -1,0 +1,61 @@
+<Window x:Class="RPM.App.Views.MachineDiagnosticsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Kiểm tra máy"
+        Width="760" Height="560" MinWidth="640" MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource BgBrush}"
+        FontFamily="{StaticResource SegoeFont}"
+        SnapsToDevicePixels="True" UseLayoutRounding="True">
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Margin="0,0,0,10">
+            <StackPanel Orientation="Horizontal">
+                <Path Data="{StaticResource GeoShield}" Fill="{StaticResource PrimaryBrush}" Width="22" Height="22" Stretch="Uniform" Margin="0,0,10,0"/>
+                <StackPanel>
+                    <TextBlock Text="KIỂM TRA MÁY" FontSize="16" FontWeight="Bold" Foreground="{StaticResource NavyMainBrush}"/>
+                    <TextBlock Text="Kiểm tra dữ liệu thực tế trên máy này." FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                </StackPanel>
+            </StackPanel>
+            <Button Grid.Column="1" Style="{StaticResource SecondaryBtn}" Content="Đóng" Click="BtnClose_Click" HorizontalAlignment="Right" Padding="14,6"/>
+        </Grid>
+
+        <Border Grid.Row="1" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,10">
+            <TextBlock x:Name="TxtSummary" Text="Chưa kiểm tra" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap"/>
+        </Border>
+
+        <Border Grid.Row="2" Background="{StaticResource CardBgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="8">
+            <ListView x:Name="LvDiagnostics" ItemsSource="{Binding Rows}" BorderThickness="0" Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="4,3">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="190"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Ellipse Grid.Column="0" Width="8" Height="8" Fill="{Binding StatusBrush}" VerticalAlignment="Top" Margin="0,5,0,0"/>
+                            <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}" TextWrapping="Wrap" Margin="8,0,8,0"/>
+                            <TextBlock Grid.Column="2" Text="{Binding Detail}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap"/>
+                            <Border Grid.Column="3" Background="{Binding StatusBrush}" CornerRadius="4" Padding="7,3" Margin="8,0,0,0" VerticalAlignment="Top">
+                                <TextBlock Text="{Binding StatusText}" FontSize="10" FontWeight="Bold" Foreground="White"/>
+                            </Border>
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+        </Border>
+
+        <Grid Grid.Row="3" Margin="0,10,0,0">
+            <TextBlock Text="Kết quả phản ánh lần kiểm tra gần nhất." FontSize="10" Foreground="{StaticResource TextSubtleBrush}" VerticalAlignment="Center"/>
+            <Button x:Name="BtnRunDiagnostics" Style="{StaticResource PrimaryBtn}" Content="Kiểm tra lại" Click="BtnRunDiagnostics_Click" HorizontalAlignment="Right" Padding="14,6"/>
+        </Grid>
+    </Grid>
+</Window>

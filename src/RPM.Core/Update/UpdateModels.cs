@@ -17,6 +17,7 @@ public class UpdateManifest
     public DateTime ReleaseDate { get; set; } = DateTime.UtcNow;
     public string DownloadUrl { get; set; } = string.Empty;
     public string Sha256 { get; set; } = string.Empty;
+    public string SignatureBase64 { get; set; } = string.Empty;
     public string MinSupportedVersion { get; set; } = "1.0.0";
     public bool IsCritical { get; set; } = false;
     public List<string> Changelog { get; set; } = new();

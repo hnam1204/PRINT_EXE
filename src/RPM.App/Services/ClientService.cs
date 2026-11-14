@@ -53,6 +53,7 @@ public class ClientService : IDisposable
     public async Task StartAsync()
     {
         _connectionStatus = "Đang kết nối...";
+        _relayClient.PairingCode = _settings.PairingCode;
         OnStateChanged?.Invoke(this, EventArgs.Empty);
 
         // Start local IPP service
@@ -65,6 +66,12 @@ public class ClientService : IDisposable
     public async Task ConnectToServerAsync(string pairingCode)
     {
         _settings.PairingCode = pairingCode.Trim();
+        if (!PacketSecurity.IsValidPairingCode(_settings.PairingCode))
+        {
+            OnLog?.Invoke(this, "Mã ghép đôi không hợp lệ. Hãy nhập mã RPM đầy đủ.");
+            return;
+        }
+        _relayClient.PairingCode = _settings.PairingCode;
         ConfigManager.Save(_settings);
 
         if (_relayClient.IsConnected)
@@ -96,6 +103,11 @@ public class ClientService : IDisposable
 
     private async Task SendJoinRequestAsync()
     {
+        if (!PacketSecurity.IsValidPairingCode(_settings.PairingCode))
+        {
+            OnLog?.Invoke(this, "Không thể gửi yêu cầu: mã ghép đôi không hợp lệ.");
+            return;
+        }
         var device = new DeviceInfo
         {
             DeviceId = _settings.DeviceId,
@@ -132,7 +144,7 @@ public class ClientService : IDisposable
             {
                 case MessageType.ClientJoinResponse:
                 {
-                    var res = JsonSerializer.Deserialize<ClientJoinResponsePayload>(packet.PayloadJson);
+                    var res = _relayClient.DecryptPayload<ClientJoinResponsePayload>(packet, _settings.PairingCode);
                     if (res != null)
                     {
                         if (res.Approved)

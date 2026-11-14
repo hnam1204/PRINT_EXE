@@ -74,8 +74,8 @@
             <SolidColorBrush x:Key="TextMutedBrush" Color="#334155"/>
             <SolidColorBrush x:Key="TextSubtleBrush" Color="#64748B"/>
 
-            <!-- Typography: Be Vietnam Pro with modern system fallbacks -->
-            <FontFamily x:Key="SegoeFont">Segoe UI Variable Display, Segoe UI, Be Vietnam Pro, -apple-system, sans-serif</FontFamily>
+            <!-- Embedded font keeps the published app consistent across Windows machines. -->
+            <FontFamily x:Key="SegoeFont">pack://application:,,,/Assets/#Be Vietnam Pro</FontFamily>
 
             <!-- Global Crisp Text & Rendering Defaults -->
             <Style TargetType="Window">

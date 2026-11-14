@@ -4,6 +4,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using RPM.Core.Protocol;
+using RPM.Core.Security;
 
 namespace RPM.Networking;
 
@@ -22,6 +23,7 @@ public class Room
     public string ServerDeviceName { get; set; } = string.Empty;
     public WebSocket? ServerSocket { get; set; }
     public ConcurrentDictionary<string, ClientSession> Clients { get; } = new();
+    public ConcurrentDictionary<string, DateTime> SeenPacketIds { get; } = new();
 }
 
 public class RelayServer
@@ -184,6 +186,12 @@ public class RelayServer
                         await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closed", CancellationToken.None);
                         return;
                     }
+                    if (ms.Length + result.Count > PacketSecurity.MaxNetworkPacketBytes)
+                    {
+                        await socket.CloseAsync(WebSocketCloseStatus.MessageTooBig, "Packet too large", CancellationToken.None);
+                        return;
+                    }
+
                     ms.Write(buffer, 0, result.Count);
                 } while (!result.EndOfMessage);
 
@@ -193,6 +201,40 @@ public class RelayServer
 
                 if (packet == null) continue;
 
+                if (!PacketSecurity.IsValidPairingCode(packet.PairingCode) ||
+                    !PacketSecurity.VerifyAuthTag(packet, packet.PairingCode) ||
+                    !PacketSecurity.IsFresh(packet, DateTime.UtcNow) ||
+                    !Guid.TryParseExact(packet.PacketId, "N", out _))
+                {
+                    await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Invalid packet authentication", CancellationToken.None);
+                    return;
+                }
+
+                if (!_rooms.TryGetValue(packet.PairingCode, out var packetRoom))
+                {
+                    if (packet.Type != MessageType.RegisterServer) continue;
+                }
+                else if (!packetRoom.SeenPacketIds.TryAdd(packet.PacketId, DateTime.UtcNow))
+                {
+                    await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Replay detected", CancellationToken.None);
+                    return;
+                }
+                else if (packetRoom.SeenPacketIds.Count > 10_000)
+                {
+                    foreach (var oldPacket in packetRoom.SeenPacketIds
+                        .Where(x => x.Value < DateTime.UtcNow.AddMinutes(-10))
+                        .Take(2_000))
+                    {
+                        packetRoom.SeenPacketIds.TryRemove(oldPacket.Key, out _);
+                    }
+                }
+
+                if (currentDeviceId != null && !string.Equals(currentDeviceId, packet.SenderId, StringComparison.Ordinal))
+                {
+                    await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Sender identity changed", CancellationToken.None);
+                    return;
+                }
+
                 // Handle Room Registration & Routing
                 switch (packet.Type)
                 {
@@ -201,6 +243,15 @@ public class RelayServer
                         isServer = true;
                         currentRoomCode = packet.PairingCode;
                         currentDeviceId = packet.SenderId;
+
+                        if (_rooms.TryGetValue(packet.PairingCode, out var existingRoom) &&
+                            existingRoom.ServerSocket != null &&
+                            existingRoom.ServerSocket.State == WebSocketState.Open &&
+                            !string.Equals(existingRoom.ServerDeviceId, packet.SenderId, StringComparison.Ordinal))
+                        {
+                            await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Room already has a server", CancellationToken.None);
+                            return;
+                        }
 
                         var room = _rooms.GetOrAdd(packet.PairingCode, code => new Room
                         {
@@ -315,6 +366,9 @@ public class RelayServer
     private static async Task SendToSocketAsync(WebSocket socket, NetworkPacket packet)
     {
         if (socket.State != WebSocketState.Open) return;
+        if (!PacketSecurity.IsValidPairingCode(packet.PairingCode)) return;
+        packet.Timestamp = DateTime.UtcNow;
+        packet.AuthTagBase64 = PacketSecurity.ComputeAuthTag(packet, packet.PairingCode);
         string json = JsonSerializer.Serialize(packet);
         byte[] bytes = Encoding.UTF8.GetBytes(json);
         await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);

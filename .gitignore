@@ -25,6 +25,8 @@ TestResults/
 *.bak
 *.log
 *.trx
+secrets/*.pem
+.update-keygen/
 Thumbs.db
 [Dd]esktop.ini
 .DS_Store

@@ -190,8 +190,14 @@ Container `rpm-relay-server` sẽ khởi chạy và mở cổng `9090`.
 
 #### Cấu hình kết nối trên Máy Chủ & Máy Con
 Vào tab **Cài Đặt** trên phần mềm Remote Print Manager:
-* Thay đổi ô *Relay Server URL* từ `ws://127.0.0.1:9090` thành địa chỉ VPS của bạn:
-  `ws://vps-ip-cua-ban:9090` (hoặc `wss://relay.tencongty.com` nếu có tên miền SSL).
+* Chỉ dùng `ws://127.0.0.1:9090` cho relay loopback nội bộ. Relay public bắt buộc đi qua TLS reverse proxy và dùng:
+  `wss://relay.tencongty.com`.
+* Không expose trực tiếp port HTTP/WebSocket của relay ra Internet; reverse proxy phải terminate TLS và forward vào relay nội bộ.
+
+### Signed updates
+
+* Release pipeline phải cung cấp secret `RPM_UPDATE_PRIVATE_KEY_PEM` và dùng `build.ps1 -DownloadBaseUrl https://relay.tencongty.com`.
+* Client chỉ chấp nhận manifest có chữ ký RSA-PSS hợp lệ; SHA-256 chỉ dùng kiểm tra integrity, không thay thế chữ ký.
 
 ---
 

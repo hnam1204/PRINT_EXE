@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using RPM.Core.Security;
 using System.IO;
 using RPM.Core.Models;
 
@@ -91,8 +92,26 @@ public class LocalIppServer : IDisposable
 
             if (req.HttpMethod.Equals("POST", StringComparison.OrdinalIgnoreCase))
             {
+                if (req.ContentLength64 < 0 || req.ContentLength64 > PacketSecurity.MaxPrintJobBytes + 256 * 1024)
+                {
+                    res.StatusCode = 413;
+                    res.Close();
+                    return;
+                }
+
                 using var ms = new MemoryStream();
-                req.InputStream.CopyTo(ms);
+                var buffer = new byte[81920];
+                int read;
+                while ((read = req.InputStream.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    if (ms.Length + read > PacketSecurity.MaxPrintJobBytes + 256 * 1024)
+                    {
+                        res.StatusCode = 413;
+                        res.Close();
+                        return;
+                    }
+                    ms.Write(buffer, 0, read);
+                }
                 byte[] requestBytes = ms.ToArray();
 
                 byte[] responseBytes = ProcessIppPacket(requestBytes, out var capturedJob, out var documentData);
