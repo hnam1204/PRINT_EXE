@@ -80,12 +80,13 @@ public class RelayServer
                 {
                     string path = ctx.Request.Url?.AbsolutePath.ToLowerInvariant() ?? "/";
 
-                    if (path == "/version.json")
+                    if (path.EndsWith(".json"))
                     {
-                        string versionFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "version.json");
+                        string requestedJson = Path.GetFileName(ctx.Request.Url!.LocalPath);
+                        string versionFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, requestedJson);
                         if (!File.Exists(versionFile))
                         {
-                            versionFile = Path.Combine(Directory.GetCurrentDirectory(), "version.json");
+                            versionFile = Path.Combine(Directory.GetCurrentDirectory(), requestedJson);
                         }
 
                         if (File.Exists(versionFile))

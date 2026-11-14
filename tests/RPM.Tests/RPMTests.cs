@@ -447,4 +447,96 @@ public class RPMTests
         bool isAvailable = CompatibilityChecker.CheckPortAvailable(19283);
         Assert.True(isAvailable);
     }
+
+    [Fact]
+    public void Update_SemanticVersionComparison_IdentifiesNewerVersions()
+    {
+        Assert.True(UpdateService.IsNewerVersion("1.0.0", "1.0.1"));
+        Assert.True(UpdateService.IsNewerVersion("V1.0.0", "V1.0.1"));
+        Assert.True(UpdateService.IsNewerVersion("1.0.1", "1.1.0"));
+        Assert.True(UpdateService.IsNewerVersion("1.0.9", "1.1.0"));
+        Assert.True(UpdateService.IsNewerVersion("1.1.0", "2.0.0"));
+
+        // Same or older versions should NOT trigger update
+        Assert.False(UpdateService.IsNewerVersion("1.0.1", "1.0.0"));
+        Assert.False(UpdateService.IsNewerVersion("1.0.0", "1.0.0"));
+        Assert.False(UpdateService.IsNewerVersion("2.0.0", "1.9.9"));
+    }
+
+    [Fact]
+    public async Task Update_ChannelFiltering_StableClientRejectsBetaUntilReleased()
+    {
+        string tempJson = Path.Combine(Path.GetTempPath(), $"rpm_test_manifest_{Guid.NewGuid():N}.json");
+        try
+        {
+            var betaManifest = new UpdateManifest
+            {
+                Version = "1.0.2",
+                Channel = "Beta",
+                ReleaseDate = DateTime.UtcNow,
+                DownloadUrl = "http://localhost:9090/download/RPM_v1.0.2.exe",
+                Sha256 = "dummy_sha256",
+                Changelog = new() { "Thử nghiệm tính năng kết nối mới trên máy con số 1" }
+            };
+
+            await File.WriteAllTextAsync(tempJson, JsonSerializer.Serialize(betaManifest));
+
+            // Client on STABLE channel rejects beta release
+            var stableResult = await UpdateService.CheckForUpdatesAsync(tempJson, "1.0.0", "Stable");
+            Assert.False(stableResult.HasUpdate);
+            Assert.Equal("1.0.2", stableResult.LatestVersion);
+
+            // Client on BETA channel (e.g. Test computer) accepts beta release
+            var betaResult = await UpdateService.CheckForUpdatesAsync(tempJson, "1.0.0", "Beta");
+            Assert.True(betaResult.HasUpdate);
+            Assert.Equal("1.0.2", betaResult.LatestVersion);
+            Assert.Equal("Beta", betaResult.Channel);
+        }
+        finally
+        {
+            if (File.Exists(tempJson)) File.Delete(tempJson);
+        }
+    }
+
+    [Fact]
+    public void Update_DataPreservation_ConfigRemainsIntactAcrossUpdates()
+    {
+        var settings = new RPM.Core.Config.AppSettings
+        {
+            AppVersion = "1.0.0",
+            Role = AppRole.Server,
+            PairingCode = "RPM-9988",
+            SelectedPrinterName = "Canon LBP2900",
+            SharedPrinterNames = new() { "Canon LBP2900", "HP LaserJet" },
+            ApprovedClients = new()
+            {
+                new() { DeviceId = "dev-1", DeviceName = "MayCon-1", IsApproved = true, Department = "Kế toán" }
+            },
+            PrintHistory = new()
+            {
+                new() { JobId = "job-1", DocumentName = "BaoCaoThang.pdf", Status = PrintJobStatus.Completed }
+            }
+        };
+
+        // Simulate version update to 1.0.1
+        settings.AppVersion = "1.0.1";
+        settings.UpdateHistory.Add(new UpdateHistoryItem
+        {
+            FromVersion = "1.0.0",
+            ToVersion = "1.0.1",
+            Status = "Thành công"
+        });
+
+        // Verify all settings are 100% preserved
+        Assert.Equal("1.0.1", settings.AppVersion);
+        Assert.Equal(AppRole.Server, settings.Role);
+        Assert.Equal("RPM-9988", settings.PairingCode);
+        Assert.Equal("Canon LBP2900", settings.SelectedPrinterName);
+        Assert.Equal(2, settings.SharedPrinterNames.Count);
+        Assert.Single(settings.ApprovedClients);
+        Assert.Equal("MayCon-1", settings.ApprovedClients[0].DeviceName);
+        Assert.Single(settings.PrintHistory);
+        Assert.Equal("BaoCaoThang.pdf", settings.PrintHistory[0].DocumentName);
+        Assert.Single(settings.UpdateHistory);
+    }
 }

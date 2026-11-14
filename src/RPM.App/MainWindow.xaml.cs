@@ -29,6 +29,25 @@ public partial class MainWindow : Window
     {
         _trayService = new TrayService(this);
         NavigateToCurrentRole();
+
+        // Check command-line flags after an update or rollback
+        string[] args = Environment.GetCommandLineArgs();
+        if (args.Contains("--updated"))
+        {
+            _trayService.ShowNotification(
+                "Nâng cấp thành công!",
+                $"Remote Print Manager đã nâng cấp thành công lên phiên bản V{_settings.AppVersion}. Mọi cấu hình và máy in được bảo toàn.",
+                ToolTipIcon.Info
+            );
+        }
+        else if (args.Contains("--rolled-back"))
+        {
+            _trayService.ShowNotification(
+                "Khôi phục thành công!",
+                $"Đã khôi phục thành công phiên bản Remote Print Manager trước đó (V{_settings.AppVersion}).",
+                ToolTipIcon.Info
+            );
+        }
     }
 
     private void NavigateToCurrentRole()

@@ -65,6 +65,7 @@ $fileHash = (Get-FileHash -Path "publish/RemotePrintManager.exe" -Algorithm SHA2
 
 $manifestObj = [ordered]@{
     version = $Version
+    channel = "Stable"
     releaseDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     downloadUrl = "http://127.0.0.1:9090/download/RemotePrintManager.exe"
     sha256 = $fileHash

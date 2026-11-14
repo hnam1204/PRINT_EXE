@@ -1,7 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
-using RPM.App.Services;
+using System.Windows.Threading;
 using RPM.Core.Config;
 using RPM.Core.Models;
 using RPM.Core.Update;
@@ -13,6 +14,8 @@ public partial class UpdateControl : UserControl
     private AppSettings _settings = null!;
     private UpdateManifest? _availableManifest;
     private readonly ObservableCollection<UpdateHistoryItem> _history = new();
+    private readonly DispatcherTimer _periodicTimer = new();
+    
     public Func<bool>? HasActivePrintJobsCheck { get; set; }
 
     public UpdateControl()
@@ -20,12 +23,15 @@ public partial class UpdateControl : UserControl
         InitializeComponent();
         DgUpdateHistory.ItemsSource = _history;
         Loaded += UpdateControl_Loaded;
+
+        _periodicTimer.Tick += PeriodicTimer_Tick;
     }
 
     public void Initialize(AppSettings settings)
     {
         _settings = settings;
         LoadSettingsUI();
+        ConfigurePeriodicTimer();
     }
 
     private void UpdateControl_Loaded(object sender, RoutedEventArgs e)
@@ -35,6 +41,7 @@ public partial class UpdateControl : UserControl
             _settings = ConfigManager.Load();
         }
         LoadSettingsUI();
+        ConfigurePeriodicTimer();
 
         if (_settings.AutoCheckUpdates)
         {
@@ -42,12 +49,44 @@ public partial class UpdateControl : UserControl
         }
     }
 
+    private void ConfigurePeriodicTimer()
+    {
+        _periodicTimer.Stop();
+        if (_settings != null && _settings.AutoCheckUpdates)
+        {
+            int interval = _settings.CheckIntervalMinutes > 0 ? _settings.CheckIntervalMinutes : 60;
+            _periodicTimer.Interval = TimeSpan.FromMinutes(interval);
+            _periodicTimer.Start();
+        }
+    }
+
+    private async void PeriodicTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_settings != null && _settings.AutoCheckUpdates)
+        {
+            await CheckForUpdatesInternalAsync(silent: true);
+        }
+    }
+
     private void LoadSettingsUI()
     {
         TxtCurrentVersion.Text = $"V{_settings.AppVersion}";
+        TxtCurrentChannel.Text = _settings.UpdateChannel == "Beta" ? "Thử nghiệm (Beta)" : "Chính thức (Stable)";
         TxtFeedUrl.Text = _settings.UpdateFeedUrl;
         ChkAutoCheck.IsChecked = _settings.AutoCheckUpdates;
+        ChkAutoInstall.IsChecked = _settings.AutoInstallUpdates;
 
+        // Channel ComboBox
+        if (CmbChannel != null)
+        {
+            CmbChannel.SelectedIndex = string.Equals(_settings.UpdateChannel, "Beta", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        }
+
+        // Check if rollback backup exists
+        bool canRollback = UpdateService.CanRollback();
+        BtnRollback.Visibility = canRollback ? Visibility.Visible : Visibility.Collapsed;
+
+        // History list
         _history.Clear();
         foreach (var h in _settings.UpdateHistory.OrderByDescending(x => x.InstalledAt))
         {
@@ -65,9 +104,12 @@ public partial class UpdateControl : UserControl
         BtnCheckUpdate.IsEnabled = false;
         SetStatusState("Đang kiểm tra...", PrimaryColor, LightPrimaryColor);
 
-        var result = await UpdateService.CheckForUpdatesAsync(_settings.UpdateFeedUrl, _settings.AppVersion);
+        var result = await UpdateService.CheckForUpdatesAsync(_settings.UpdateFeedUrl, _settings.AppVersion, _settings.UpdateChannel);
 
         BtnCheckUpdate.IsEnabled = true;
+
+        // Update Rollback button visibility
+        BtnRollback.Visibility = result.IsRollbackAvailable ? Visibility.Visible : Visibility.Collapsed;
 
         if (!string.IsNullOrEmpty(result.ErrorMessage))
         {
@@ -75,7 +117,12 @@ public partial class UpdateControl : UserControl
             TxtLatestVersion.Text = "Không xác định";
             if (!silent)
             {
-                MessageBox.Show($"Không thể kiểm tra bản cập nhật mới:\n{result.ErrorMessage}\n\nVui lòng kiểm tra lại địa chỉ máy chủ cập nhật trong phần cấu hình nâng cao.", "Lỗi cập nhật", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(
+                    $"Không thể kiểm tra bản cập nhật mới:\n{result.ErrorMessage}\n\n" +
+                    "Vui lòng kiểm tra lại địa chỉ máy chủ cập nhật trong phần cấu hình nâng cao.", 
+                    "Lỗi kiểm tra cập nhật", 
+                    MessageBoxButton.OK, 
+                    MessageBoxImage.Warning);
             }
             return;
         }
@@ -91,26 +138,52 @@ public partial class UpdateControl : UserControl
 
         if (result.HasUpdate)
         {
-            SetStatusState($"Có bản mới V{result.LatestVersion}", WarningColor, LightYellowColor);
+            string channelLabel = result.Channel == "Beta" ? " [Beta]" : "";
+            SetStatusState($"Có bản mới V{result.LatestVersion}{channelLabel}", WarningColor, LightYellowColor);
             BtnUpdateNow.Visibility = Visibility.Visible;
             BtnToggleChangelog.Visibility = Visibility.Visible;
             BorderChangelog.Visibility = Visibility.Visible;
 
-            if (!silent)
+            // Automatic installation if enabled and no active print jobs
+            if (_settings.AutoInstallUpdates)
             {
-                MessageBox.Show($"Đã phát hiện phiên bản mới: V{result.LatestVersion}!\nBạn có thể nhấn nút 'Cập nhật ngay' để nâng cấp phần mềm.", "Có bản cập nhật mới", MessageBoxButton.OK, MessageBoxImage.Information);
+                bool hasActiveJobs = HasActivePrintJobsCheck != null && HasActivePrintJobsCheck.Invoke();
+                if (!hasActiveJobs)
+                {
+                    // Safe to auto-update
+                    BtnUpdateNow_Click(this, new RoutedEventArgs());
+                    return;
+                }
+            }
+
+            // Prompt user with exact office-friendly message
+            string promptText = $"Đã có phiên bản Remote Print Manager V{result.LatestVersion}.\n\n" +
+                               (string.IsNullOrWhiteSpace(result.Manifest?.ReleaseNotes) 
+                                   ? "Phiên bản mới cải thiện khả năng kết nối và khắc phục lỗi hoạt động." 
+                                   : result.Manifest.ReleaseNotes) +
+                               "\n\nBạn có muốn cập nhật & nâng cấp ngay bây giờ không?";
+
+            var choice = MessageBox.Show(promptText, "Cập nhật Remote Print Manager", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (choice == MessageBoxResult.Yes)
+            {
+                BtnUpdateNow_Click(this, new RoutedEventArgs());
             }
         }
         else
         {
-            SetStatusState("Đã là phiên bản mới nhất", SuccessColor, LightGreenColor);
+            SetStatusState("Bạn đang sử dụng phiên bản mới nhất", SuccessColor, LightGreenColor);
             BtnUpdateNow.Visibility = Visibility.Collapsed;
             BtnToggleChangelog.Visibility = Visibility.Collapsed;
             BorderChangelog.Visibility = Visibility.Collapsed;
 
             if (!silent)
             {
-                MessageBox.Show($"Phần mềm đang ở phiên bản mới nhất (V{_settings.AppVersion}).\nKhông cần nâng cấp.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(
+                    $"Bạn đang sử dụng phiên bản Remote Print Manager mới nhất (V{_settings.AppVersion}).\n" +
+                    $"Kênh phát hành hiện tại: {_settings.UpdateChannel}.\nKhông cần nâng cấp.", 
+                    "Thông báo phiên bản", 
+                    MessageBoxButton.OK, 
+                    MessageBoxImage.Information);
             }
         }
     }
@@ -141,6 +214,7 @@ public partial class UpdateControl : UserControl
         // 2. Begin download
         BtnUpdateNow.IsEnabled = false;
         BtnCheckUpdate.IsEnabled = false;
+        BtnRollback.IsEnabled = false;
         PanelProgress.Visibility = Visibility.Visible;
         SetStatusState("Đang tải bản cập nhật...", PrimaryColor, LightPrimaryColor);
 
@@ -158,6 +232,7 @@ public partial class UpdateControl : UserControl
             PanelProgress.Visibility = Visibility.Collapsed;
             BtnUpdateNow.IsEnabled = true;
             BtnCheckUpdate.IsEnabled = true;
+            BtnRollback.IsEnabled = true;
             SetStatusState("Cập nhật thất bại", DangerColor, LightRedColor);
             MessageBox.Show($"Quá trình tải bản nâng cấp thất bại:\n{msg}", "Lỗi tải cập nhật", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
@@ -172,9 +247,10 @@ public partial class UpdateControl : UserControl
         {
             FromVersion = _settings.AppVersion,
             ToVersion = _availableManifest.Version,
+            Channel = _availableManifest.Channel,
             InstalledAt = DateTime.UtcNow,
             Status = "Thành công",
-            Notes = $"Nâng cấp trực tiếp lên V{_availableManifest.Version}"
+            Notes = $"Nâng cấp trực tiếp lên V{_availableManifest.Version} ({_availableManifest.Channel})"
         };
 
         _settings.AppVersion = _availableManifest.Version;
@@ -190,10 +266,35 @@ public partial class UpdateControl : UserControl
             MessageBox.Show($"Không thể tự động áp dụng bản nâng cấp: {err}", "Lỗi áp dụng", MessageBoxButton.OK, MessageBoxImage.Error);
             BtnUpdateNow.IsEnabled = true;
             BtnCheckUpdate.IsEnabled = true;
+            BtnRollback.IsEnabled = true;
         }
         else
         {
             Application.Current?.Shutdown();
+        }
+    }
+
+    private void BtnRollback_Click(object sender, RoutedEventArgs e)
+    {
+        var choice = MessageBox.Show(
+            "Bạn có chắc chắn muốn khôi phục lại phiên bản Remote Print Manager trước đó không?\n\n" +
+            "Hệ thống sẽ giữ nguyên toàn bộ cấu hình, danh sách máy in đã ghép nối và lịch sử của bạn.",
+            "Xác nhận khôi phục phiên bản (Rollback)",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question
+        );
+
+        if (choice == MessageBoxResult.Yes)
+        {
+            bool ok = UpdateService.RollbackAndRestart(out string err);
+            if (!ok)
+            {
+                MessageBox.Show($"Không thể khôi phục phiên bản trước: {err}", "Lỗi khôi phục", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            else
+            {
+                Application.Current?.Shutdown();
+            }
         }
     }
 
@@ -209,6 +310,27 @@ public partial class UpdateControl : UserControl
         if (_settings != null)
         {
             _settings.AutoCheckUpdates = ChkAutoCheck.IsChecked ?? true;
+            ConfigManager.Save(_settings);
+            ConfigurePeriodicTimer();
+        }
+    }
+
+    private void ChkAutoInstall_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_settings != null)
+        {
+            _settings.AutoInstallUpdates = ChkAutoInstall.IsChecked ?? false;
+            ConfigManager.Save(_settings);
+        }
+    }
+
+    private void CmbChannel_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_settings != null && CmbChannel.SelectedItem is ComboBoxItem item)
+        {
+            string channel = item.Tag?.ToString() ?? "Stable";
+            _settings.UpdateChannel = channel;
+            TxtCurrentChannel.Text = channel == "Beta" ? "Thử nghiệm (Beta)" : "Chính thức (Stable)";
             ConfigManager.Save(_settings);
         }
     }
@@ -246,4 +368,3 @@ public partial class UpdateControl : UserControl
     private static readonly SolidColorBrush LightYellowColor = new(Color.FromArgb(255, 254, 246, 230));  // #FEF6E6
     private static readonly SolidColorBrush LightRedColor = new(Color.FromArgb(255, 250, 236, 235));     // #FAECEB
 }
-

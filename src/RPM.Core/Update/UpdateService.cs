@@ -10,11 +10,12 @@ public class UpdateService
 {
     private static readonly HttpClient HttpClient = new() { Timeout = TimeSpan.FromSeconds(30) };
 
-    public static async Task<UpdateCheckResult> CheckForUpdatesAsync(string feedUrl, string currentVersion)
+    public static async Task<UpdateCheckResult> CheckForUpdatesAsync(string feedUrl, string currentVersion, string targetChannel = "Stable")
     {
         var result = new UpdateCheckResult
         {
-            CurrentVersion = currentVersion
+            CurrentVersion = currentVersion,
+            IsRollbackAvailable = CanRollback()
         };
 
         try
@@ -39,7 +40,7 @@ public class UpdateService
             }
             else if (File.Exists(feedUrl))
             {
-                // Local file path support for local testing/deployment
+                // Local file path support for offline / corporate file share testing
                 json = await File.ReadAllTextAsync(feedUrl);
             }
             else
@@ -60,12 +61,24 @@ public class UpdateService
             }
 
             result.LatestVersion = manifest.Version;
+            result.Channel = manifest.Channel ?? "Stable";
             result.Manifest = manifest;
 
             // Semantic comparison
-            if (IsNewerVersion(currentVersion, manifest.Version))
+            bool isNewer = IsNewerVersion(currentVersion, manifest.Version);
+            if (isNewer)
             {
-                result.HasUpdate = true;
+                // Channel check:
+                // A machine on "Stable" ignores "Beta" updates until they are officially released to Stable.
+                // A machine on "Beta" (thử nghiệm) accepts both Stable and Beta updates.
+                bool channelAllowed = true;
+                if (string.Equals(targetChannel, "Stable", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(manifest.Channel, "Beta", StringComparison.OrdinalIgnoreCase))
+                {
+                    channelAllowed = false;
+                }
+
+                result.HasUpdate = channelAllowed;
             }
             else
             {
@@ -170,7 +183,7 @@ public class UpdateService
             string backupPath = currentExePath + ".bak";
 
             // Detached updater script that waits for current process to exit, moves new exe over, and restarts
-            // Windows allows moving/renaming running files, but replacing running file requires short delay
+            // Preserves all user configs in %AppData%\RemotePrintManager\config.json
             string batchScript = $@"
 @echo off
 timeout /t 1 /nobreak >nul
@@ -181,6 +194,71 @@ start """" ""{currentExePath}"" --updated
 ";
 
             string scriptFile = Path.Combine(ConfigManager.GetUpdatesFolder(), "apply_update.cmd");
+            File.WriteAllText(scriptFile, batchScript);
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c \"{scriptFile}\"",
+                CreateNoWindow = true,
+                UseShellExecute = false
+            };
+
+            Process.Start(psi);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+            return false;
+        }
+    }
+
+    public static bool CanRollback()
+    {
+        try
+        {
+            string? currentExePath = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(currentExePath)) return false;
+            string backupPath = currentExePath + ".bak";
+            return File.Exists(backupPath);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static bool RollbackAndRestart(out string errorMessage)
+    {
+        errorMessage = string.Empty;
+        try
+        {
+            string? currentExePath = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(currentExePath))
+            {
+                errorMessage = "Không tìm thấy đường dẫn tệp thực thi hiện tại.";
+                return false;
+            }
+
+            string backupPath = currentExePath + ".bak";
+            if (!File.Exists(backupPath))
+            {
+                errorMessage = "Không tìm thấy tệp sao lưu phiên bản trước (.bak) để khôi phục.";
+                return false;
+            }
+
+            string tempCurrent = currentExePath + ".failed";
+            string batchScript = $@"
+@echo off
+timeout /t 1 /nobreak >nul
+if exist ""{tempCurrent}"" del /f /q ""{tempCurrent}""
+if exist ""{currentExePath}"" move /y ""{currentExePath}"" ""{tempCurrent}""
+move /y ""{backupPath}"" ""{currentExePath}""
+start """" ""{currentExePath}"" --rolled-back
+";
+
+            string scriptFile = Path.Combine(ConfigManager.GetUpdatesFolder(), "apply_rollback.cmd");
             File.WriteAllText(scriptFile, batchScript);
 
             var psi = new ProcessStartInfo
@@ -222,4 +300,3 @@ start """" ""{currentExePath}"" --updated
         return string.Compare(vNew, vCurrent, StringComparison.OrdinalIgnoreCase) > 0;
     }
 }
-

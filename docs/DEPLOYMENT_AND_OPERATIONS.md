@@ -195,58 +195,59 @@ Vào tab **Cài Đặt** trên phần mềm Remote Print Manager:
 
 ---
 
-## 6. Quy Trình Cập Nhật & Nâng Cấp Phần Mềm Trực Tiếp (Update & Upgrade)
+## 6. Quy Trình Cập Nhật & Nâng Cấp Phần Mềm Tự Động & Trực Tiếp (Update & Upgrade)
 
-Tính năng cập nhật trực tiếp cho phép nâng cấp phiên bản mới mà **không cần đến từng máy tính để cài đặt lại thủ công**.
+Tính năng cập nhật trực tiếp cho phép nâng cấp phiên bản mới mà **không cần đến từng máy tính để cài đặt lại thủ công hay cấu hình lại từ đầu**.
 
-### 6.1. Thao tác 1-Click Update trên giao diện người dùng
-Tại cả Máy Chủ và 3 Máy Con:
-1. Vào tab **"Cài Đặt"** → Khu vực **"Cập Nhật & Nâng Cấp Phần Mềm"**.
-2. Phần mềm định kỳ tự động kiểm tra, hoặc người dùng nhấn nút **"🔍 Kiểm tra cập nhật"**.
-3. Nếu có phiên bản mới (ví dụ V1.0.1), màn hình sẽ hiển thị:
-   * Huy hiệu xanh: `Có bản cập nhật mới: V1.0.1`
-   * Bấm **"📝 Xem nội dung thay đổi"** để đọc chi tiết nhật ký nâng cấp.
-4. Bấm nút **"⚡ Cập nhật ngay"**:
-   * Hệ thống tự động kiểm tra nếu đang có lệnh in dở dang, sẽ cảnh báo chờ hoàn tất.
-   * Tiến trình tải xuống hiển thị trực quan từ 0% đến 100%.
-   * Hệ thống kiểm tra mã băm SHA-256 tự động để đảm bảo an toàn tuyệt đối.
+### 6.1. Thao tác trên giao diện người dùng (Cả Máy Chủ và Máy Con)
+1. Vào tab **"Cài đặt"** → Khu vực **"Cập nhật & Nâng cấp phần mềm"**.
+2. Phần mềm hỗ trợ 2 chế độ:
+   * **Cập nhật thủ công:** Người dùng chủ động nhấn nút **"🔍 Kiểm tra cập nhật"** bất kỳ lúc nào.
+   * **Cập nhật tự động:** Phần mềm tự động kiểm tra khi khởi động và định kỳ mỗi 60 phút. Khi phát hiện bản mới, xuất hiện thông báo:
+     > *"Đã có phiên bản Remote Print Manager V1.0.1. Phiên bản mới cải thiện khả năng kết nối và khắc phục lỗi hoạt động. Bạn có muốn cập nhật ngay không?"*
+3. Khi có bản cập nhật mới, nút **"⚡ Cập nhật & Nâng cấp"** nổi bật bằng màu cam thương hiệu (`#FF7900`).
+4. Bấm nút **"⚡ Cập nhật & Nâng cấp"**:
+   * Hệ thống tự động kiểm tra: nếu đang có tài liệu in dở dang, phần mềm cảnh báo ưu tiên in xong trước để tránh gián đoạn bản in.
+   * Tiến trình tải xuống hiển thị trực quan (0% - 100%) kèm thanh đo màu cam.
+   * Hệ thống tự động xác thực mã băm SHA-256 để chống lỗi tải file hoặc tệp bị can thiệp.
    * Tự động sao lưu bản cũ thành `RemotePrintManager.exe.bak`, hoán đổi tệp mới và khởi động lại.
+5. Nếu phiên bản đang sử dụng là mới nhất, hệ thống hiển thị: **"Bạn đang sử dụng phiên bản mới nhất"**.
 
 ---
 
-### 6.2. Quy trình phát hành bản cập nhật mới (Dành cho Developer/Admin)
-Khi bạn chỉnh sửa mã nguồn để vá lỗi hoặc bổ sung giao diện mới:
-1. Mở PowerShell tại thư mục dự án và chạy kịch bản đóng gói:
+### 6.2. Kênh phát hành thử nghiệm (Release Channels: Stable & Beta)
+Để hỗ trợ thử nghiệm phiên bản mới trên một máy trước khi áp dụng cho toàn bộ văn phòng:
+* **Kênh Chính thức (Stable):** Mặc định cho Máy Chủ và các máy con cần độ ổn định tuyệt đối. Chỉ nhận những bản phát hành chính thức đã qua kiểm nghiệm.
+* **Kênh Thử nghiệm (Beta):** Dành cho máy con thử nghiệm (ví dụ Máy con số 1).
+  * Khi Developer tạo bản vá lỗi (ví dụ V1.0.2 với kênh Beta), chỉ máy con số 1 nhận bản cập nhật này.
+  * Máy chủ và các máy con khác vẫn giữ nguyên phiên bản ổn định hiện tại.
+  * Sau khi máy con 1 in thử thành công, Developer phát hành bản V1.0.2 sang kênh Stable để toàn bộ công ty cùng nâng cấp.
+
+---
+
+### 6.3. Cơ chế Khôi phục phiên bản trước (Rollback) & Bảo toàn dữ liệu 100%
+* **Bảo toàn dữ liệu 100%:** Toàn bộ thông tin cấu hình đặt tại `%AppData%\RemotePrintManager\config.json` tách biệt với tệp thực thi. Sau khi nâng cấp, phần mềm tự nhận diện lại vai trò máy chủ/máy con, mã ghép đôi, máy in chia sẻ, danh sách máy con được duyệt và toàn bộ lịch sử in ấn.
+* **Khôi phục phiên bản trước (Rollback):** Nếu bản cập nhật mới gặp sự cố tương thích, giao diện sẽ xuất hiện nút **"↺ Khôi phục phiên bản trước"**. Chỉ cần 1 cú nhấp chuột, hệ thống sẽ khôi phục lại tệp `.bak` trước đó và khởi động lại ngay lập tức mà không làm mất cấu hình.
+
+---
+
+### 6.4. Quy trình phát hành bản cập nhật mới (Dành cho Developer)
+Khi bạn chỉnh sửa mã nguồn để sửa lỗi hoặc bổ sung tính năng mới:
+1. Mở PowerShell tại thư mục dự án và chạy công cụ phát hành tự động:
    ```powershell
-   .\build.ps1 -Version "1.0.1" -Changelog @(
-       "Cải thiện tốc độ truyền file in khổ lớn",
-       "Tự động kết nối lại khi mạng 4G/Wifi phục hồi",
-       "Khắc phục sự cố bộ đệm Windows Spooler"
-   )
+   # Phát hành bản thử nghiệm cho máy con kiểm thử:
+   .\scripts\publish_release.ps1 -Version "1.0.1" -Channel "Beta" -Changelog @("Khắc phục lỗi tự động kết nối lại sau khi mất Internet")
+
+   # Hoặc phát hành bản chính thức cho toàn bộ công ty:
+   .\scripts\publish_release.ps1 -Version "1.0.1" -Channel "Stable" -Changelog @("Bản phát hành chính thức ổn định")
    ```
 2. Kịch bản sẽ tự động:
-   * Chạy toàn bộ 8 bài Unit Test.
-   * Biên dịch `RemotePrintManager.exe` mới.
-   * Tính toán mã băm SHA-256 mới.
-   * Xuất file `publish/version.json`.
-3. Tải `RemotePrintManager.exe` và `version.json` lên máy chủ cập nhật (Relay Server hoặc GitHub Releases).
-
----
-
-### 6.3. Quy trình thử nghiệm từng bước (Canary Rollout)
-Để đảm bảo tính liên tục của công việc văn phòng:
-1. **Bước 1:** Bấm cập nhật trên **Máy con số 1** trước tiên.
-2. **Bước 2:** In thử nghiệm văn bản Word, Excel thực tế từ máy 1.
-3. **Bước 3:** Sau khi xác nhận máy 1 in mượt mà, thông báo cho Quản trị viên và 2 máy con còn lại bấm cập nhật hoàn tất toàn hệ thống.
-
----
-
-### 6.4. Cơ chế bảo toàn dữ liệu cấu hình 100%
-Trong toàn bộ quá trình nâng cấp, tệp cấu hình `%AppData%\RemotePrintManager\config.json` được bảo vệ hoàn toàn:
-* Vai trò Máy Chủ / Máy Con không bị mất.
-* Tên máy in đã chia sẻ được giữ nguyên.
-* Danh sách 3 máy con đã được phê duyệt không cần duyệt lại.
-* Lịch sử nhật ký hoạt động được bảo toàn nguyên vẹn.
+   * Chạy toàn bộ 17 bài Unit Test (bắt buộc đạt 100%).
+   * Biên dịch Single-File Executable `RemotePrintManager.exe` mới.
+   * Tính toán mã băm SHA-256 xác thực.
+   * Tạo tệp manifest `publish/version.json` (hoặc `version_beta.json`).
+   * Đồng bộ tệp tải về vào Relay Server hoặc GitHub Releases.
+3. Khi Relay Server hoặc máy chủ GitHub tiếp nhận file mới, cả 4 máy tính đang chạy phần mềm sẽ tự động phát hiện và người dùng chỉ cần nhấn **"Cập nhật & Nâng cấp"** là hoàn tất!
 
 ---
 
