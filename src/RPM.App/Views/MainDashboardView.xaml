@@ -427,7 +427,7 @@
                             </Grid.ColumnDefinitions>
                             <TextBox Grid.Column="0" x:Name="TxtSearchClient" Style="{StaticResource ModernTextBox}" TextChanged="TxtSearchClient_TextChanged" ToolTip="Tìm theo tên máy, UUID hoặc phòng ban..."/>
                             <ComboBox Grid.Column="2" x:Name="CmbStatusFilter" SelectionChanged="CmbFilter_SelectionChanged" Height="32" VerticalContentAlignment="Center">
-                                <ComboBoxItem Content="Tất cả trạng thái" IsSelected="True"/>
+                                <ComboBoxItem Content="Tất cả trạng thái"/>
                                 <ComboBoxItem Content="Trực tuyến (Online)"/>
                                 <ComboBoxItem Content="Chờ phê duyệt"/>
                                 <ComboBoxItem Content="Ngoại tuyến (Offline)"/>

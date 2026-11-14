@@ -35,6 +35,7 @@ public partial class MainDashboardView : UserControl
     private readonly ObservableCollection<AuditCheckItem> _auditItems = new();
 
     private DashboardSubView _currentSubView = DashboardSubView.Home;
+    private bool _isViewLoaded = false;
 
     public event EventHandler? OnMinimizeRequested;
     public event EventHandler? OnRoleChangeRequested;
@@ -85,6 +86,7 @@ public partial class MainDashboardView : UserControl
 
     private void MainDashboardView_Loaded(object sender, RoutedEventArgs e)
     {
+        _isViewLoaded = true;
         if (_settings.Role == AppRole.Server)
         {
             PanelServerMode.Visibility = Visibility.Visible;
@@ -403,7 +405,7 @@ public partial class MainDashboardView : UserControl
 
     private void LoadDevicesView()
     {
-        if (CmbDepartmentFilter.Items.Count <= 1)
+        if (CmbDepartmentFilter != null && CmbDepartmentFilter.Items.Count <= 1)
         {
             CmbDepartmentFilter.Items.Clear();
             CmbDepartmentFilter.Items.Add(new ComboBoxItem { Content = "Tất cả phòng ban", IsSelected = true });
@@ -412,12 +414,14 @@ public partial class MainDashboardView : UserControl
                 CmbDepartmentFilter.Items.Add(new ComboBoxItem { Content = dept });
             }
         }
+        if (CmbStatusFilter != null && CmbStatusFilter.SelectedIndex < 0) CmbStatusFilter.SelectedIndex = 0;
+        if (CmbDepartmentFilter != null && CmbDepartmentFilter.SelectedIndex < 0) CmbDepartmentFilter.SelectedIndex = 0;
         ApplyClientFilters();
     }
 
     private void ApplyClientFilters()
     {
-        if (_serverService == null) return;
+        if (!_isViewLoaded || _serverService == null) return;
 
         string searchText = TxtSearchClient?.Text?.Trim().ToLowerInvariant() ?? string.Empty;
         string statusFilter = (CmbStatusFilter?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Tất cả trạng thái";
@@ -452,15 +456,25 @@ public partial class MainDashboardView : UserControl
             _filteredClients.Add(client);
         }
 
-        TxtClientStats.Text = $"Tổng: {_serverService.ConnectedClients.Count} thiết bị | Online: {onlineCount} | Chờ duyệt: {pendingCount} | Offline: {offlineCount}";
+        if (TxtClientStats != null)
+        {
+            TxtClientStats.Text = $"Tổng: {_serverService.ConnectedClients.Count} thiết bị | Online: {onlineCount} | Chờ duyệt: {pendingCount} | Offline: {offlineCount}";
+        }
     }
 
-    private void TxtSearchClient_TextChanged(object sender, TextChangedEventArgs e) => ApplyClientFilters();
-    private void CmbFilter_SelectionChanged(object sender, SelectionChangedEventArgs e) => ApplyClientFilters();
+    private void TxtSearchClient_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_isViewLoaded) ApplyClientFilters();
+    }
+
+    private void CmbFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isViewLoaded) ApplyClientFilters();
+    }
 
     private void BtnClearFilters_Click(object sender, RoutedEventArgs e)
     {
-        TxtSearchClient.Text = string.Empty;
+        if (TxtSearchClient != null) TxtSearchClient.Text = string.Empty;
         if (CmbStatusFilter != null) CmbStatusFilter.SelectedIndex = 0;
         if (CmbDepartmentFilter != null) CmbDepartmentFilter.SelectedIndex = 0;
         ApplyClientFilters();
