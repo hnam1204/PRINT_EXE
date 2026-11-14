@@ -236,7 +236,19 @@ public partial class MainDashboardView : UserControl
         if (_isSettingsOpen && _currentSettingsTab == SettingsTab.General)
             TxtSettingsConnectionStatus.Text = isApproved && _clientService.Relay.IsConnected ? "Đã kết nối" : "Chưa kết nối";
 
-        if (isApproved)
+        if (_clientService.IsConnecting)
+        {
+            DotStatus.Fill = (SolidColorBrush)Application.Current.Resources["WarningBrush"];
+            PillStatus.Background = (SolidColorBrush)Application.Current.Resources["WarningLightBrush"];
+            TxtHeaderStatus.Foreground = (SolidColorBrush)Application.Current.Resources["WarningBrush"];
+            TxtClientApprovalStatus.Text = "Đang tìm máy chủ...";
+            BorderApprovalStatus.Background = (SolidColorBrush)Application.Current.Resources["WarningLightBrush"];
+            TxtClientApprovalStatus.Foreground = (SolidColorBrush)Application.Current.Resources["WarningBrush"];
+            TxtClientConnectBtnText.Text = "Đang tìm...";
+            BtnClientConnectToggle.Style = (Style)Application.Current.Resources["PrimaryBtn"];
+            BtnClientConnectToggle.IsEnabled = false;
+        }
+        else if (isApproved)
         {
             DotStatus.Fill = (SolidColorBrush)Application.Current.Resources["SuccessBrush"];
             PillStatus.Background = (SolidColorBrush)Application.Current.Resources["SuccessLightBrush"];
@@ -248,6 +260,7 @@ public partial class MainDashboardView : UserControl
 
             TxtClientConnectBtnText.Text = "Ngắt kết nối";
             BtnClientConnectToggle.Style = (Style)Application.Current.Resources["DestructiveBtn"];
+            BtnClientConnectToggle.IsEnabled = true;
         }
         else
         {
@@ -261,6 +274,7 @@ public partial class MainDashboardView : UserControl
 
             TxtClientConnectBtnText.Text = "Kết nối";
             BtnClientConnectToggle.Style = (Style)Application.Current.Resources["PrimaryBtn"];
+            BtnClientConnectToggle.IsEnabled = true;
         }
 
         if (_clientService.RemotePrinter != null)
@@ -912,8 +926,17 @@ public partial class MainDashboardView : UserControl
 
             _settings.PairingCode = code;
             ConfigManager.Save(_settings);
-            await _clientService.ConnectToServerAsync(code);
-            UpdateClientUI();
+            BtnClientConnectToggle.IsEnabled = false;
+            TxtClientConnectBtnText.Text = "Đang tìm...";
+            try
+            {
+                await _clientService.ConnectToServerAsync(code);
+            }
+            finally
+            {
+                BtnClientConnectToggle.IsEnabled = true;
+                UpdateClientUI();
+            }
         }
     }
 

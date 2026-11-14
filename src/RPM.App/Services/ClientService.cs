@@ -19,6 +19,7 @@ public class ClientService : IDisposable
     private bool _isApproved;
     private string _connectionStatus = "Chưa kết nối";
     private SharedPrinterInfo? _remotePrinter;
+    private TaskCompletionSource<bool>? _joinRequestCompletion;
 
     public RelayClient Relay => _relayClient;
     public LocalIppServer IppServer => _ippServer;
@@ -27,6 +28,7 @@ public class ClientService : IDisposable
     public ObservableCollection<SharedPrinterInfo> AvailablePrinters { get; } = new();
     public SharedPrinterInfo? RemotePrinter => _remotePrinter;
     public bool IsApproved => _isApproved;
+    public bool IsConnecting { get; private set; }
     public string ConnectionStatus => _connectionStatus;
 
     public event EventHandler<string>? OnLog;
@@ -83,22 +85,53 @@ public class ClientService : IDisposable
         }
         _relayClient.PairingCode = _settings.PairingCode;
         ConfigManager.Save(_settings);
+        IsConnecting = true;
+        _connectionStatus = "Đang tìm máy chủ...";
+        OnStateChanged?.Invoke(this, EventArgs.Empty);
+
+        var joinCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _joinRequestCompletion = joinCompletion;
 
         if (!RelayEndpointPolicy.TryValidateForRole(AppRole.Client, _settings.RelayServerUrl, out var reason))
         {
             _connectionStatus = "Chưa kết nối";
+            _joinRequestCompletion = null;
             OnLog?.Invoke(this, reason + " Hãy thiết lập địa chỉ Host/Relay trong Chẩn đoán.");
             OnStateChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
 
-        if (_relayClient.IsConnected)
+        try
         {
-            await SendJoinRequestAsync();
+            if (_relayClient.IsConnected)
+            {
+                bool sent = await SendJoinRequestAsync();
+                joinCompletion.TrySetResult(sent);
+            }
+            else
+            {
+                await _relayClient.StartAsync(_settings.RelayServerUrl);
+            }
+
+            var completed = await Task.WhenAny(joinCompletion.Task, Task.Delay(TimeSpan.FromSeconds(15)));
+            if (completed != joinCompletion.Task)
+            {
+                _connectionStatus = "Không tìm thấy máy chủ";
+                OnLog?.Invoke(this, "Không nhận được phản hồi từ máy chủ trong 15 giây.");
+                OnStateChanged?.Invoke(this, EventArgs.Empty);
+            }
         }
-        else
+        catch (Exception ex)
         {
-            await _relayClient.StartAsync(_settings.RelayServerUrl);
+            _connectionStatus = "Không thể kết nối máy chủ";
+            OnLog?.Invoke(this, $"Lỗi tìm máy chủ: {ex.Message}");
+            OnStateChanged?.Invoke(this, EventArgs.Empty);
+        }
+        finally
+        {
+            _joinRequestCompletion = null;
+            IsConnecting = false;
+            OnStateChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
@@ -109,7 +142,8 @@ public class ClientService : IDisposable
 
         if (!string.IsNullOrWhiteSpace(_settings.PairingCode))
         {
-            await SendJoinRequestAsync();
+            bool sent = await SendJoinRequestAsync();
+            _joinRequestCompletion?.TrySetResult(sent);
         }
     }
 
@@ -119,12 +153,12 @@ public class ClientService : IDisposable
         OnStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private async Task SendJoinRequestAsync()
+    private async Task<bool> SendJoinRequestAsync()
     {
         if (!PacketSecurity.IsValidPairingCode(_settings.PairingCode))
         {
             OnLog?.Invoke(this, "Không thể gửi yêu cầu: mã ghép đôi không hợp lệ.");
-            return;
+            return false;
         }
         var device = new DeviceInfo
         {
@@ -151,7 +185,14 @@ public class ClientService : IDisposable
         _connectionStatus = "Đã gửi yêu cầu ghép đôi, chờ duyệt...";
         OnStateChanged?.Invoke(this, EventArgs.Empty);
 
-        await _relayClient.SendPacketAsync(packet);
+        bool sent = await _relayClient.SendPacketAsync(packet);
+        if (!sent)
+        {
+            _connectionStatus = "Không thể gửi yêu cầu";
+            OnStateChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        return sent;
     }
 
     private void Relay_OnPacketReceived(object? sender, NetworkPacket packet)
