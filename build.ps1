@@ -2,7 +2,7 @@ param(
     [string]$Version = "1.0.0",
     [string[]]$Changelog = @(
         "Thiet ke lai toan bo giao dien sang chuan Fluent UI Windows 11",
-        "Tu dong khoi dong Relay Cloud noi bo tren may chu (khong con loi mat ket noi)",
+        "Tu dong khoi dong Relay Cloud noi bo tren may chu",
         "Nang cap bang DataGrid khong con duong vien tho, bo sung huy hieu mau sac",
         "Thay the toan bo emoji bang Vector Icon SVG sac net",
         "Bao toan 100% cau hinh va thiet lap in an"
@@ -40,23 +40,27 @@ if ($LASTEXITCODE -ne 0) {
 
 # 3. Publish Single File Desktop App
 Write-Host "`n[3/5] Dang dong goi Single-File Executable cho RPM.App..." -ForegroundColor Gray
-dotnet publish src/RPM.App/RPM.App.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o publish/single-file
+$tempPublish = "publish/temp-app"
+dotnet publish src/RPM.App/RPM.App.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=None -o $tempPublish
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Publish RPM.App that bai!" -ForegroundColor Red
     Exit 1
 }
 
-# Rename single file for distribution
-Copy-Item "publish/single-file/RPM.App.exe" -Destination "publish/RemotePrintManager.exe" -Force
-Copy-Item "publish/single-file/RPM.App.exe" -Destination "publish/single-file/RemotePrintManager.exe" -Force
+New-Item -ItemType Directory -Force -Path "publish" | Out-Null
+Move-Item "$tempPublish/RPM.App.exe" -Destination "publish/RemotePrintManager.exe" -Force
+Remove-Item -Recurse -Force $tempPublish -ErrorAction SilentlyContinue
 
 # 4. Publish Standalone Cloud Relay Broker
 Write-Host "`n[4/5] Dang dong goi RPM.Relay Broker..." -ForegroundColor Gray
-dotnet publish src/RPM.Relay/RPM.Relay.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o publish/relay
+dotnet publish src/RPM.Relay/RPM.Relay.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=None -o publish/relay
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Publish RPM.Relay that bai!" -ForegroundColor Red
     Exit 1
 }
+
+# Clean all debug symbols and temporary artifacts in publish directory
+Get-ChildItem -Path "publish" -Recurse -Filter "*.pdb" | Remove-Item -Force -ErrorAction SilentlyContinue
 
 # 5. Generate Manifest version.json with SHA-256 Checksum
 Write-Host "`n[5/5] Dang tinh toan ma SHA-256 va tao version.json cho he thong cap nhat..." -ForegroundColor Gray
@@ -71,7 +75,7 @@ $manifestObj = [ordered]@{
     sha256 = $fileHash
     minSupportedVersion = "1.0.0"
     changelog = $Changelog
-    releaseNotes = "Phien ban V$Version voi giao dien moi va tinh nang khoi dong Relay tu dong."
+    releaseNotes = "Phien ban V$Version voi giao dien Fluent UI va khoi dong Relay tu dong."
 }
 
 $manifestJson = $manifestObj | ConvertTo-Json -Depth 5
@@ -83,9 +87,10 @@ New-Item -ItemType Directory -Force -Path $relayUpdatesDir | Out-Null
 Copy-Item "publish/version.json" -Destination "publish/relay/version.json" -Force
 Copy-Item "publish/RemotePrintManager.exe" -Destination "$relayUpdatesDir/RemotePrintManager.exe" -Force
 
-# Create portable zip distribution
-Write-Host "`nDang tao file zip phan phoi..." -ForegroundColor Gray
-Compress-Archive -Path "publish/single-file/*" -DestinationPath "publish/RemotePrintManager_v$Version`_Portable.zip" -Force
+# Create clean portable zip distribution (only executable + manifest, no debug symbols)
+Write-Host "`nDang tao file zip phan phoi toi gian, sach se..." -ForegroundColor Gray
+$zipContent = @("publish/RemotePrintManager.exe", "publish/version.json")
+Compress-Archive -Path $zipContent -DestinationPath "publish/RemotePrintManager_v$Version`_Portable.zip" -Force
 
 Write-Host "`n==========================================================" -ForegroundColor Green
 Write-Host "   DONG GOI THANH CONG! TEP PHAN PHOI SAN SANG:           " -ForegroundColor Green

@@ -3,12 +3,28 @@ bin/
 obj/
 [Bb]in/
 [Oo]bj/
+
+## Build & Publishing outputs
+publish/
+bin-installer/
+TestResults/
+
+## User & IDE specific
 *.user
 *.suo
 *.userosscache
 *.sln.docstates
+*.DotSettings.user
 .vs/
 .vscode/
-publish/
-bin-installer/
+.idea/
 
+## Temporary & Debug files
+*.pdb
+*.tmp
+*.bak
+*.log
+*.trx
+Thumbs.db
+[Dd]esktop.ini
+.DS_Store
