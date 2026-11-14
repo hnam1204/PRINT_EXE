@@ -4,7 +4,7 @@
 #define MyAppName "Remote Print Manager"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Cong Ty"
-#define MyAppExeName "RPM.App.exe"
+#define MyAppExeName "RemotePrintManager.exe"
 
 [Setup]
 AppId={{E68A86FE-12A4-4A3C-9366-267980302F9A}

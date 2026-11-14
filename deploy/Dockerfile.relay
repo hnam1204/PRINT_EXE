@@ -1,0 +1,29 @@
+# Multi-stage Dockerfile for RPM.Relay (Cloud Broker)
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+WORKDIR /src
+
+# Copy project definition files
+COPY ["src/RPM.Core/RPM.Core.csproj", "src/RPM.Core/"]
+COPY ["src/RPM.Networking/RPM.Networking.csproj", "src/RPM.Networking/"]
+COPY ["src/RPM.Relay/RPM.Relay.csproj", "src/RPM.Relay/"]
+RUN dotnet restore "src/RPM.Relay/RPM.Relay.csproj"
+
+# Copy source code and build
+COPY ["src/RPM.Core/", "src/RPM.Core/"]
+COPY ["src/RPM.Networking/", "src/RPM.Networking/"]
+COPY ["src/RPM.Relay/", "src/RPM.Relay/"]
+WORKDIR "/src/src/RPM.Relay"
+RUN dotnet publish "RPM.Relay.csproj" -c Release -o /app/publish
+
+# Runtime image
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
+WORKDIR /app
+COPY --from=build /app/publish .
+
+# Expose Relay WebSocket & HTTP port
+EXPOSE 9090
+
+# Environmental variables
+ENV PORT=9090
+
+ENTRYPOINT ["dotnet", "RPM.Relay.dll"]

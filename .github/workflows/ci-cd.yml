@@ -1,0 +1,73 @@
+name: Build, Test & Release
+
+on:
+  push:
+    branches: [ "master", "main" ]
+    tags:
+      - "v*.*.*"
+  pull_request:
+    branches: [ "master", "main" ]
+
+jobs:
+  test:
+    name: Run Automated Tests
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore Dependencies
+        run: dotnet restore
+
+      - name: Run Tests
+        run: dotnet test --configuration Release --verbosity normal
+
+  build-and-release:
+    name: Build & Publish Release Assets
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Extract Tag Version
+        id: get_version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          echo "VERSION=$version" >> $env:GITHUB_ENV
+          echo "Using version: $version"
+
+      - name: Execute Build Script
+        shell: pwsh
+        run: |
+          .\build.ps1 -Version "$env:VERSION"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Remote Print Manager v${{ env.VERSION }}"
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            publish/RemotePrintManager.exe
+            publish/RemotePrintManager_v${{ env.VERSION }}_Portable.zip
+            publish/version.json
+            publish/relay/RPM.Relay.exe

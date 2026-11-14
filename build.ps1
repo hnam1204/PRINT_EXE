@@ -44,6 +44,7 @@ if ($LASTEXITCODE -ne 0) {
 
 # Rename single file for distribution
 Copy-Item "publish/single-file/RPM.App.exe" -Destination "publish/RemotePrintManager.exe" -Force
+Copy-Item "publish/single-file/RPM.App.exe" -Destination "publish/single-file/RemotePrintManager.exe" -Force
 
 # 4. Publish Standalone Cloud Relay Broker
 Write-Host "`n[4/5] Dang dong goi RPM.Relay Broker..." -ForegroundColor Gray

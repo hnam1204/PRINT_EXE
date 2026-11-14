@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  rpm-relay:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.relay
+    container_name: rpm-relay-server
+    restart: always
+    ports:
+      - "9090:9090"
+    environment:
+      - PORT=9090
+    volumes:
+      - ./updates:/app/updates:ro
