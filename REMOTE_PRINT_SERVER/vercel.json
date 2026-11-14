@@ -3,7 +3,15 @@
   "builds": [
     { "src": "api/index.py", "use": "@vercel/python" }
   ],
+  "functions": {
+    "api/index.py": {
+      "runtime": "python3.12"
+    }
+  },
   "routes": [
     { "src": "/(.*)", "dest": "api/index.py" }
+  ],
+  "crons": [
+    { "path": "/api/v1/internal/cleanup", "schedule": "0 2 * * *" }
   ]
 }

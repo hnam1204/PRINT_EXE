@@ -51,6 +51,7 @@ class PairingCode(Base):
     session_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
     code_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    code_ciphertext: Mapped[str] = mapped_column(Text)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(16), default="ACTIVE", index=True)
@@ -101,14 +102,24 @@ class RateLimitEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class CleanupRun(Base):
+    __tablename__ = "cleanup_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    summary: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
 def make_engine(database_url: str):
     connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
     return create_engine(database_url, connect_args=connect_args, pool_pre_ping=True)
 
 
-def create_session_factory(database_url: str):
+def create_session_factory(database_url: str, create_schema: bool = True):
     engine = make_engine(database_url)
-    Base.metadata.create_all(engine)
+    if create_schema:
+        Base.metadata.create_all(engine)
     return engine, sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 

@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
 from .config import ConfigurationError, Settings
-from .database import AuditEvent, Device, Pairing, PrintJob, Printer, as_utc, create_session_factory, utcnow
+from .database import AuditEvent, Device, Pairing, PairingCode, PrintJob, Printer, as_utc, create_session_factory, utcnow
 from .schemas import (
     DeviceProfile,
     DeviceRegistration,
@@ -24,14 +24,20 @@ from .schemas import (
     PrintJobResponse,
     PrinterRegistration,
     PrinterResponse,
+    PairingCodeIssueRequest,
+    PairingCodeResolveRequest,
+    PairingCodeResolveResponse,
+    PairingCodeResponse,
 )
+from .pairing_codes import decrypt_pairing_code, hash_pairing_code, issue_pairing_code
+from .cleanup import run_cleanup
 from .security import enforce_rate_limit, hash_token, new_device_token, require_device, require_role
 
 
 def create_app(settings: Settings | None = None, database_url: str | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     db_url = database_url or settings.database_url
-    engine, session_factory = create_session_factory(db_url)
+    engine, session_factory = create_session_factory(db_url, create_schema=db_url.startswith("sqlite"))
 
     app = FastAPI(
         title=settings.app_name,
@@ -216,6 +222,107 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 code=pairing.code, status=pairing.status, expiresAt=pairing.expires_at,
             )
 
+    @app.post("/api/v1/pairing-codes/issue", response_model=PairingCodeResponse, status_code=201, tags=["Pairing codes"])
+    def issue_code(payload: PairingCodeIssueRequest, device: Device = Depends(require_device)):
+        now = utcnow()
+        with session_factory() as session:
+            existing = session.scalar(select(PairingCode).where(PairingCode.session_id == payload.sessionId))
+            if existing:
+                if existing.device_id != device.id:
+                    raise HTTPException(status_code=409, detail="Session belongs to another device")
+                if existing.status == "ACTIVE" and as_utc(existing.expires_at) <= now:
+                    existing.status = "EXPIRED"
+                    session.commit()
+                code = decrypt_pairing_code(existing.code_ciphertext, settings.enrollment_secret) if existing.status == "ACTIVE" else None
+                return PairingCodeResponse(
+                    sessionId=existing.session_id, code=code, issuedAt=existing.issued_at,
+                    expiresAt=existing.expires_at, status=existing.status,
+                )
+            session.query(PairingCode).filter(
+                PairingCode.device_id == device.id, PairingCode.status == "ACTIVE"
+            ).update({"status": "REVOKED", "revoked_at": now}, synchronize_session=False)
+            expires_at = now + timedelta(minutes=settings.pairing_ttl_minutes)
+            try:
+                record, plain_code = issue_pairing_code(
+                    session, device.id, payload.sessionId, expires_at, settings.enrollment_secret
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc))
+            except RuntimeError:
+                session.rollback()
+                raise HTTPException(status_code=503, detail="No unique pairing code is currently available")
+            session.add(AuditEvent(actor_id=device.id, action="PAIRING_CODE_ISSUED", target_type="PAIRING_CODE", target_id=record.id))
+            session.commit()
+            return PairingCodeResponse(
+                sessionId=record.session_id, code=plain_code, issuedAt=record.issued_at,
+                expiresAt=record.expires_at, status=record.status,
+            )
+
+    @app.get("/api/v1/pairing-codes/current", response_model=PairingCodeResponse, tags=["Pairing codes"])
+    def current_code(device: Device = Depends(require_device)):
+        now = utcnow()
+        with session_factory() as session:
+            record = session.scalar(
+                select(PairingCode).where(PairingCode.device_id == device.id).order_by(PairingCode.issued_at.desc())
+            )
+            if record is None:
+                raise HTTPException(status_code=404, detail="No pairing code has been issued")
+            if record.status == "ACTIVE" and as_utc(record.expires_at) <= now:
+                record.status = "EXPIRED"
+                session.commit()
+            code = decrypt_pairing_code(record.code_ciphertext, settings.enrollment_secret) if record.status == "ACTIVE" else None
+            return PairingCodeResponse(
+                sessionId=record.session_id, code=code, issuedAt=record.issued_at,
+                expiresAt=record.expires_at, status=record.status,
+            )
+
+    @app.post("/api/v1/pairing-codes/resolve", response_model=PairingCodeResolveResponse, status_code=201, tags=["Pairing codes"])
+    def resolve_code(payload: PairingCodeResolveRequest, request: Request, device: Device = Depends(require_device)):
+        require_role(device, "CLIENT")
+        with session_factory() as session:
+            enforce_rate_limit(
+                session,
+                f"pairing-resolve:{device.id}",
+                settings.rate_limit_max_attempts,
+                settings.rate_limit_window_seconds,
+            )
+            record = session.scalar(select(PairingCode).where(PairingCode.code_hash == hash_pairing_code(payload.code)))
+            now = utcnow()
+            if record is None or record.status != "ACTIVE" or as_utc(record.expires_at) <= now:
+                if record is not None and record.status == "ACTIVE":
+                    record.status = "EXPIRED"
+                session.add(AuditEvent(actor_id=device.id, action="PAIRING_CODE_REJECTED", target_type="PAIRING_CODE", target_id=record.id if record else None))
+                session.commit()
+                raise HTTPException(status_code=404, detail="Invalid or expired pairing code")
+            host = session.get(Device, record.device_id)
+            if host is None or host.role != "HOST" or host.is_revoked or host.id == device.id:
+                raise HTTPException(status_code=404, detail="Invalid or expired pairing code")
+            pairing = Pairing(
+                host_id=host.id, client_id=device.id, code=payload.code,
+                status="PENDING", expires_at=record.expires_at,
+            )
+            session.add(pairing)
+            session.add(AuditEvent(actor_id=device.id, action="PAIRING_REQUESTED", target_type="DEVICE", target_id=host.id))
+            session.commit()
+            return PairingCodeResolveResponse(pairingId=pairing.id, hostId=host.id, clientId=device.id, status=pairing.status)
+
+    @app.post("/api/v1/pairing-codes/revoke", response_model=PairingCodeResponse, tags=["Pairing codes"])
+    def revoke_code(payload: PairingCodeIssueRequest, device: Device = Depends(require_device)):
+        now = utcnow()
+        with session_factory() as session:
+            record = session.scalar(select(PairingCode).where(PairingCode.session_id == payload.sessionId, PairingCode.device_id == device.id))
+            if record is None:
+                raise HTTPException(status_code=404, detail="Pairing code not found")
+            if record.status == "ACTIVE":
+                record.status = "REVOKED"
+                record.revoked_at = now
+                session.add(AuditEvent(actor_id=device.id, action="PAIRING_CODE_REVOKED", target_type="PAIRING_CODE", target_id=record.id))
+                session.commit()
+            return PairingCodeResponse(
+                sessionId=record.session_id, code=None, issuedAt=record.issued_at,
+                expiresAt=record.expires_at, status=record.status,
+            )
+
     @app.post("/api/v1/printers", response_model=PrinterResponse, tags=["Printers"])
     def register_printer(payload: PrinterRegistration, device: Device = Depends(require_device)):
         require_role(device, "HOST")
@@ -304,6 +411,14 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 jobId=job.id, idempotencyKey=job.idempotency_key, clientId=job.client_id,
                 hostId=job.host_id, printerId=job.printer_id, status=job.status, metadata=job.metadata_json,
             )
+
+    @app.get("/api/v1/internal/cleanup", tags=["Internal"])
+    def internal_cleanup(authorization: str | None = Header(default=None)):
+        if not settings.cron_secret or not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Cron authorization required")
+        if not secrets.compare_digest(authorization.removeprefix("Bearer ").strip(), settings.cron_secret):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid cron authorization")
+        return run_cleanup(session_factory, engine)
 
     return app
 

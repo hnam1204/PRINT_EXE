@@ -1,0 +1,11 @@
+[project]
+name = "remote-print-server"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi==0.115.6",
+  "psycopg[binary]==3.2.3",
+  "pydantic==2.10.4",
+  "SQLAlchemy==2.0.36",
+  "cryptography==44.0.0",
+]

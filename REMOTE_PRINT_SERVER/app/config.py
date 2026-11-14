@@ -19,6 +19,7 @@ class Settings:
     database_url: str
     enrollment_secret: str
     admin_api_key: str
+    cron_secret: str
     allowed_origins: tuple[str, ...]
     pairing_ttl_minutes: int
     max_pairing_attempts: int
@@ -33,10 +34,11 @@ class Settings:
         origins = _csv(os.getenv("ALLOWED_ORIGINS", "http://localhost:3000"))
         enrollment_secret = os.getenv("ENROLLMENT_SECRET", "")
         admin_api_key = os.getenv("ADMIN_API_KEY", "")
+        cron_secret = os.getenv("CRON_SECRET", "")
 
         if environment in {"production", "preview"}:
-            if not enrollment_secret or not admin_api_key:
-                raise ConfigurationError("ENROLLMENT_SECRET and ADMIN_API_KEY are required outside development.")
+            if not enrollment_secret or not admin_api_key or not cron_secret:
+                raise ConfigurationError("ENROLLMENT_SECRET, ADMIN_API_KEY and CRON_SECRET are required outside development.")
             if not origins or "*" in origins:
                 raise ConfigurationError("ALLOWED_ORIGINS must explicitly list HTTPS origins.")
             if any(not origin.startswith("https://") for origin in origins):
@@ -55,6 +57,7 @@ class Settings:
             database_url=database_url,
             enrollment_secret=enrollment_secret,
             admin_api_key=admin_api_key,
+            cron_secret=cron_secret,
             allowed_origins=origins,
             pairing_ttl_minutes=int(os.getenv("PAIRING_TTL_MINUTES", "10")),
             max_pairing_attempts=int(os.getenv("MAX_PAIRING_ATTEMPTS", "5")),

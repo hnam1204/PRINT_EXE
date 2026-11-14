@@ -28,6 +28,20 @@ CREATE TABLE IF NOT EXISTS pairings (
 CREATE INDEX IF NOT EXISTS ix_pairings_host_status ON pairings(host_id, status);
 CREATE INDEX IF NOT EXISTS ix_pairings_client_status ON pairings(client_id, status);
 
+CREATE TABLE IF NOT EXISTS pairing_codes (
+    id VARCHAR(36) PRIMARY KEY,
+    session_id VARCHAR(128) NOT NULL UNIQUE,
+    device_id VARCHAR(128) NOT NULL REFERENCES devices(id),
+    code_hash VARCHAR(64) NOT NULL UNIQUE,
+    code_ciphertext TEXT NOT NULL,
+    issued_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'ACTIVE',
+    revoked_at TIMESTAMPTZ NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_pairing_codes_device_status ON pairing_codes(device_id, status);
+
 CREATE TABLE IF NOT EXISTS printers (
     id VARCHAR(128) PRIMARY KEY,
     host_id VARCHAR(128) NOT NULL REFERENCES devices(id),
@@ -69,3 +83,13 @@ CREATE TABLE IF NOT EXISTS rate_limit_events (
 );
 
 CREATE INDEX IF NOT EXISTS ix_rate_limit_events_bucket_created ON rate_limit_events(bucket, created_at);
+
+CREATE TABLE IF NOT EXISTS cleanup_runs (
+    id VARCHAR(36) PRIMARY KEY,
+    started_at TIMESTAMPTZ NOT NULL,
+    finished_at TIMESTAMPTZ NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    summary JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS ix_cleanup_runs_finished_at ON cleanup_runs(finished_at);
