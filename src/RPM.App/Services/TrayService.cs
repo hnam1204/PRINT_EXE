@@ -20,10 +20,26 @@ public class TrayService : IDisposable
         Icon? appIcon = null;
         try
         {
-            var iconStream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/RPM.App;component/Assets/app.ico"))?.Stream;
-            if (iconStream != null)
+            var iconUri = new Uri("pack://application:,,,/RPM.App;component/Assets/app.ico");
+            var sri = System.Windows.Application.GetResourceStream(iconUri);
+            if (sri?.Stream != null)
             {
-                appIcon = new Icon(iconStream);
+                using var ms = new MemoryStream();
+                sri.Stream.CopyTo(ms);
+                ms.Position = 0;
+
+                // Load native small icon resolution matching Windows system metrics
+                int smallW = SystemInformation.SmallIconSize.Width;
+                int smallH = SystemInformation.SmallIconSize.Height;
+                try
+                {
+                    appIcon = new Icon(ms, smallW, smallH);
+                }
+                catch
+                {
+                    ms.Position = 0;
+                    appIcon = new Icon(ms);
+                }
             }
         }
         catch { }
