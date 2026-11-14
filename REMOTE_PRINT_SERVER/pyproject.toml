@@ -10,6 +10,9 @@ dependencies = [
   "cryptography==44.0.0",
 ]
 
+[tool.vercel]
+entrypoint = "app.main:app"
+
 [tool.pytest.ini_options]
 markers = [
   "integration: requires an explicitly configured external service",

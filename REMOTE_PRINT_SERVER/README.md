@@ -6,7 +6,7 @@ Independent coordination API for Remote Print Manager. This service stores devic
 
 Vercel is pinned to Python 3.12. Use Python 3.12 locally for an identical runtime; Python 3.11 remains usable for the current test suite when 3.12 is not installed.
 
-Vercel detects `api/index.py` as the FastAPI function. The `vercel.json` file configures only the function duration, rewrite, and Cron; Python selection comes from `pyproject.toml`, not a custom Vercel runtime string.
+Vercel detects the FastAPI instance through `tool.vercel.entrypoint = "app.main:app"` in `pyproject.toml`. The `vercel.json` file configures only the `app/main.py` function duration and Cron; no catch-all rewrite or custom runtime string is required.
 
 ```powershell
 cd "D:\ĐỒ ÁN WEBSITE\GITHUB\PRINTEXE\REMOTE_PRINT_SERVER"

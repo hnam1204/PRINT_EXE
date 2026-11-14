@@ -1,13 +1,11 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "functions": {
-    "api/index.py": {
+    "app/main.py": {
       "maxDuration": 10
     }
   },
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index.py" }
-  ],
   "crons": [
     { "path": "/api/v1/internal/cleanup", "schedule": "0 2 * * *" }
   ]

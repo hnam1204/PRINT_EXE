@@ -34,3 +34,11 @@ def test_health_reports_database_unavailable_without_connection_details(tmp_path
     assert response.json()["status"] == "degraded"
     assert response.json()["dependencies"]["database"] == "unavailable"
     assert "connection" not in str(response.json()).lower()
+
+
+def test_unknown_path_remains_not_found(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}")
+
+    response = TestClient(app).get("/api/v1/does-not-exist")
+
+    assert response.status_code == 404
