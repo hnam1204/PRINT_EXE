@@ -1,0 +1,64 @@
+from dataclasses import dataclass
+import os
+from urllib.parse import urlparse
+
+
+class ConfigurationError(RuntimeError):
+    pass
+
+
+def _csv(value: str) -> tuple[str, ...]:
+    return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
+@dataclass(frozen=True)
+class Settings:
+    app_name: str
+    api_version: str
+    environment: str
+    database_url: str
+    enrollment_secret: str
+    admin_api_key: str
+    allowed_origins: tuple[str, ...]
+    pairing_ttl_minutes: int
+    max_pairing_attempts: int
+    heartbeat_timeout_seconds: int
+    rate_limit_window_seconds: int
+    rate_limit_max_attempts: int
+
+    @classmethod
+    def from_env(cls) -> "Settings":
+        environment = os.getenv("RPM_SERVER_ENV", "development").lower()
+        database_url = os.getenv("DATABASE_URL", "sqlite:///./remote_print_server.db")
+        origins = _csv(os.getenv("ALLOWED_ORIGINS", "http://localhost:3000"))
+        enrollment_secret = os.getenv("ENROLLMENT_SECRET", "")
+        admin_api_key = os.getenv("ADMIN_API_KEY", "")
+
+        if environment in {"production", "preview"}:
+            if not enrollment_secret or not admin_api_key:
+                raise ConfigurationError("ENROLLMENT_SECRET and ADMIN_API_KEY are required outside development.")
+            if not origins or "*" in origins:
+                raise ConfigurationError("ALLOWED_ORIGINS must explicitly list HTTPS origins.")
+            if any(not origin.startswith("https://") for origin in origins):
+                raise ConfigurationError("Production CORS origins must use HTTPS.")
+            if database_url.startswith("sqlite"):
+                raise ConfigurationError("Production requires PostgreSQL persistence.")
+
+        parsed = urlparse(database_url)
+        if parsed.scheme not in {"sqlite", "postgresql", "postgres"}:
+            raise ConfigurationError("DATABASE_URL must be SQLite for local development or PostgreSQL for deployment.")
+
+        return cls(
+            app_name="Remote Print Server",
+            api_version="v1",
+            environment=environment,
+            database_url=database_url,
+            enrollment_secret=enrollment_secret,
+            admin_api_key=admin_api_key,
+            allowed_origins=origins,
+            pairing_ttl_minutes=int(os.getenv("PAIRING_TTL_MINUTES", "10")),
+            max_pairing_attempts=int(os.getenv("MAX_PAIRING_ATTEMPTS", "5")),
+            heartbeat_timeout_seconds=int(os.getenv("HEARTBEAT_TIMEOUT_SECONDS", "120")),
+            rate_limit_window_seconds=int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "900")),
+            rate_limit_max_attempts=int(os.getenv("RATE_LIMIT_MAX_ATTEMPTS", "10")),
+        )
