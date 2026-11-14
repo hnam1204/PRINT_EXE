@@ -36,26 +36,26 @@ public partial class CompatibilityDialog : Window
         switch (report.OverallLevel)
         {
             case CompatibilityLevel.Compatible:
-                BannerOverall.Background = new SolidColorBrush(Color.FromArgb(255, 236, 253, 245));
-                BannerOverall.BorderBrush = new SolidColorBrush(Color.FromArgb(255, 167, 243, 208));
+                BannerOverall.Background = new SolidColorBrush(Color.FromArgb(255, 232, 248, 238)); // #E8F8EE
+                BannerOverall.BorderBrush = new SolidColorBrush(Color.FromArgb(255, 21, 184, 74));   // #15B84A
                 TxtOverallTitle.Text = "● THIẾT BỊ HOÀN TOÀN TƯƠNG THÍCH (100% SẴN SÀNG)";
-                TxtOverallTitle.Foreground = new SolidColorBrush(Color.FromArgb(255, 5, 150, 105));
+                TxtOverallTitle.Foreground = new SolidColorBrush(Color.FromArgb(255, 21, 184, 74));  // #15B84A
                 TxtOverallMessage.Text = report.SummaryMessage;
                 break;
 
             case CompatibilityLevel.NeedsSetup:
-                BannerOverall.Background = new SolidColorBrush(Color.FromArgb(255, 255, 251, 235));
-                BannerOverall.BorderBrush = new SolidColorBrush(Color.FromArgb(255, 253, 230, 138));
+                BannerOverall.Background = new SolidColorBrush(Color.FromArgb(255, 254, 246, 230)); // #FEF6E6
+                BannerOverall.BorderBrush = new SolidColorBrush(Color.FromArgb(255, 242, 169, 0));   // #F2A900
                 TxtOverallTitle.Text = "▲ THIẾT BỊ CẦN THIẾT LẬP BỔ SUNG";
-                TxtOverallTitle.Foreground = new SolidColorBrush(Color.FromArgb(255, 217, 119, 6));
+                TxtOverallTitle.Foreground = new SolidColorBrush(Color.FromArgb(255, 242, 169, 0));  // #F2A900
                 TxtOverallMessage.Text = report.SummaryMessage;
                 break;
 
             case CompatibilityLevel.Incompatible:
-                BannerOverall.Background = new SolidColorBrush(Color.FromArgb(255, 254, 242, 242));
-                BannerOverall.BorderBrush = new SolidColorBrush(Color.FromArgb(255, 254, 202, 202));
+                BannerOverall.Background = new SolidColorBrush(Color.FromArgb(255, 250, 236, 235)); // #FAECEB
+                BannerOverall.BorderBrush = new SolidColorBrush(Color.FromArgb(255, 197, 61, 50));   // #C53D32
                 TxtOverallTitle.Text = "✕ THIẾT BỊ KHÔNG TƯƠNG THÍCH";
-                TxtOverallTitle.Foreground = new SolidColorBrush(Color.FromArgb(255, 220, 38, 38));
+                TxtOverallTitle.Foreground = new SolidColorBrush(Color.FromArgb(255, 197, 61, 50));  // #C53D32
                 TxtOverallMessage.Text = report.SummaryMessage;
                 break;
         }

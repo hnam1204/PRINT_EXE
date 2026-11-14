@@ -56,7 +56,7 @@
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <Path Data="{StaticResource GeoDashboard}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="Tổng Quan" VerticalAlignment="Center"/>
+                        <TextBlock Text="Tổng quan" VerticalAlignment="Center"/>
                     </StackPanel>
                 </TabItem.Header>
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">
@@ -157,7 +157,7 @@
                                 </StackPanel>
 
                                 <!-- Cloud Status Indicator -->
-                                <Border Grid.Column="1" Background="#F8FAFC" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="16,12" VerticalAlignment="Center" Margin="20,0,0,0">
+                                <Border Grid.Column="1" Background="{StaticResource BgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="16,12" VerticalAlignment="Center" Margin="20,0,0,0">
                                     <StackPanel>
                                         <TextBlock Text="Trạng thái Relay Cloud:" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
                                         <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
@@ -179,7 +179,7 @@
                                     </StackPanel>
                                     <Button Style="{StaticResource SecondaryBtn}" Content="Xóa nhật ký" Click="BtnClearLog_Click" HorizontalAlignment="Right" Padding="12,5" FontSize="11"/>
                                 </Grid>
-                                <Border Background="#F8FAFC" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="8">
+                                <Border Background="{StaticResource BgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="8">
                                     <ListBox x:Name="LstActivityLog" Height="220" BorderThickness="0" Background="Transparent" FontFamily="Consolas, Segoe UI" FontSize="12"/>
                                 </Border>
                             </StackPanel>
@@ -193,7 +193,7 @@
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <Path Data="{StaticResource GeoPrinter}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="Máy In" VerticalAlignment="Center"/>
+                        <TextBlock Text="Máy in" VerticalAlignment="Center"/>
                     </StackPanel>
                 </TabItem.Header>
                 <Grid Margin="0,6,0,0">
@@ -296,7 +296,7 @@
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <Path Data="{StaticResource GeoDevices}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="Thiết Bị Kết Nối" VerticalAlignment="Center"/>
+                        <TextBlock Text="Thiết bị" VerticalAlignment="Center"/>
                     </StackPanel>
                 </TabItem.Header>
                 <Grid Margin="0,6,0,0">
@@ -407,7 +407,7 @@
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <Path Data="{StaticResource GeoQueue}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="Hàng Đợi In" VerticalAlignment="Center"/>
+                        <TextBlock Text="Lệnh in" VerticalAlignment="Center"/>
                     </StackPanel>
                 </TabItem.Header>
                 <Grid Margin="0,6,0,0">
@@ -444,7 +444,7 @@
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <Path Data="{StaticResource GeoSettings}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}" Width="14" Height="14" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="Cài Đặt" VerticalAlignment="Center"/>
+                        <TextBlock Text="Cài đặt" VerticalAlignment="Center"/>
                     </StackPanel>
                 </TabItem.Header>
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,6,0,0">

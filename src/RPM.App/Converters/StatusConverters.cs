@@ -69,10 +69,10 @@ public class BoolToBadgeBgConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        // Light green vs light gray
+        // Light green #E8F8EE vs light cream-gray #F4ECE5
         return value is true 
-            ? new SolidColorBrush(Color.FromArgb(255, 222, 247, 236)) 
-            : new SolidColorBrush(Color.FromArgb(255, 243, 244, 246));
+            ? new SolidColorBrush(Color.FromArgb(255, 232, 248, 238)) 
+            : new SolidColorBrush(Color.FromArgb(255, 244, 236, 229));
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
@@ -82,10 +82,10 @@ public class BoolToBadgeFgConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        // Dark green vs dark gray
+        // Success green #15B84A vs text muted #64748B
         return value is true 
-            ? new SolidColorBrush(Color.FromArgb(255, 3, 84, 63)) 
-            : new SolidColorBrush(Color.FromArgb(255, 107, 114, 128));
+            ? new SolidColorBrush(Color.FromArgb(255, 21, 184, 74)) 
+            : new SolidColorBrush(Color.FromArgb(255, 100, 116, 139));
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
@@ -96,8 +96,8 @@ public class OnlineBadgeBgConverter : IValueConverter
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
         return value is true 
-            ? new SolidColorBrush(Color.FromArgb(255, 222, 247, 236)) 
-            : new SolidColorBrush(Color.FromArgb(255, 254, 242, 242));
+            ? new SolidColorBrush(Color.FromArgb(255, 232, 248, 238)) 
+            : new SolidColorBrush(Color.FromArgb(255, 250, 236, 235));
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
@@ -108,8 +108,8 @@ public class OnlineBadgeFgConverter : IValueConverter
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
         return value is true 
-            ? new SolidColorBrush(Color.FromArgb(255, 3, 84, 63)) 
-            : new SolidColorBrush(Color.FromArgb(255, 155, 28, 28));
+            ? new SolidColorBrush(Color.FromArgb(255, 21, 184, 74)) 
+            : new SolidColorBrush(Color.FromArgb(255, 197, 61, 50));
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
@@ -123,13 +123,13 @@ public class LevelToBadgeBgConverter : IValueConverter
         {
             return level switch
             {
-                RPM.Core.Diagnostics.CompatibilityLevel.Compatible => new SolidColorBrush(Color.FromArgb(255, 222, 247, 236)),
-                RPM.Core.Diagnostics.CompatibilityLevel.NeedsSetup => new SolidColorBrush(Color.FromArgb(255, 254, 243, 199)),
-                RPM.Core.Diagnostics.CompatibilityLevel.Incompatible => new SolidColorBrush(Color.FromArgb(255, 254, 226, 226)),
-                _ => new SolidColorBrush(Color.FromArgb(255, 243, 244, 246))
+                RPM.Core.Diagnostics.CompatibilityLevel.Compatible => new SolidColorBrush(Color.FromArgb(255, 232, 248, 238)),
+                RPM.Core.Diagnostics.CompatibilityLevel.NeedsSetup => new SolidColorBrush(Color.FromArgb(255, 254, 246, 230)),
+                RPM.Core.Diagnostics.CompatibilityLevel.Incompatible => new SolidColorBrush(Color.FromArgb(255, 250, 236, 235)),
+                _ => new SolidColorBrush(Color.FromArgb(255, 244, 236, 229))
             };
         }
-        return new SolidColorBrush(Color.FromArgb(255, 243, 244, 246));
+        return new SolidColorBrush(Color.FromArgb(255, 244, 236, 229));
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
@@ -143,13 +143,13 @@ public class LevelToBadgeFgConverter : IValueConverter
         {
             return level switch
             {
-                RPM.Core.Diagnostics.CompatibilityLevel.Compatible => new SolidColorBrush(Color.FromArgb(255, 3, 84, 63)),
-                RPM.Core.Diagnostics.CompatibilityLevel.NeedsSetup => new SolidColorBrush(Color.FromArgb(255, 180, 83, 9)),
-                RPM.Core.Diagnostics.CompatibilityLevel.Incompatible => new SolidColorBrush(Color.FromArgb(255, 185, 28, 28)),
-                _ => new SolidColorBrush(Color.FromArgb(255, 75, 85, 99))
+                RPM.Core.Diagnostics.CompatibilityLevel.Compatible => new SolidColorBrush(Color.FromArgb(255, 21, 184, 74)),
+                RPM.Core.Diagnostics.CompatibilityLevel.NeedsSetup => new SolidColorBrush(Color.FromArgb(255, 242, 169, 0)),
+                RPM.Core.Diagnostics.CompatibilityLevel.Incompatible => new SolidColorBrush(Color.FromArgb(255, 197, 61, 50)),
+                _ => new SolidColorBrush(Color.FromArgb(255, 100, 116, 139))
             };
         }
-        return new SolidColorBrush(Color.FromArgb(255, 75, 85, 99));
+        return new SolidColorBrush(Color.FromArgb(255, 100, 116, 139));
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();

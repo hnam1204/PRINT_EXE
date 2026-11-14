@@ -63,7 +63,7 @@ public partial class UpdateControl : UserControl
     private async Task CheckForUpdatesInternalAsync(bool silent)
     {
         BtnCheckUpdate.IsEnabled = false;
-        SetStatusState("Đang kiểm tra...", PrimaryColor, LightBlueColor);
+        SetStatusState("Đang kiểm tra...", PrimaryColor, LightPrimaryColor);
 
         var result = await UpdateService.CheckForUpdatesAsync(_settings.UpdateFeedUrl, _settings.AppVersion);
 
@@ -142,7 +142,7 @@ public partial class UpdateControl : UserControl
         BtnUpdateNow.IsEnabled = false;
         BtnCheckUpdate.IsEnabled = false;
         PanelProgress.Visibility = Visibility.Visible;
-        SetStatusState("Đang tải bản cập nhật...", PrimaryColor, LightBlueColor);
+        SetStatusState("Đang tải bản cập nhật...", PrimaryColor, LightPrimaryColor);
 
         var progress = new Progress<int>(percent =>
         {
@@ -236,14 +236,14 @@ public partial class UpdateControl : UserControl
         BorderStatusBadge.Background = bgColor;
     }
 
-    private static readonly SolidColorBrush PrimaryColor = new(Color.FromArgb(255, 0, 120, 212));
-    private static readonly SolidColorBrush SuccessColor = new(Color.FromArgb(255, 16, 124, 65));
-    private static readonly SolidColorBrush WarningColor = new(Color.FromArgb(255, 216, 59, 1));
-    private static readonly SolidColorBrush DangerColor = new(Color.FromArgb(255, 168, 0, 0));
+    private static readonly SolidColorBrush PrimaryColor = new(Color.FromArgb(255, 255, 121, 0)); // #FF7900 Cam chính
+    private static readonly SolidColorBrush SuccessColor = new(Color.FromArgb(255, 21, 184, 74));  // #15B84A Xanh lá thành công
+    private static readonly SolidColorBrush WarningColor = new(Color.FromArgb(255, 242, 169, 0));  // #F2A900 Vàng cảnh báo
+    private static readonly SolidColorBrush DangerColor = new(Color.FromArgb(255, 197, 61, 50));   // #C53D32 Đỏ báo lỗi
 
-    private static readonly SolidColorBrush LightBlueColor = new(Color.FromArgb(255, 240, 246, 255));
-    private static readonly SolidColorBrush LightGreenColor = new(Color.FromArgb(255, 223, 246, 221));
-    private static readonly SolidColorBrush LightYellowColor = new(Color.FromArgb(255, 255, 244, 206));
-    private static readonly SolidColorBrush LightRedColor = new(Color.FromArgb(255, 253, 231, 233));
+    private static readonly SolidColorBrush LightPrimaryColor = new(Color.FromArgb(255, 255, 242, 232)); // #FFF2E8
+    private static readonly SolidColorBrush LightGreenColor = new(Color.FromArgb(255, 232, 248, 238));   // #E8F8EE
+    private static readonly SolidColorBrush LightYellowColor = new(Color.FromArgb(255, 254, 246, 230));  // #FEF6E6
+    private static readonly SolidColorBrush LightRedColor = new(Color.FromArgb(255, 250, 236, 235));     // #FAECEB
 }
 

@@ -22,7 +22,7 @@
                     </StackPanel>
 
                     <!-- Status Pill -->
-                    <Border Grid.Column="2" x:Name="BorderStatusBadge" Background="#F0F6FF" CornerRadius="12" Padding="12,5" VerticalAlignment="Center">
+                    <Border Grid.Column="2" x:Name="BorderStatusBadge" Background="{StaticResource PrimaryLightBrush}" CornerRadius="12" Padding="12,5" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal">
                             <Ellipse x:Name="DotUpdateStatus" Width="8" Height="8" Fill="{StaticResource PrimaryBrush}" Margin="0,0,6,0"/>
                             <TextBlock x:Name="TxtStatusBadge" Text="Sẵn sàng kiểm tra" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource PrimaryBrush}"/>
@@ -41,7 +41,7 @@
                     </Grid.ColumnDefinitions>
 
                     <!-- Current Version -->
-                    <Border Grid.Column="0" Background="#F8F9FA" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                    <Border Grid.Column="0" Background="{StaticResource BgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12">
                         <StackPanel>
                             <TextBlock Text="PHIÊN BẢN HIỆN TẠI" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
                             <TextBlock x:Name="TxtCurrentVersion" Text="V1.0.0" FontSize="18" FontWeight="Bold" Foreground="{StaticResource TextMainBrush}" Margin="0,4,0,0"/>
@@ -49,7 +49,7 @@
                     </Border>
 
                     <!-- Latest Version -->
-                    <Border Grid.Column="2" Background="#F8F9FA" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                    <Border Grid.Column="2" Background="{StaticResource BgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12">
                         <StackPanel>
                             <TextBlock Text="PHIÊN BẢN MỚI NHẤT" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
                             <TextBlock x:Name="TxtLatestVersion" Text="Chưa kiểm tra" FontSize="18" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,4,0,0"/>
@@ -57,7 +57,7 @@
                     </Border>
 
                     <!-- Release Date -->
-                    <Border Grid.Column="4" Background="#F8F9FA" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                    <Border Grid.Column="4" Background="{StaticResource BgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12">
                         <StackPanel>
                             <TextBlock Text="NGÀY PHÁT HÀNH" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
                             <TextBlock x:Name="TxtReleaseDate" Text="--" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}" Margin="0,6,0,0"/>
@@ -65,11 +65,11 @@
                     </Border>
                 </Grid>
 
-                <!-- Action Buttons -->
+                <!-- Action Buttons: Orange Primary Button -->
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
-                    <Button x:Name="BtnCheckUpdate" Style="{StaticResource PrimaryBtn}" Content="🔍 Kiểm tra cập nhật" Click="BtnCheckUpdate_Click" Margin="0,0,10,0" Height="38"/>
-                    <Button x:Name="BtnUpdateNow" Style="{StaticResource SuccessBtn}" Content="⚡ Cập nhật ngay" Click="BtnUpdateNow_Click" Margin="0,0,10,0" Height="38" Visibility="Collapsed"/>
-                    <Button x:Name="BtnToggleChangelog" Style="{StaticResource SecondaryBtn}" Content="📝 Xem nội dung thay đổi" Click="BtnToggleChangelog_Click" Margin="0,0,10,0" Height="38" Visibility="Collapsed"/>
+                    <Button x:Name="BtnCheckUpdate" Style="{StaticResource PrimaryBtn}" Content="⚡ Cập nhật &amp; Nâng cấp" Click="BtnCheckUpdate_Click" Margin="0,0,10,0" Height="40" Padding="18,8"/>
+                    <Button x:Name="BtnUpdateNow" Style="{StaticResource PrimaryBtn}" Content="🚀 Cài đặt bản nâng cấp ngay" Click="BtnUpdateNow_Click" Margin="0,0,10,0" Height="40" Padding="18,8" Visibility="Collapsed"/>
+                    <Button x:Name="BtnToggleChangelog" Style="{StaticResource SecondaryBtn}" Content="📝 Xem nội dung thay đổi" Click="BtnToggleChangelog_Click" Margin="0,0,10,0" Height="40" Padding="16,8" Visibility="Collapsed"/>
                 </StackPanel>
 
                 <!-- Progress Bar Area -->
@@ -82,7 +82,7 @@
                 </StackPanel>
 
                 <!-- Changelog Box -->
-                <Border x:Name="BorderChangelog" Visibility="Collapsed" Background="#F0F8FF" BorderBrush="#BEE3F8" BorderThickness="1" CornerRadius="6" Padding="14" Margin="0,0,0,14">
+                <Border x:Name="BorderChangelog" Visibility="Collapsed" Background="{StaticResource BgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,14">
                     <StackPanel>
                         <TextBlock Text="CÁC NÂNG CẤP VÀ SỬA LỖI TRONG BẢN MỚI:" FontSize="12" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,0,0,8"/>
                         <ItemsControl x:Name="IcChangelog">
