@@ -143,9 +143,9 @@ public partial class MainWindow : Window
         }
         else
         {
-            _trayService?.Dispose();
-            _serverService?.Dispose();
-            _clientService?.Dispose();
+            try { _trayService?.Dispose(); } catch { }
+            try { _serverService?.Dispose(); } catch { }
+            try { _clientService?.Dispose(); } catch { }
         }
     }
 }

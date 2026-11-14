@@ -17,9 +17,20 @@ public class TrayService : IDisposable
 
     private void InitializeTray()
     {
+        Icon? appIcon = null;
+        try
+        {
+            var iconStream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/RPM.App;component/Assets/app.ico"))?.Stream;
+            if (iconStream != null)
+            {
+                appIcon = new Icon(iconStream);
+            }
+        }
+        catch { }
+
         _notifyIcon = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = appIcon ?? SystemIcons.Application,
             Text = "Remote Print Manager",
             Visible = true
         };
@@ -57,23 +68,33 @@ public class TrayService : IDisposable
 
     private void ExitApp()
     {
-        _notifyIcon?.Dispose();
         if (_mainWindow is MainWindow mw)
         {
             mw.ExitApplication();
         }
         else
         {
-            Application.Current.Shutdown();
+            Dispose();
+            System.Windows.Application.Current.Shutdown();
         }
     }
 
     public void Dispose()
     {
-        if (_notifyIcon != null)
+        try
         {
-            _notifyIcon.Visible = false;
-            _notifyIcon.Dispose();
+            if (_notifyIcon != null)
+            {
+                _notifyIcon.Visible = false;
+                _notifyIcon.Dispose();
+            }
+        }
+        catch
+        {
+            // Ignore native WinForms tray icon cleanup exceptions
+        }
+        finally
+        {
             _notifyIcon = null;
         }
     }
