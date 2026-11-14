@@ -9,6 +9,8 @@ class DeviceRegistration(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     role: Literal["HOST", "CLIENT"]
     appVersion: str = Field(min_length=1, max_length=32)
+    publicKey: str | None = Field(default=None, max_length=8192)
+    keyAlgorithm: Literal["RSA-OAEP-SHA256"] = "RSA-OAEP-SHA256"
 
 
 class DeviceRegistrationResponse(BaseModel):
@@ -25,6 +27,8 @@ class DeviceProfile(BaseModel):
     appVersion: str
     isRevoked: bool
     lastSeenAt: datetime
+    publicKey: str | None = None
+    keyAlgorithm: str = "RSA-OAEP-SHA256"
 
 
 class HeartbeatResponse(BaseModel):
@@ -35,6 +39,10 @@ class HeartbeatResponse(BaseModel):
 
 class PairingRequest(BaseModel):
     hostId: str = Field(min_length=1, max_length=128)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    accuracyMeters: float | None = Field(default=None, ge=0, le=100000)
+    locationTimestamp: datetime | None = None
 
 
 class PairingResponse(BaseModel):
@@ -44,6 +52,7 @@ class PairingResponse(BaseModel):
     code: str
     status: str
     expiresAt: datetime
+    locationStatus: str = "UNVERIFIED"
 
 
 class PairingDecision(BaseModel):
@@ -57,6 +66,26 @@ class PendingPairing(BaseModel):
     clientName: str
     code: str
     expiresAt: datetime
+    locationStatus: str = "UNVERIFIED"
+    distanceMeters: float | None = None
+
+
+class PairingSummary(BaseModel):
+    hostId: str
+    approvedCount: int
+    onlineCount: int
+    maxClients: int
+
+
+class GeofenceSettings(BaseModel):
+    enabled: bool = False
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    radiusMeters: float = Field(default=1000, gt=0, le=100000)
+
+
+class GeofenceResponse(GeofenceSettings):
+    hostId: str
 
 
 class PrinterRegistration(BaseModel):
@@ -80,6 +109,14 @@ class PrintJobRequest(BaseModel):
     hostId: str = Field(min_length=1, max_length=128)
     printerId: str = Field(min_length=1, max_length=128)
     metadata: dict = Field(default_factory=dict)
+    dataRef: str | None = Field(default=None, max_length=512)
+    contentSha256: str | None = Field(default=None, min_length=64, max_length=64, pattern=r"^[a-fA-F0-9]{64}$")
+    contentSize: int | None = Field(default=None, ge=0, le=52428800)
+    contentType: str | None = Field(default=None, max_length=120)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    accuracyMeters: float | None = Field(default=None, ge=0, le=100000)
+    locationTimestamp: datetime | None = None
 
 
 class PrintJobResponse(BaseModel):
@@ -90,6 +127,44 @@ class PrintJobResponse(BaseModel):
     printerId: str
     status: str
     metadata: dict
+    dataRef: str | None = None
+    contentSha256: str | None = None
+    contentSize: int | None = None
+    contentType: str | None = None
+    claimExpiresAt: datetime | None = None
+    spoolerJobId: str | None = None
+    failureCode: str | None = None
+    failureMessage: str | None = None
+    completedAt: datetime | None = None
+
+
+class JobClaimRequest(BaseModel):
+    leaseSeconds: int = Field(default=120, ge=30, le=900)
+
+
+class JobClaimResponse(PrintJobResponse):
+    claimToken: str
+
+
+class JobRenewRequest(BaseModel):
+    claimToken: str = Field(min_length=20, max_length=256)
+    leaseSeconds: int = Field(default=120, ge=30, le=900)
+
+
+class JobAcknowledgeRequest(BaseModel):
+    claimToken: str = Field(min_length=20, max_length=256)
+
+
+class JobStatusUpdateRequest(BaseModel):
+    claimToken: str = Field(min_length=20, max_length=256)
+    status: Literal["DOWNLOADING", "SPOOLING", "SPOOLER_ACCEPTED", "COMPLETED", "FAILED", "UNKNOWN"]
+    spoolerJobId: str | None = Field(default=None, max_length=128)
+    failureCode: str | None = Field(default=None, max_length=64)
+    failureMessage: str | None = Field(default=None, max_length=500)
+
+
+class JobCancelRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
 
 
 class PairingCodeIssueRequest(BaseModel):
@@ -106,6 +181,10 @@ class PairingCodeResponse(BaseModel):
 
 class PairingCodeResolveRequest(BaseModel):
     code: str = Field(min_length=6, max_length=6, pattern=r"^[A-Z0-9]{6}$")
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    accuracyMeters: float | None = Field(default=None, ge=0, le=100000)
+    locationTimestamp: datetime | None = None
 
 
 class PairingCodeResolveResponse(BaseModel):
@@ -113,3 +192,4 @@ class PairingCodeResolveResponse(BaseModel):
     hostId: str
     clientId: str
     status: str
+    locationStatus: str = "UNVERIFIED"

@@ -104,6 +104,7 @@
                                     <StackPanel Grid.Column="0">
                                         <TextBlock Text="MÃ KẾT NỐI" FontSize="9" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
                                         <TextBlock x:Name="TxtServerPairingCode" Text="RPM-8197" FontSize="22" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,2,0,0"/>
+                                        <TextBlock x:Name="TxtServerPairingExpiry" Text="Mã Relay cục bộ" FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
                                     </StackPanel>
                                     <Button Grid.Column="1" x:Name="BtnCopyPairingCode" Style="{StaticResource PrimaryBtn}" Click="BtnCopyPairingCode_Click" Padding="12,6" VerticalAlignment="Center">
                                         <StackPanel Orientation="Horizontal">
@@ -143,6 +144,10 @@
                                 <TextBlock Text="Máy con:" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
                                 <TextBlock x:Name="TxtServerClientsSummary" Text="0 thiết bị" HorizontalAlignment="Right" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}"/>
                             </Grid>
+                            <Grid Margin="0,0,0,6">
+                                <TextBlock Text="Phạm vi:" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                                <TextBlock x:Name="TxtServerGeofenceStatus" Text="Chưa bật" HorizontalAlignment="Right" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}"/>
+                            </Grid>
                         </StackPanel>
 
                         <!-- CLIENT MODE CONTENT -->
@@ -169,6 +174,10 @@
                                 <Border x:Name="BorderApprovalStatus" HorizontalAlignment="Right" Background="{StaticResource WarningLightBrush}" CornerRadius="4" Padding="6,2">
                                     <TextBlock x:Name="TxtClientApprovalStatus" Text="Chờ kết nối" FontSize="10" FontWeight="Bold" Foreground="{StaticResource WarningBrush}"/>
                                 </Border>
+                            </Grid>
+                            <Grid Margin="0,0,0,12">
+                                <TextBlock Text="Phạm vi:" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                                <TextBlock x:Name="TxtClientGeofenceStatus" Text="Chưa xác minh" HorizontalAlignment="Right" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}"/>
                             </Grid>
 
                             <!-- Remote Printer Card -->
@@ -290,7 +299,7 @@
 
                 <!-- TAB BAR BÊN TRONG CÀI ĐẶT (SEGMENTED TABS SIÊU MƯỢT, ZERO LAG) -->
                 <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="6,5" Margin="0,0,0,8">
-                    <StackPanel Orientation="Horizontal">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                         <Button x:Name="BtnTabGeneral" Style="{StaticResource TabBtn}" Tag="Active" Click="BtnTabGeneral_Click" Margin="0,0,6,0">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource GeoSettings}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="12" Height="12" Stretch="Uniform" Margin="0,0,5,0"/>
@@ -353,11 +362,24 @@
                                         <ColumnDefinition Width="170"/>
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="Phiên bản:" FontSize="12" Foreground="{StaticResource TextMainBrush}" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" x:Name="TxtSettingsVersion" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="0" Text="Windows:" FontSize="12" Foreground="{StaticResource TextMainBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" x:Name="TxtSettingsWindowsVersion" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}" VerticalAlignment="Center"/>
                                 </Grid>
 
-                                <CheckBox x:Name="ChkSettingsAutoStart" Content="Tự mở cùng Windows" Margin="170,2,0,10"/>
+                                <Border Background="{StaticResource BgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="8,6" Margin="0,0,0,8">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="170"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                            <TextBlock Text="Kết nối Cloud" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}"/>
+                                            <TextBlock x:Name="TxtCloudStatus" Text="Đang tắt" FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,1,0,0"/>
+                                        </StackPanel>
+                                        <PasswordBox x:Name="TxtCloudEnrollmentSecret" Grid.Column="1" Height="28" Padding="7,4" VerticalContentAlignment="Center" ToolTip="Mã kích hoạt do quản trị viên cấp"/>
+                                        <Button Grid.Column="2" Style="{StaticResource SecondaryBtn}" Click="BtnCloudEnroll_Click" Padding="10,5" Margin="8,0,0,0">
+                                            <TextBlock Text="Kích hoạt" FontSize="11"/>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+
                                 <StackPanel Visibility="Collapsed">
                                     <CheckBox x:Name="ChkSettingsMinimizeTray" Content="Ẩn xuống khay khi bấm nút đóng" Margin="0,0,0,8"/>
                                     <CheckBox x:Name="ChkSettingsNotifications" Content="Hiện thông báo khi có lệnh in hoặc yêu cầu kết nối" Margin="0,0,0,8"/>
@@ -382,21 +404,23 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <Grid Margin="0,2,0,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                        <TextBlock Text="Cập nhật" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}"/>
-                                        <TextBlock x:Name="TxtSettingsUpdateStatus" Text="Sẵn sàng kiểm tra" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
-                                    </StackPanel>
-                                    <TextBlock Grid.Column="1" x:Name="TxtSettingsUpdateVersion" Text="V1.0.1" FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="10,0,12,0"/>
-                                    <Button Grid.Column="2" Style="{StaticResource SecondaryBtn}" Click="BtnSettingsCheckUpdate_Click" Padding="10,5">
-                                        <TextBlock Text="Kiểm tra cập nhật" FontSize="11"/>
-                                    </Button>
-                                </Grid>
+                                <Border Background="{StaticResource BgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,10,0,0">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                            <TextBlock Text="Cập nhật" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}"/>
+                                            <TextBlock x:Name="TxtSettingsUpdateStatus" Text="Sẵn sàng kiểm tra" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" x:Name="TxtSettingsUpdateVersion" Text="V1.0.1" FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="10,0,12,0"/>
+                                    <Button x:Name="BtnSettingsUpdateAction" Grid.Column="2" Style="{StaticResource SecondaryBtn}" Click="BtnSettingsCheckUpdate_Click" Height="34" VerticalAlignment="Center" Padding="10,5">
+                                        <TextBlock x:Name="TxtSettingsUpdateAction" Text="Kiểm tra cập nhật" FontSize="11"/>
+                                        </Button>
+                                    </Grid>
+                                </Border>
                                 <views:UpdateControl x:Name="SettingsUpdateControl" Visibility="Collapsed"/>
                             </StackPanel>
                         </ScrollViewer>
@@ -476,20 +500,23 @@
                                 </Grid.RowDefinitions>
                                 <Grid Grid.Row="0" Margin="0,0,0,0">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="2*"/>
-                                        <ColumnDefinition Width="6"/>
                                         <ColumnDefinition Width="1.2*"/>
-                                        <ColumnDefinition Width="6"/>
+                                        <ColumnDefinition Width="8"/>
+                                        <ColumnDefinition Width="2*"/>
+                                        <ColumnDefinition Width="8"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBox Grid.Column="0" x:Name="TxtSearchClient" Style="{StaticResource ModernTextBox}" Height="34" Padding="10,0" VerticalContentAlignment="Center" TextChanged="TxtSearchClient_TextChanged" ToolTip="Tìm theo tên máy"/>
-                                    <ComboBox Grid.Column="2" x:Name="CmbStatusFilter" Style="{StaticResource ModernComboBox}" SelectionChanged="CmbFilter_SelectionChanged">
+                                    <ComboBox Grid.Column="0" x:Name="CmbStatusFilter" Style="{StaticResource ModernComboBox}" Height="34" VerticalAlignment="Center" SelectionChanged="CmbFilter_SelectionChanged" ToolTip="Lọc thiết bị theo trạng thái">
                                         <ComboBoxItem Content="Tất cả"/>
                                         <ComboBoxItem Content="Trực tuyến"/>
                                         <ComboBoxItem Content="Ngoại tuyến"/>
                                         <ComboBoxItem Content="Chờ phê duyệt"/>
                                     </ComboBox>
-                                    <Button Grid.Column="4" Style="{StaticResource SecondaryBtn}" Click="BtnClearFilters_Click" Height="34" Padding="12,5">
+                                    <Grid Grid.Column="2" VerticalAlignment="Center">
+                                        <TextBox x:Name="TxtSearchClient" Style="{StaticResource ModernTextBox}" Height="34" Padding="30,0,10,0" VerticalContentAlignment="Center" TextChanged="TxtSearchClient_TextChanged" ToolTip="Tìm theo tên máy"/>
+                                        <Path Data="M9 2a7 7 0 1 0 4.9 12L19 19.1 17.1 21l-5.9-5.9A7 7 0 0 0 9 2zm0 2a5 5 0 1 1 0 10A5 5 0 0 1 9 4z" Fill="{StaticResource TextMutedBrush}" Width="14" Height="14" Stretch="Uniform" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="10,0,0,0" IsHitTestVisible="False"/>
+                                    </Grid>
+                                    <Button Grid.Column="4" Style="{StaticResource SecondaryBtn}" Click="BtnClearFilters_Click" Height="34" VerticalAlignment="Center" Padding="12,5" ToolTip="Xóa tìm kiếm và bộ lọc">
                                         <TextBlock Text="Xóa lọc" FontSize="11"/>
                                     </Button>
                                 </Grid>

@@ -15,9 +15,12 @@ public partial class UpdateControl : UserControl
     private UpdateManifest? _availableManifest;
     private readonly ObservableCollection<UpdateHistoryItem> _history = new();
     private readonly DispatcherTimer _periodicTimer = new();
+    private bool _checkInProgress;
     
     public Func<bool>? HasActivePrintJobsCheck { get; set; }
     public event EventHandler<string>? StatusChanged;
+    public event EventHandler<bool>? UpdateAvailabilityChanged;
+    public bool HasAvailableUpdate { get; private set; }
 
     public UpdateControl()
     {
@@ -101,97 +104,73 @@ public partial class UpdateControl : UserControl
 
     public Task CheckNowAsync() => CheckForUpdatesInternalAsync(silent: false);
 
+    public Task InstallAvailableUpdateAsync() => UpdateNowAsync();
+
     private async Task CheckForUpdatesInternalAsync(bool silent)
     {
+        if (_checkInProgress) return;
+        _checkInProgress = true;
         BtnCheckUpdate.IsEnabled = false;
         SetStatusState("Đang kiểm tra", PrimaryColor, LightPrimaryColor);
 
-        string updateSource = string.IsNullOrWhiteSpace(_settings.UpdateRepositoryUrl) ? _settings.UpdateFeedUrl : _settings.UpdateRepositoryUrl;
-        var result = await UpdateService.CheckForUpdatesAsync(updateSource, _settings.AppVersion, _settings.UpdateChannel);
-
-        BtnCheckUpdate.IsEnabled = true;
-
-        // Update Rollback button visibility
-        BtnRollback.Visibility = result.IsRollbackAvailable ? Visibility.Visible : Visibility.Collapsed;
-
-        if (!string.IsNullOrEmpty(result.ErrorMessage))
+        try
         {
+            string updateSource = string.IsNullOrWhiteSpace(_settings.UpdateRepositoryUrl) ? _settings.UpdateFeedUrl : _settings.UpdateRepositoryUrl;
+            var result = await UpdateService.CheckForUpdatesAsync(updateSource, _settings.AppVersion, _settings.UpdateChannel);
+
+            // Update Rollback button visibility.
+            BtnRollback.Visibility = result.IsRollbackAvailable ? Visibility.Visible : Visibility.Collapsed;
+
+            if (!string.IsNullOrEmpty(result.ErrorMessage))
+            {
+                SetAvailableUpdate(false);
+                SetStatusState("Không kiểm tra được", DangerColor, LightRedColor);
+                TxtLatestVersion.Text = "Không xác định";
+                return;
+            }
+
+            TxtLatestVersion.Text = $"V{result.LatestVersion}";
+            _availableManifest = result.Manifest;
+
+            if (result.Manifest != null)
+            {
+                TxtReleaseDate.Text = result.Manifest.ReleaseDate.ToString("dd/MM/yyyy");
+                IcChangelog.ItemsSource = result.Manifest.Changelog;
+            }
+
+            if (result.HasUpdate)
+            {
+                string channelLabel = result.Channel == "Beta" ? " [Beta]" : "";
+                SetAvailableUpdate(true);
+                SetStatusState($"Có bản mới V{result.LatestVersion}{channelLabel}", WarningColor, LightYellowColor);
+                BtnUpdateNow.Visibility = Visibility.Visible;
+                BtnToggleChangelog.Visibility = Visibility.Visible;
+                BorderChangelog.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                SetAvailableUpdate(false);
+                SetStatusState("Đang dùng bản mới nhất", SuccessColor, LightGreenColor);
+                BtnUpdateNow.Visibility = Visibility.Collapsed;
+                BtnToggleChangelog.Visibility = Visibility.Collapsed;
+                BorderChangelog.Visibility = Visibility.Collapsed;
+            }
+        }
+        catch
+        {
+            SetAvailableUpdate(false);
             SetStatusState("Không kiểm tra được", DangerColor, LightRedColor);
-            TxtLatestVersion.Text = "Không xác định";
-            if (!silent)
-            {
-                MessageBox.Show(
-                    $"Không kiểm tra được bản mới:\n{result.ErrorMessage}\n\n" +
-                    "Hãy kiểm tra địa chỉ cập nhật.", 
-                    "Lỗi cập nhật", 
-                    MessageBoxButton.OK, 
-                    MessageBoxImage.Warning);
-            }
-            return;
         }
-
-        TxtLatestVersion.Text = $"V{result.LatestVersion}";
-        _availableManifest = result.Manifest;
-
-        if (result.Manifest != null)
+        finally
         {
-            TxtReleaseDate.Text = result.Manifest.ReleaseDate.ToString("dd/MM/yyyy");
-            IcChangelog.ItemsSource = result.Manifest.Changelog;
-        }
-
-        if (result.HasUpdate)
-        {
-            string channelLabel = result.Channel == "Beta" ? " [Beta]" : "";
-            SetStatusState($"Có bản mới V{result.LatestVersion}{channelLabel}", WarningColor, LightYellowColor);
-            BtnUpdateNow.Visibility = Visibility.Visible;
-            BtnToggleChangelog.Visibility = Visibility.Visible;
-            BorderChangelog.Visibility = Visibility.Visible;
-
-            // Automatic installation if enabled and no active print jobs
-            if (_settings.AutoInstallUpdates)
-            {
-                bool hasActiveJobs = HasActivePrintJobsCheck != null && HasActivePrintJobsCheck.Invoke();
-                if (!hasActiveJobs)
-                {
-                    // Safe to auto-update
-                    BtnUpdateNow_Click(this, new RoutedEventArgs());
-                    return;
-                }
-            }
-
-            // Prompt user with exact office-friendly message
-            string promptText = $"Có bản mới V{result.LatestVersion}.\n\n" +
-                               (string.IsNullOrWhiteSpace(result.Manifest?.ReleaseNotes) 
-                                   ? "Bản mới sửa lỗi và kết nối tốt hơn." 
-                                   : result.Manifest.ReleaseNotes) +
-                               "\n\nCập nhật ngay?";
-
-            var choice = MessageBox.Show(promptText, "Có bản mới", MessageBoxButton.YesNo, MessageBoxImage.Question);
-            if (choice == MessageBoxResult.Yes)
-            {
-                BtnUpdateNow_Click(this, new RoutedEventArgs());
-            }
-        }
-        else
-        {
-            SetStatusState("Đang dùng bản mới nhất", SuccessColor, LightGreenColor);
-            BtnUpdateNow.Visibility = Visibility.Collapsed;
-            BtnToggleChangelog.Visibility = Visibility.Collapsed;
-            BorderChangelog.Visibility = Visibility.Collapsed;
-
-            if (!silent)
-            {
-                MessageBox.Show(
-                    $"Bạn đang dùng bản mới nhất V{_settings.AppVersion}.\n" +
-                    "Không cần cập nhật.", 
-                    "Cập nhật", 
-                    MessageBoxButton.OK, 
-                    MessageBoxImage.Information);
-            }
+            BtnCheckUpdate.IsEnabled = true;
+            _checkInProgress = false;
         }
     }
 
-    private async void BtnUpdateNow_Click(object sender, RoutedEventArgs e)
+    private async void BtnUpdateNow_Click(object sender, RoutedEventArgs e) => await UpdateNowAsync();
+
+    private async Task UpdateNowAsync()
     {
         if (_availableManifest == null) return;
 
@@ -357,6 +336,13 @@ public partial class UpdateControl : UserControl
         DotUpdateStatus.Fill = textColor;
         BorderStatusBadge.Background = bgColor;
         StatusChanged?.Invoke(this, text);
+    }
+
+    private void SetAvailableUpdate(bool value)
+    {
+        if (HasAvailableUpdate == value) return;
+        HasAvailableUpdate = value;
+        UpdateAvailabilityChanged?.Invoke(this, value);
     }
 
     private static readonly SolidColorBrush PrimaryColor = new(Color.FromArgb(255, 255, 121, 0)); // #FF7900 Cam chính

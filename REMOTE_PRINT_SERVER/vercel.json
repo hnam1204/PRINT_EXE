@@ -3,7 +3,7 @@
   "version": 2,
   "functions": {
     "app/main.py": {
-      "maxDuration": 10
+      "maxDuration": 60
     }
   },
   "crons": [

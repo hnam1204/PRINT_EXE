@@ -185,6 +185,7 @@ public class LocalIppServer : IDisposable
         if (opCode == 0x0002)
         {
             string docName = "RemoteDocument_" + DateTime.Now.ToString("HHmmss");
+            string documentFormat = GetAttributeValue(data, endTagIndex, "document-format") ?? "application/octet-stream";
 
             // Look for job-name inside attributes if possible
             string reqString = Encoding.ASCII.GetString(data, 0, endTagIndex > 8 ? endTagIndex : data.Length);
@@ -211,6 +212,7 @@ public class LocalIppServer : IDisposable
                     JobId = Guid.NewGuid().ToString("N"),
                     DocumentName = docName,
                     FileSizeBytes = payloadLength,
+                    DocumentFormat = documentFormat,
                     SubmittedAt = DateTime.UtcNow,
                     Status = PrintJobStatus.Pending,
                     StatusMessage = "Captured via Ctrl+P"
@@ -222,6 +224,32 @@ public class LocalIppServer : IDisposable
 
         // Operation 0x000B = Get-Printer-Attributes, 0x0004 = Validate-Job
         return CreatePrinterAttributesResponse(major, minor, reqId);
+    }
+
+    private static string? GetAttributeValue(byte[] data, int endTagIndex, string attributeName)
+    {
+        int limit = endTagIndex > 8 ? endTagIndex : data.Length;
+        int index = 8;
+        string? currentName = null;
+        while (index + 4 <= limit)
+        {
+            byte valueTag = data[index++];
+            if (valueTag == 0x03) break; // end-of-attributes delimiter
+            if (valueTag <= 0x0F) continue; // IPP group delimiter
+            int nameLength = (data[index++] << 8) | data[index++];
+            if (index + nameLength + 2 > limit) break;
+            string name = nameLength == 0 && currentName is not null
+                ? currentName
+                : Encoding.UTF8.GetString(data, index, nameLength);
+            index += nameLength;
+            int valueLength = (data[index++] << 8) | data[index++];
+            if (index + valueLength > limit) break;
+            string value = Encoding.UTF8.GetString(data, index, valueLength);
+            index += valueLength;
+            if (nameLength > 0) currentName = name;
+            if (valueTag == 0x49 && string.Equals(name, attributeName, StringComparison.OrdinalIgnoreCase)) return value;
+        }
+        return null;
     }
 
     private byte[] CreateSimpleIppResponse(byte major, byte minor, short statusCode, int reqId)
@@ -261,10 +289,8 @@ public class LocalIppServer : IDisposable
         WriteAttribute(ms, 0x42, "printer-name", PrinterName);
         WriteAttributeInt(ms, 0x23, "printer-state", 3); // 3 = idle / ready
         WriteAttribute(ms, 0x44, "printer-state-reasons", "none");
-        WriteAttribute(ms, 0x49, "document-format-supported", "application/pdf");
         WriteAttribute(ms, 0x49, "document-format-supported", "application/octet-stream");
         WriteAttribute(ms, 0x49, "document-format-supported", "application/postscript");
-        WriteAttribute(ms, 0x49, "document-format-supported", "image/pwg-raster");
 
         ms.WriteByte(0x03); // end of attributes
         return ms.ToArray();

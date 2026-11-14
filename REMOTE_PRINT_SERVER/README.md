@@ -1,6 +1,6 @@
 # Remote Print Server
 
-Independent coordination API for Remote Print Manager. This service stores device identity, pairing state, printer metadata and print-job metadata. It does **not** access Windows Spooler and does not receive or transmit document bytes.
+Independent coordination API for Remote Print Manager. This service stores device identity, pairing state, printer metadata and print-job metadata. It does **not** access Windows Spooler. In Phase 2 it transports only client-encrypted document envelopes through private Vercel Blob.
 
 ## Local setup
 
@@ -64,6 +64,15 @@ Do not use `localhost` as a remote Host address. The server is only a coordinati
 - `POST /api/v1/pairing-codes/resolve`: let an authenticated Client resolve a Host code into a pending pairing request.
 - `POST /api/v1/pairing-codes/revoke`: revoke a code owned by the authenticated device.
 - `GET /api/v1/internal/cleanup`: protected Vercel Cron endpoint; requires `Authorization: Bearer $CRON_SECRET`.
+- `GET /api/v1/jobs`: Host-only queue polling with an optional status filter and limit.
+- `GET /api/v1/jobs/{jobId}`: Client or owning Host reads job state.
+- `POST /api/v1/jobs/{jobId}/claim`: atomically leases a queued job to a Host and returns a one-time claim token.
+- `POST /api/v1/jobs/{jobId}/renew`: renews an active Host lease.
+- `POST /api/v1/jobs/{jobId}/ack`: acknowledges that the Host accepted the claimed job.
+- `PATCH /api/v1/jobs/{jobId}/status`: advances a claimed job through the guarded spooler state machine.
+- `POST /api/v1/jobs/{jobId}/cancel`: cancels a queued or claimed job without touching the Windows spooler.
+- `PUT /api/v1/jobs/{jobId}/document`: Client-only multipart upload of an already encrypted document to private Vercel Blob.
+- `GET /api/v1/jobs/{jobId}/document`: Host-only download after a valid claim; returns ciphertext bytes, not JSON.
 
 Pairing codes use only `A-Z` and `0-9`, are generated with a cryptographically secure source, expire after `PAIRING_TTL_MINUTES`, and are never reused. The database stores a unique hash and encrypted value; the plaintext is returned only to the authenticated owner when issuing or reading its own current code.
 
@@ -77,10 +86,22 @@ Required in the `Production` environment:
 - `ADMIN_API_KEY=<separate long random secret>`
 - `CRON_SECRET=<separate long random secret>`
 - `ALLOWED_ORIGINS=https://<allowed-frontend-origin>`
+- `BLOB_STORE_ID=<private Vercel Blob store id>` or `BLOB_READ_WRITE_TOKEN=<private Vercel Blob token>`
+- `MAX_DOCUMENT_BYTES=4194304`
 
 Optional values use the source defaults: `PAIRING_TTL_MINUTES=10`, `MAX_PAIRING_ATTEMPTS=5`, `HEARTBEAT_TIMEOUT_SECONDS=120`, `RATE_LIMIT_WINDOW_SECONDS=900`, and `RATE_LIMIT_MAX_ATTEMPTS=10`.
 
 Pairing, printer permissions, print-job coordination, release metadata, and production deployment are intentionally separate slices and are not claimed complete yet.
+
+### Print-job delivery contract
+
+The coordination API stores metadata and a private `dataRef`. The Client sends only an AES-256-GCM envelope to the multipart endpoint; the Server never receives the plaintext or document key. A Host must claim before downloading and must retain the claim token for every acknowledgement or status update. The allowed state path is:
+
+`QUEUED -> CLAIMED -> DOWNLOADING -> SPOOLING -> SPOOLER_ACCEPTED -> COMPLETED`
+
+Failure may transition to `FAILED` or `UNKNOWN`. An `UNKNOWN` result must be reconciled before any retry so a document is not printed twice. `Idempotency-Key` is unique and is reused for network retries of the same client print intent.
+
+The current safe upload limit is `MAX_DOCUMENT_BYTES=4194304` (4 MiB), below the Vercel request limit. Larger documents remain rejected until a future presigned/multipart client-upload path is implemented.
 
 ## Retention policy
 

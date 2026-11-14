@@ -73,6 +73,7 @@ public class PrintJob
     public int PageCount { get; set; } = 1;
     public int Copies { get; set; } = 1;
     public string PaperSize { get; set; } = "A4";
+    public string DocumentFormat { get; set; } = "application/octet-stream";
     public string Orientation { get; set; } = "Portrait";
     public bool IsColor { get; set; } = false;
     public bool IsDuplex { get; set; } = false;

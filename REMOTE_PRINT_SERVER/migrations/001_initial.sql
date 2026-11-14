@@ -5,6 +5,12 @@ CREATE TABLE IF NOT EXISTS devices (
     role VARCHAR(16) NOT NULL CHECK (role IN ('HOST', 'CLIENT')),
     app_version VARCHAR(32) NOT NULL,
     token_hash VARCHAR(128) NOT NULL UNIQUE,
+    public_key TEXT,
+    key_algorithm VARCHAR(40) NOT NULL DEFAULT 'RSA-OAEP-SHA256',
+    geofence_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    geofence_latitude DOUBLE PRECISION,
+    geofence_longitude DOUBLE PRECISION,
+    geofence_radius_meters DOUBLE PRECISION NOT NULL DEFAULT 1000,
     is_revoked BOOLEAN NOT NULL DEFAULT FALSE,
     last_seen_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL
@@ -21,6 +27,11 @@ CREATE TABLE IF NOT EXISTS pairings (
     attempts INTEGER NOT NULL DEFAULT 0,
     expires_at TIMESTAMPTZ NOT NULL,
     allowed_printers JSONB NOT NULL DEFAULT '[]'::jsonb,
+    location_status VARCHAR(16) NOT NULL DEFAULT 'UNVERIFIED',
+    client_latitude DOUBLE PRECISION,
+    client_longitude DOUBLE PRECISION,
+    client_accuracy_meters DOUBLE PRECISION,
+    client_location_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL,
     decided_at TIMESTAMPTZ NULL
 );
@@ -61,10 +72,34 @@ CREATE TABLE IF NOT EXISTS print_jobs (
     status VARCHAR(24) NOT NULL DEFAULT 'QUEUED',
     request_hash VARCHAR(64) NOT NULL,
     metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    data_ref VARCHAR(512),
+    content_sha256 VARCHAR(64),
+    content_size INTEGER,
+    content_type VARCHAR(120),
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
-    claimed_at TIMESTAMPTZ NULL
+    claimed_at TIMESTAMPTZ NULL,
+    claim_token_hash VARCHAR(64),
+    claim_expires_at TIMESTAMPTZ NULL,
+    spooler_job_id VARCHAR(128),
+    failure_code VARCHAR(64),
+    failure_message VARCHAR(500),
+    completed_at TIMESTAMPTZ NULL
 );
+
+CREATE TABLE IF NOT EXISTS print_job_tombstones (
+    id VARCHAR(36) PRIMARY KEY,
+    idempotency_key VARCHAR(200) NOT NULL UNIQUE,
+    request_hash VARCHAR(64) NOT NULL,
+    original_job_id VARCHAR(36) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_print_job_tombstones_original_job_id ON print_job_tombstones(original_job_id);
+
+CREATE INDEX IF NOT EXISTS ix_print_jobs_host_status_created ON print_jobs(host_id, status, created_at);
+CREATE INDEX IF NOT EXISTS ix_print_jobs_claim_expires_at ON print_jobs(claim_expires_at);
 
 CREATE TABLE IF NOT EXISTS audit_events (
     id VARCHAR(36) PRIMARY KEY,

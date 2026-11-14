@@ -1,0 +1,132 @@
+using RPM.Core.Cloud;
+using RPM.Core.Config;
+using RPM.Core.Models;
+
+namespace RPM.App.Services;
+
+/// <summary>
+/// Owns Cloud enrollment and liveness. Cloud is opt-in; Relay remains the fallback.
+/// </summary>
+public sealed class CloudConnectionService : IAsyncDisposable
+{
+    private readonly AppSettings _settings;
+    private readonly CloudDeviceTokenStore _tokenStore = new();
+    private readonly CloudDeviceKeyStore _keyStore = new();
+    private readonly CancellationTokenSource _stop = new();
+    private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
+    private Task? _heartbeatTask;
+
+    public CloudApiClient? Client { get; private set; }
+    public bool IsOnline { get; private set; }
+    public event EventHandler<string>? OnLog;
+    public event EventHandler? OnStateChanged;
+
+    public CloudConnectionService(AppSettings settings) => _settings = settings;
+
+    public async Task<bool> EnrollAsync(string enrollmentSecret, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(enrollmentSecret)) throw new ArgumentException("Enrollment secret is required.", nameof(enrollmentSecret));
+        var client = GetOrCreateClient();
+        var registration = await client.RegisterDeviceAsync(_settings, enrollmentSecret, cancellationToken);
+        _settings.CloudHostId = _settings.Role == AppRole.Server ? registration.DeviceId : _settings.CloudHostId;
+        ConfigManager.Save(_settings);
+        return await ProbeAsync(cancellationToken);
+    }
+
+    public async Task StartAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_settings.CloudTransportEnabled) return;
+        await _lifecycleLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_heartbeatTask is not null) return;
+            if (!_tokenStore.HasToken)
+            {
+                SetOffline("Cloud chưa được kích hoạt; tiếp tục dùng Relay.");
+                return;
+            }
+
+            _heartbeatTask = Task.Run(HeartbeatLoopAsync);
+            await ProbeAsync(cancellationToken);
+        }
+        finally { _lifecycleLock.Release(); }
+    }
+
+    public async Task<bool> ProbeAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var profile = await GetOrCreateClient().GetProfileAsync(cancellationToken);
+            if (profile is null || profile.IsRevoked)
+            {
+                SetOffline("Thiết bị Cloud đã bị thu hồi hoặc chưa sẵn sàng.");
+                return false;
+            }
+            var heartbeat = await GetOrCreateClient().HeartbeatAsync(cancellationToken);
+            if (heartbeat is null || !string.Equals(heartbeat.Status, "ONLINE", StringComparison.OrdinalIgnoreCase))
+            {
+                SetOffline("Cloud chưa xác nhận thiết bị trực tuyến.");
+                return false;
+            }
+            IsOnline = true;
+            OnStateChanged?.Invoke(this, EventArgs.Empty);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SetOffline($"Cloud chưa kết nối: {ex.Message}");
+            return false;
+        }
+    }
+
+    private async Task HeartbeatLoopAsync()
+    {
+        while (!_stop.IsCancellationRequested)
+        {
+            try
+            {
+                if (!await ProbeAsync(_stop.Token))
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(15), _stop.Token);
+                }
+                else
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(45), _stop.Token);
+                }
+            }
+            catch (OperationCanceledException) when (_stop.IsCancellationRequested) { break; }
+            catch (Exception ex)
+            {
+                SetOffline($"Cloud heartbeat lỗi: {ex.Message}");
+                try { await Task.Delay(TimeSpan.FromSeconds(15), _stop.Token); }
+                catch (OperationCanceledException) { break; }
+            }
+        }
+    }
+
+    private CloudApiClient GetOrCreateClient() => Client ??= new CloudApiClient(
+        string.IsNullOrWhiteSpace(_settings.CloudApiBaseUrl)
+            ? CloudApiClient.ProductionEndpoint
+            : new Uri(_settings.CloudApiBaseUrl),
+        _tokenStore,
+        _keyStore);
+
+    private void SetOffline(string message)
+    {
+        IsOnline = false;
+        OnLog?.Invoke(this, message);
+        OnStateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _stop.Cancel();
+        if (_heartbeatTask is not null)
+        {
+            try { await _heartbeatTask; } catch (OperationCanceledException) { }
+        }
+        Client?.Dispose();
+        _lifecycleLock.Dispose();
+        _stop.Dispose();
+    }
+}

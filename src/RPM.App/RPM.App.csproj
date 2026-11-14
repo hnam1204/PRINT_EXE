@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.SDK.NET" Version="10.0.18362.6-preview" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\RPM.Core\RPM.Core.csproj" />
     <ProjectReference Include="..\RPM.Printing\RPM.Printing.csproj" />
     <ProjectReference Include="..\RPM.Networking\RPM.Networking.csproj" />

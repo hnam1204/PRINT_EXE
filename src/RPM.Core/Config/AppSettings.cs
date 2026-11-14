@@ -19,6 +19,13 @@ public class AppSettings
     public List<string> SharedPrinterNames { get; set; } = new();
     public List<string> Departments { get; set; } = new() { "Chung", "Kế toán", "Kinh doanh", "Hành chính", "Kỹ thuật", "Ban Giám Đốc" };
     public string EncryptionSecret { get; set; } = string.Empty;
+    public string CloudApiBaseUrl { get; set; } = "https://print-exe.vercel.app/";
+    public bool CloudTransportEnabled { get; set; } = false;
+    public string CloudHostId { get; set; } = string.Empty;
+    public string CloudHostPublicKey { get; set; } = string.Empty;
+    public string CloudPairingCode { get; set; } = string.Empty;
+    public DateTime? CloudPairingExpiresAt { get; set; }
+    public string CloudPairingId { get; set; } = string.Empty;
     public bool AutoStartWithWindows { get; set; } = true;
     public bool MinimizeToSystemTray { get; set; } = true;
     public bool ShowDesktopNotifications { get; set; } = true;
@@ -110,6 +117,8 @@ public static class ConfigManager
         }
         return folder;
     }
+
+    public static string GetCloudJobStatePath() => Path.Combine(AppDataFolder, "cloud-job-state.json");
 
     public static string GetUpdatesFolder()
     {

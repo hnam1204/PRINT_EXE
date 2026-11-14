@@ -45,3 +45,10 @@ def test_client_requests_and_host_approves_pairing(tmp_path):
     )
     assert decision.status_code == 200
     assert decision.json()["status"] == "APPROVED"
+
+    status = client.get(
+        f"/api/v1/pairings/{pairing['pairingId']}",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert status.status_code == 200
+    assert status.json()["status"] == "APPROVED"

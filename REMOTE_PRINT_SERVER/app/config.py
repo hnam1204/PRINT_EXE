@@ -26,6 +26,12 @@ class Settings:
     heartbeat_timeout_seconds: int
     rate_limit_window_seconds: int
     rate_limit_max_attempts: int
+    max_document_bytes: int
+    max_clients_per_host: int
+    geofence_max_accuracy_meters: float
+    geofence_max_age_seconds: int
+    blob_store_id: str
+    blob_read_write_token: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -35,6 +41,8 @@ class Settings:
         enrollment_secret = os.getenv("ENROLLMENT_SECRET", "")
         admin_api_key = os.getenv("ADMIN_API_KEY", "")
         cron_secret = os.getenv("CRON_SECRET", "")
+        blob_store_id = os.getenv("BLOB_STORE_ID", "")
+        blob_read_write_token = os.getenv("BLOB_READ_WRITE_TOKEN", os.getenv("VERCEL_BLOB_READ_WRITE_TOKEN", ""))
 
         if environment in {"production", "preview"}:
             if not enrollment_secret or not admin_api_key or not cron_secret:
@@ -45,6 +53,8 @@ class Settings:
                 raise ConfigurationError("Production CORS origins must use HTTPS.")
             if database_url.startswith("sqlite"):
                 raise ConfigurationError("Production requires PostgreSQL persistence.")
+            if not blob_store_id and not blob_read_write_token:
+                raise ConfigurationError("Production requires BLOB_STORE_ID or BLOB_READ_WRITE_TOKEN for document delivery.")
 
         parsed = urlparse(database_url)
         if parsed.scheme not in {"sqlite", "postgresql", "postgres", "postgresql+psycopg"}:
@@ -64,4 +74,10 @@ class Settings:
             heartbeat_timeout_seconds=int(os.getenv("HEARTBEAT_TIMEOUT_SECONDS", "120")),
             rate_limit_window_seconds=int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "900")),
             rate_limit_max_attempts=int(os.getenv("RATE_LIMIT_MAX_ATTEMPTS", "10")),
+            max_document_bytes=int(os.getenv("MAX_DOCUMENT_BYTES", str(4 * 1024 * 1024))),
+            max_clients_per_host=int(os.getenv("MAX_CLIENTS_PER_HOST", "15")),
+            geofence_max_accuracy_meters=float(os.getenv("GEOFENCE_MAX_ACCURACY_METERS", "200")),
+            geofence_max_age_seconds=int(os.getenv("GEOFENCE_MAX_AGE_SECONDS", "300")),
+            blob_store_id=blob_store_id,
+            blob_read_write_token=blob_read_write_token,
         )

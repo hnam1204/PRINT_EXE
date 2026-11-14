@@ -4,12 +4,12 @@ import uuid
 
 from sqlalchemy import delete, func, select, text
 
-from .database import AuditEvent, CleanupRun, Pairing, PrintJob, RateLimitEvent
+from .database import AuditEvent, CleanupRun, Pairing, PrintJob, PrintJobTombstone, RateLimitEvent
 
 CLEANUP_AFTER_HOURS = 72
 BATCH_SIZE = 250
 _sqlite_cleanup_lock = threading.Lock()
-TERMINAL_JOB_STATUSES = {"COMPLETED", "CANCELLED", "FAILED"}
+TERMINAL_JOB_STATUSES = {"COMPLETED", "CANCELED", "CANCELLED", "FAILED"}
 TERMINAL_PAIRING_STATUSES = {"REJECTED", "EXPIRED"}
 
 
@@ -47,17 +47,19 @@ def _unlock(session) -> None:
         _sqlite_cleanup_lock.release()
 
 
-def run_cleanup(session_factory, engine, now: datetime | None = None) -> dict:
+def run_cleanup(session_factory, engine, blob_store=None, now: datetime | None = None, dry_run: bool = False) -> dict:
     started_at = now or datetime.now(timezone.utc)
     cutoff = started_at - timedelta(hours=CLEANUP_AFTER_HOURS)
     result = {
         "status": "SUCCEEDED",
+        "dryRun": dry_run,
         "startedAt": started_at.isoformat(),
         "finishedAt": None,
         "cutoff": cutoff.isoformat(),
         "inspected": {"pairings": 0, "printJobs": 0, "auditEvents": 0, "rateLimitEvents": 0},
         "deleted": {"pairings": 0, "printJobs": 0, "auditEvents": 0, "rateLimitEvents": 0},
-        "retained": {"activePairings": 0, "unfinishedPrintJobs": 0},
+        "retained": {"activePairings": 0, "unfinishedPrintJobs": 0, "blobFailures": 0},
+        "errors": [],
         "errorCode": None,
     }
     session = session_factory()
@@ -68,25 +70,72 @@ def run_cleanup(session_factory, engine, now: datetime | None = None) -> dict:
             result["status"] = "SKIPPED_ALREADY_RUNNING"
             return result
 
-        pairing_deleted, pairing_inspected = _delete_in_batches(
-            session,
-            Pairing,
-            (Pairing.status.in_(TERMINAL_PAIRING_STATUSES)) & (Pairing.expires_at <= cutoff),
-            started_at,
-        )
-        job_deleted, job_inspected = _delete_in_batches(
-            session,
-            PrintJob,
-            (PrintJob.status.in_(TERMINAL_JOB_STATUSES)) & (PrintJob.updated_at <= cutoff),
-            started_at,
-        )
-        audit_deleted, audit_inspected = _delete_in_batches(
-            session, AuditEvent, AuditEvent.created_at <= cutoff, started_at
-        )
-        rate_deleted, rate_inspected = _delete_in_batches(
-            session, RateLimitEvent, RateLimitEvent.created_at <= cutoff, started_at
-        )
-        session.execute(delete(CleanupRun).where(CleanupRun.finished_at <= started_at - timedelta(days=30)))
+        pairing_condition = Pairing.status.in_(TERMINAL_PAIRING_STATUSES) & (Pairing.expires_at <= cutoff)
+        if dry_run:
+            pairing_deleted = 0
+            pairing_inspected = session.scalar(select(func.count(Pairing.id)).where(pairing_condition)) or 0
+        else:
+            pairing_deleted, pairing_inspected = _delete_in_batches(session, Pairing, pairing_condition, started_at)
+        job_deleted = 0
+        job_inspected = 0
+        while True:
+            candidates = session.execute(
+                select(PrintJob.id, PrintJob.data_ref)
+                .where(
+                    (PrintJob.status.in_(TERMINAL_JOB_STATUSES))
+                    & (PrintJob.updated_at <= cutoff)
+                    & ((PrintJob.claim_expires_at.is_(None)) | (PrintJob.claim_expires_at <= started_at))
+                )
+                .limit(BATCH_SIZE)
+            ).all()
+            job_inspected += len(candidates)
+            if not candidates:
+                break
+            deleted_in_batch = 0
+            for job_id, data_ref in candidates:
+                if data_ref and not dry_run:
+                    if blob_store is None:
+                        result["retained"]["blobFailures"] += 1
+                        result["errors"].append({"type": "BLOB_STORE_NOT_CONFIGURED", "jobId": job_id})
+                        continue
+                    try:
+                        blob_store.delete(data_ref)
+                    except Exception:
+                        # Retain the row so a later cleanup can retry the blob deletion.
+                        result["retained"]["blobFailures"] += 1
+                        result["errors"].append({"type": "BLOB_DELETE_FAILED", "jobId": job_id})
+                        continue
+                if not dry_run:
+                    job = session.get(PrintJob, job_id)
+                    if job is None:
+                        continue
+                    session.add(PrintJobTombstone(
+                        idempotency_key=job.idempotency_key,
+                        request_hash=job.request_hash,
+                        original_job_id=job.id,
+                        created_at=started_at,
+                        expires_at=None,
+                    ))
+                    session.flush()
+                    session.delete(job)
+                if not dry_run:
+                    job_deleted += 1
+                deleted_in_batch += 1
+            session.flush()
+            if dry_run:
+                break
+            if deleted_in_batch == 0:
+                break
+        audit_condition = AuditEvent.created_at <= cutoff
+        rate_condition = RateLimitEvent.created_at <= cutoff
+        if dry_run:
+            audit_deleted = rate_deleted = 0
+            audit_inspected = session.scalar(select(func.count(AuditEvent.id)).where(audit_condition)) or 0
+            rate_inspected = session.scalar(select(func.count(RateLimitEvent.id)).where(rate_condition)) or 0
+        else:
+            audit_deleted, audit_inspected = _delete_in_batches(session, AuditEvent, audit_condition, started_at)
+            rate_deleted, rate_inspected = _delete_in_batches(session, RateLimitEvent, rate_condition, started_at)
+            session.execute(delete(CleanupRun).where(CleanupRun.finished_at <= started_at - timedelta(days=30)))
         result["inspected"].update(
             pairings=pairing_inspected,
             printJobs=job_inspected,
@@ -105,11 +154,14 @@ def run_cleanup(session_factory, engine, now: datetime | None = None) -> dict:
         result["retained"]["unfinishedPrintJobs"] = session.scalar(
             select(func.count(PrintJob.id)).where(~PrintJob.status.in_(TERMINAL_JOB_STATUSES))
         ) or 0
-        session.add(CleanupRun(
-            id=str(uuid.uuid4()), started_at=started_at, finished_at=datetime.now(timezone.utc),
-            status=result["status"], summary=result,
-        ))
-        session.commit()
+        if result["errors"]:
+            result["status"] = "PARTIAL_FAILED"
+        if not dry_run:
+            session.add(CleanupRun(
+                id=str(uuid.uuid4()), started_at=started_at, finished_at=datetime.now(timezone.utc),
+                status=result["status"], summary=result,
+            ))
+            session.commit()
         return result
     except Exception:
         session.rollback()

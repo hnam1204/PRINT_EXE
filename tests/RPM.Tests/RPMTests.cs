@@ -1,6 +1,7 @@
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Security.Cryptography;
 using RPM.Core.Models;
 using RPM.Core.Config;
 using RPM.Core.Networking;
@@ -8,6 +9,7 @@ using RPM.Core.Protocol;
 using RPM.Core.Security;
 using RPM.Core.Diagnostics;
 using RPM.Core.Update;
+using RPM.Core.Cloud;
 using RPM.Networking;
 using RPM.Printing;
 
@@ -15,6 +17,27 @@ namespace RPM.Tests;
 
 public class RPMTests
 {
+    [Fact]
+    public void CloudDocumentCrypto_EncryptsForHostAndRejectsWrongKey()
+    {
+        string folder = Path.Combine(Path.GetTempPath(), $"rpm_cloud_crypto_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var hostStore = new CloudDeviceKeyStore(Path.Combine(folder, "host.key"));
+            var otherStore = new CloudDeviceKeyStore(Path.Combine(folder, "other.key"));
+            byte[] plaintext = Encoding.UTF8.GetBytes("encrypted print document");
+            byte[] envelope = CloudDocumentCrypto.EncryptForHost(plaintext, hostStore.GetOrCreatePublicKey());
+
+            Assert.Equal(plaintext, CloudDocumentCrypto.DecryptForThisDevice(envelope, hostStore));
+            Assert.Throws<CryptographicException>(() => CloudDocumentCrypto.DecryptForThisDevice(envelope, otherStore));
+        }
+        finally
+        {
+            if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        }
+    }
+
     [Fact]
     public void RelayEndpointPolicy_ClientDoesNotUseItsOwnLoopback()
     {
@@ -231,6 +254,62 @@ public class RPMTests
         {
             ippServer.Stop();
         }
+    }
+
+    [Fact]
+    public async Task IppServer_CapturesDocumentFormatAndPayload()
+    {
+        int ippPort = 9886;
+        using var ippServer = new LocalIppServer();
+        var received = new TaskCompletionSource<PrintJobReceivedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ippServer.OnJobReceived += (_, args) => received.TrySetResult(args);
+        ippServer.Start(ippPort);
+
+        try
+        {
+            byte[] payload = Encoding.ASCII.GetBytes("RAW-TEST-DOCUMENT");
+            using var packet = new MemoryStream();
+            packet.Write([1, 1, 0, 2, 0, 0, 0, 1]);
+            packet.WriteByte(0x01);
+            WriteIppAttribute(packet, 0x47, "attributes-charset", "utf-8");
+            WriteIppAttribute(packet, 0x48, "attributes-natural-language", "en-us");
+            WriteIppAttribute(packet, 0x49, "document-format", "application/postscript");
+            WriteIppAttribute(packet, 0x42, "job-name", "raw-test.prn");
+            packet.WriteByte(0x03);
+            packet.Write(payload);
+
+            using var http = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{ippPort}/")
+            {
+                Content = new ByteArrayContent(packet.ToArray())
+            };
+            request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/ipp");
+            var response = await http.SendAsync(request);
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+
+            var completed = await Task.WhenAny(received.Task, Task.Delay(3000));
+            Assert.Same(received.Task, completed);
+            var captured = await received.Task;
+            Assert.Equal("application/postscript", captured.Job.DocumentFormat);
+            Assert.Equal(payload, captured.Data);
+        }
+        finally
+        {
+            ippServer.Stop();
+        }
+    }
+
+    private static void WriteIppAttribute(Stream stream, byte tag, string name, string value)
+    {
+        byte[] nameBytes = Encoding.ASCII.GetBytes(name);
+        byte[] valueBytes = Encoding.UTF8.GetBytes(value);
+        stream.WriteByte(tag);
+        stream.WriteByte((byte)(nameBytes.Length >> 8));
+        stream.WriteByte((byte)nameBytes.Length);
+        stream.Write(nameBytes);
+        stream.WriteByte((byte)(valueBytes.Length >> 8));
+        stream.WriteByte((byte)valueBytes.Length);
+        stream.Write(valueBytes);
     }
 
     [Fact]

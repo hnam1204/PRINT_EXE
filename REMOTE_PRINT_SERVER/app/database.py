@@ -26,6 +26,12 @@ class Device(Base):
     role: Mapped[str] = mapped_column(String(16))
     app_version: Mapped[str] = mapped_column(String(32))
     token_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    public_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    key_algorithm: Mapped[str] = mapped_column(String(40), default="RSA-OAEP-SHA256")
+    geofence_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    geofence_latitude: Mapped[float | None] = mapped_column(nullable=True)
+    geofence_longitude: Mapped[float | None] = mapped_column(nullable=True)
+    geofence_radius_meters: Mapped[float] = mapped_column(default=1000.0)
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -43,6 +49,11 @@ class Pairing(Base):
     allowed_printers: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    location_status: Mapped[str] = mapped_column(String(16), default="UNVERIFIED")
+    client_latitude: Mapped[float | None] = mapped_column(nullable=True)
+    client_longitude: Mapped[float | None] = mapped_column(nullable=True)
+    client_accuracy_meters: Mapped[float | None] = mapped_column(nullable=True)
+    client_location_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PairingCode(Base):
@@ -79,9 +90,29 @@ class PrintJob(Base):
     status: Mapped[str] = mapped_column(String(24), default="QUEUED", index=True)
     request_hash: Mapped[str] = mapped_column(String(64))
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    data_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    content_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    claim_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    claim_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    spooler_job_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    failure_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    failure_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PrintJobTombstone(Base):
+    __tablename__ = "print_job_tombstones"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    idempotency_key: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    request_hash: Mapped[str] = mapped_column(String(64))
+    original_job_id: Mapped[str] = mapped_column(String(36), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AuditEvent(Base):

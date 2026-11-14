@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Text.Json;
+using System.Security.Cryptography;
 using System.Windows;
+using RPM.Core.Cloud;
 using RPM.Core.Config;
 using RPM.Core.Models;
 using RPM.Core.Protocol;
@@ -15,6 +17,12 @@ public class ServerService : IDisposable
     private readonly AppSettings _settings;
     private readonly RelayClient _relayClient = new();
     private readonly PrinterService _printerService = new();
+    private readonly CloudConnectionService _cloud;
+    private readonly CancellationTokenSource _cloudWorkerStop = new();
+    private readonly HashSet<string> _cloudJobsInProgress = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _cloudPairingIds = new(StringComparer.Ordinal);
+    private readonly CloudJobStateStore _cloudJobStateStore = new();
+    private int _cloudWorkersStarted;
     private readonly Queue<PrintJob> _printQueue = new();
     private readonly SemaphoreSlim _queueLock = new(1, 1);
     private readonly HashSet<string> _recentlyPrintedHashes = new();
@@ -29,6 +37,16 @@ public class ServerService : IDisposable
     public ObservableCollection<PrintJob> PrintJobs { get; } = new();
     public ObservableCollection<SharedPrinterInfo> SharedPrinters { get; } = new();
     public SharedPrinterInfo? ActiveSharedPrinter { get; private set; }
+    public bool IsCloudOnline => _cloud.IsOnline;
+    public bool IsOnline => _cloud.IsOnline || _relayClient.IsConnected;
+    public string ConnectionStatus => _cloud.IsOnline
+        ? "Cloud Online"
+        : _relayClient.IsConnected ? "Relay Online" : "Ngoại tuyến";
+    public int CloudApprovedClientCount { get; private set; }
+    public int CloudOnlineClientCount { get; private set; }
+    public int CloudMaxClientCount { get; private set; } = 15;
+    public bool CloudCapacityLoaded { get; private set; }
+    public string GeofenceStatusDisplay { get; private set; } = "Chưa bật";
 
     public event EventHandler<string>? OnLog;
     public event EventHandler<DeviceInfo>? OnClientRequestedApproval;
@@ -37,6 +55,13 @@ public class ServerService : IDisposable
     public ServerService(AppSettings settings)
     {
         _settings = settings;
+        _cloud = new CloudConnectionService(settings);
+        _cloud.OnLog += (s, msg) => OnLog?.Invoke(this, msg);
+        _cloud.OnStateChanged += (s, e) =>
+        {
+            if (_settings.CloudTransportEnabled && _cloud.IsOnline)
+                _ = EnsureCloudWorkersAsync();
+        };
 
         // Restore known approved clients
         foreach (var client in _settings.ApprovedClients)
@@ -76,6 +101,23 @@ public class ServerService : IDisposable
         // Load and detect all installed printers and shared configuration
         LoadPrinters();
 
+        bool cloudReady = false;
+        if (_settings.CloudTransportEnabled)
+        {
+            await _cloud.StartAsync();
+            if (_cloud.IsOnline)
+            {
+                cloudReady = true;
+                await StartCloudWorkersIfNeededAsync();
+            }
+        }
+
+        if (cloudReady)
+        {
+            OnLog?.Invoke(this, "[Cloud] Host worker đã khởi động; Relay giữ ở trạng thái dự phòng.");
+            return;
+        }
+
         // Auto-start embedded relay if server is configured for local address
         if (_settings.RelayServerUrl.Contains("127.0.0.1") || _settings.RelayServerUrl.Contains("localhost"))
         {
@@ -97,6 +139,126 @@ public class ServerService : IDisposable
         }
 
         await _relayClient.StartAsync(_settings.RelayServerUrl);
+    }
+
+    public async Task<bool> EnrollCloudAsync(string enrollmentSecret, CancellationToken cancellationToken = default)
+    {
+        bool enrolled = await _cloud.EnrollAsync(enrollmentSecret, cancellationToken);
+        if (!enrolled) return false;
+        _settings.CloudTransportEnabled = true;
+        ConfigManager.Save(_settings);
+        await _cloud.StartAsync(cancellationToken);
+        await StartCloudWorkersIfNeededAsync();
+        return true;
+    }
+
+    private async Task EnsureCloudWorkersAsync()
+    {
+        try { await StartCloudWorkersIfNeededAsync(); }
+        catch (Exception ex) { OnLog?.Invoke(this, $"[Cloud] Không thể khởi động lại Worker: {ex.Message}"); }
+    }
+
+    private async Task StartCloudWorkersIfNeededAsync()
+    {
+        if (Interlocked.Exchange(ref _cloudWorkersStarted, 1) != 0) return;
+        try
+        {
+            await RegisterCloudPrintersAsync();
+            await IssueCloudPairingCodeAsync();
+            _ = Task.Run(CloudWorkerLoopAsync);
+            _ = Task.Run(CloudPairingLoopAsync);
+        }
+        catch
+        {
+            Interlocked.Exchange(ref _cloudWorkersStarted, 0);
+            throw;
+        }
+    }
+
+    private async Task IssueCloudPairingCodeAsync()
+    {
+        if (_cloud.Client is null) return;
+        var code = await _cloud.Client.IssuePairingCodeAsync(_settings.DeviceId);
+        if (code?.Code is not null)
+        {
+            _settings.CloudPairingCode = code.Code;
+            _settings.CloudPairingExpiresAt = code.ExpiresAt;
+            ConfigManager.Save(_settings);
+            OnLog?.Invoke(this, $"[Cloud] Mã ghép nối: {code.Code}");
+        }
+    }
+
+    private async Task RegisterCloudPrintersAsync()
+    {
+        if (_cloud.Client is null) return;
+        foreach (var printer in SharedPrinters)
+        {
+            try
+            {
+                await _cloud.Client.RegisterPrinterAsync(new CloudPrinterRegistration(
+                    CloudPrinterId(printer.Name), printer.Name, printer.Status, printer.IsShared,
+                    new Dictionary<string, object?>
+                    {
+                        ["driverName"] = printer.DriverName,
+                        ["portName"] = printer.PortName,
+                        ["supportsColor"] = printer.SupportsColor,
+                        ["supportsDuplex"] = printer.SupportsDuplex
+                    }));
+            }
+            catch (Exception ex) { OnLog?.Invoke(this, $"[Cloud] Không đồng bộ máy in '{printer.Name}': {ex.Message}"); }
+        }
+    }
+
+    private static string CloudPrinterId(string printerName)
+    {
+        var hash = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(printerName));
+        return "printer-" + Convert.ToHexString(hash[..12]).ToLowerInvariant();
+    }
+
+    private async Task CloudPairingLoopAsync()
+    {
+        while (!_cloudWorkerStop.IsCancellationRequested)
+        {
+            try
+            {
+                if (_cloud.Client is not null)
+                {
+                    var pending = await _cloud.Client.ListPendingPairingsAsync(_cloudWorkerStop.Token);
+                    var summary = await _cloud.Client.GetPairingSummaryAsync(_cloudWorkerStop.Token);
+                    if (summary is not null)
+                    {
+                        CloudApprovedClientCount = summary.ApprovedCount;
+                        CloudOnlineClientCount = summary.OnlineCount;
+                        CloudMaxClientCount = summary.MaxClients;
+                        CloudCapacityLoaded = true;
+                    }
+                    var geofence = await _cloud.Client.GetGeofenceAsync(_cloudWorkerStop.Token);
+                    if (geofence is not null)
+                    {
+                        GeofenceStatusDisplay = geofence.Enabled
+                            ? $"Bán kính {geofence.RadiusMeters:0} m"
+                            : "Chưa bật";
+                    }
+                    OnStatusChanged?.Invoke(this, EventArgs.Empty);
+                    foreach (var item in pending ?? Array.Empty<CloudPendingPairing>())
+                    {
+                        bool isNewPairing = !_cloudPairingIds.TryGetValue(item.ClientId, out var existingPairingId) || existingPairingId != item.PairingId;
+                        _cloudPairingIds[item.ClientId] = item.PairingId;
+                        var client = ConnectedClients.FirstOrDefault(x => x.DeviceId == item.ClientId);
+                        if (client is null)
+                        {
+                            client = new DeviceInfo { DeviceId = item.ClientId, DeviceName = item.ClientName, IsOnline = true, LastSeen = DateTime.UtcNow };
+                            Application.Current?.Dispatcher.Invoke(() => ConnectedClients.Add(client));
+                            SaveClientList();
+                        }
+                        if (isNewPairing) OnClientRequestedApproval?.Invoke(this, client);
+                    }
+                }
+                await Task.Delay(TimeSpan.FromSeconds(5), _cloudWorkerStop.Token);
+            }
+            catch (OperationCanceledException) when (_cloudWorkerStop.IsCancellationRequested) { break; }
+            catch (Exception ex) { OnLog?.Invoke(this, $"[Cloud] Lỗi kiểm tra yêu cầu ghép đôi: {ex.Message}"); await Task.Delay(5000); }
+        }
     }
 
     public void LoadPrinters()
@@ -248,6 +410,13 @@ public class ServerService : IDisposable
 
         var permittedPrinters = GetPrintersForClient(client);
 
+        if (_settings.CloudTransportEnabled && _cloud.Client is not null && _cloudPairingIds.TryGetValue(client.DeviceId, out var cloudPairingId))
+        {
+            await _cloud.Client.DecidePairingAsync(cloudPairingId, true, permittedPrinters.Select(p => CloudPrinterId(p.Name)).ToList());
+            OnLog?.Invoke(this, $"[Cloud] Đã duyệt thiết bị: {client.DeviceName}");
+            return;
+        }
+
         var response = new ClientJoinResponsePayload
         {
             Approved = true,
@@ -273,6 +442,13 @@ public class ServerService : IDisposable
         client.IsApproved = false;
         client.IsBlocked = true;
         SaveClientList();
+
+        if (_settings.CloudTransportEnabled && _cloud.Client is not null && _cloudPairingIds.TryGetValue(client.DeviceId, out var cloudPairingId))
+        {
+            await _cloud.Client.DecidePairingAsync(cloudPairingId, false, Array.Empty<string>());
+            OnLog?.Invoke(this, $"[Cloud] Đã từ chối thiết bị: {client.DeviceName}");
+            return;
+        }
 
         var packet = new NetworkPacket
         {
@@ -741,6 +917,112 @@ public class ServerService : IDisposable
         _isProcessingQueue = false;
     }
 
+    private async Task CloudWorkerLoopAsync()
+    {
+        while (!_cloudWorkerStop.IsCancellationRequested)
+        {
+            try
+            {
+                if (_cloud.Client is not null && _cloud.IsOnline)
+                {
+                    var jobs = await _cloud.Client.ListHostJobsAsync("QUEUED", 20, _cloudWorkerStop.Token);
+                    foreach (var job in jobs ?? Array.Empty<CloudPrintJob>())
+                    {
+                        if (_cloudJobsInProgress.Add(job.JobId))
+                            _ = ProcessCloudJobAsync(job);
+                    }
+                }
+                await Task.Delay(TimeSpan.FromSeconds(3), _cloudWorkerStop.Token);
+            }
+            catch (OperationCanceledException) when (_cloudWorkerStop.IsCancellationRequested) { break; }
+            catch (Exception ex) { OnLog?.Invoke(this, $"[Cloud] Worker lỗi: {ex.Message}"); await Task.Delay(5000); }
+        }
+    }
+
+    private async Task ProcessCloudJobAsync(CloudPrintJob job)
+    {
+        CloudJobClaim? claim = null;
+        string? tempFile = null;
+        try
+        {
+            if (_cloud.Client is null) return;
+            claim = await _cloud.Client.ClaimJobAsync(job.JobId, 120, _cloudWorkerStop.Token);
+            if (claim is null) return;
+            if (!_cloudJobStateStore.TryBegin(job.JobId))
+            {
+                await _cloud.Client.UpdateJobStatusAsync(job.JobId, new CloudJobStatusUpdate(
+                    claim.ClaimToken, "UNKNOWN", null, "HOST_RESTART_RECOVERY",
+                    "Job đã từng được Host xử lý; không tự động in lại để tránh in trùng."), _cloudWorkerStop.Token);
+                OnLog?.Invoke(this, $"[Cloud] Job {job.JobId} được chuyển UNKNOWN để tránh in trùng sau khởi động lại.");
+                return;
+            }
+            await _cloud.Client.AcknowledgeJobAsync(job.JobId, claim.ClaimToken, _cloudWorkerStop.Token);
+            await _cloud.Client.UpdateJobStatusAsync(job.JobId, new CloudJobStatusUpdate(claim.ClaimToken, "DOWNLOADING"), _cloudWorkerStop.Token);
+            var encrypted = await _cloud.Client.DownloadDocumentAsync(job.JobId, claim.ClaimToken, _cloudWorkerStop.Token);
+            if (job.ContentSize is not null && encrypted.LongLength != job.ContentSize) throw new InvalidDataException("Cloud document size mismatch.");
+            if (!string.IsNullOrWhiteSpace(job.ContentSha256) && !string.Equals(RPMCrypto.ComputeSha256(encrypted), job.ContentSha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Cloud document checksum mismatch.");
+
+            byte[] plain = CloudDocumentCrypto.DecryptForThisDevice(encrypted, new CloudDeviceKeyStore());
+            if (plain.Length == 0) throw new InvalidDataException("Cloud document is empty.");
+            string documentFormat = GetMetadataString(job.Metadata, "documentFormat")?.ToLowerInvariant() ?? "application/octet-stream";
+            if (!IsRawPrinterFormat(documentFormat))
+                throw new NotSupportedException($"Định dạng '{documentFormat}' chưa có bộ chuyển đổi an toàn cho Windows Spooler.");
+            string printerName = SharedPrinters.FirstOrDefault(p => CloudPrinterId(p.Name) == job.PrinterId)?.Name ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(printerName)) throw new InvalidOperationException("Printer is not shared on this Host.");
+            string extension = GetSafeCloudExtension(job.Metadata);
+            tempFile = Path.Combine(ConfigManager.GetTempJobsFolder(), $"cloud-{Guid.NewGuid():N}{extension}");
+            await File.WriteAllBytesAsync(tempFile, plain, _cloudWorkerStop.Token);
+            await _cloud.Client.RenewClaimAsync(job.JobId, claim.ClaimToken, 120, _cloudWorkerStop.Token);
+            await _cloud.Client.UpdateJobStatusAsync(job.JobId, new CloudJobStatusUpdate(claim.ClaimToken, "SPOOLING"), _cloudWorkerStop.Token);
+
+            string documentName = GetMetadataString(job.Metadata, "documentName") ?? $"Cloud-{job.JobId}";
+            bool accepted = _printerService.PrintFileDirectly(printerName, tempFile, documentName, out var error);
+            if (!accepted) throw new InvalidOperationException(error);
+            await _cloud.Client.UpdateJobStatusAsync(job.JobId, new CloudJobStatusUpdate(claim.ClaimToken, "SPOOLER_ACCEPTED"), _cloudWorkerStop.Token);
+            // PrintFileDirectly confirms spooler acceptance, not physical completion.
+            await _cloud.Client.UpdateJobStatusAsync(job.JobId, new CloudJobStatusUpdate(claim.ClaimToken, "UNKNOWN", null, "SPOOLER_COMPLETION_UNVERIFIED", "Windows Spooler accepted the job; physical completion was not verifiable."), _cloudWorkerStop.Token);
+            _cloudJobStateStore.MarkUnknown(job.JobId);
+            OnLog?.Invoke(this, $"[Cloud] Đã gửi Job {job.JobId} vào Spooler; chưa xác minh hoàn tất vật lý.");
+        }
+        catch (Exception ex)
+        {
+            if (claim is not null && _cloud.Client is not null)
+            {
+                try { await _cloud.Client.UpdateJobStatusAsync(job.JobId, new CloudJobStatusUpdate(claim.ClaimToken, "FAILED", null, "HOST_WORKER_ERROR", ex.Message[..Math.Min(500, ex.Message.Length)]), CancellationToken.None); } catch { }
+            }
+            _cloudJobStateStore.MarkUnknown(job.JobId);
+            OnLog?.Invoke(this, $"[Cloud] Không xử lý Job {job.JobId}: {ex.Message}");
+        }
+        finally
+        {
+            if (tempFile is not null) try { File.Delete(tempFile); } catch { }
+            lock (_cloudJobsInProgress) _cloudJobsInProgress.Remove(job.JobId);
+        }
+    }
+
+    private static string? GetMetadataString(IReadOnlyDictionary<string, object?> metadata, string key)
+    {
+        if (!metadata.TryGetValue(key, out var value) || value is null) return null;
+        if (value is JsonElement element && element.ValueKind == JsonValueKind.String) return element.GetString();
+        return value.ToString();
+    }
+
+    private static string GetSafeCloudExtension(IReadOnlyDictionary<string, object?> metadata) =>
+        GetMetadataString(metadata, "fileExtension")?.ToLowerInvariant() switch
+        {
+            ".pdf" => ".pdf", ".txt" => ".txt", ".ps" => ".ps", ".prn" => ".prn", _ => ".bin"
+        };
+
+    private static bool IsRawPrinterFormat(string documentFormat) => documentFormat switch
+    {
+        "application/octet-stream" => true,
+        "application/postscript" => true,
+        "application/vnd.hp-pcl" => true,
+        "application/vnd.hp-pclxl" => true,
+        _ => false
+    };
+
     private async Task NotifyJobProgressAsync(PrintJob job)
     {
         var progress = new PrintJobProgressPayload
@@ -773,6 +1055,9 @@ public class ServerService : IDisposable
 
     public void Dispose()
     {
+        _cloudWorkerStop.Cancel();
+        _cloud.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _cloudWorkerStop.Dispose();
         _relayClient.Dispose();
         _queueLock.Dispose();
         _embeddedRelay?.Stop();
