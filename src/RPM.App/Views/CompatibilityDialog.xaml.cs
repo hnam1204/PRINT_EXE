@@ -16,10 +16,10 @@ public partial class CompatibilityDialog : Window
     {
         InitializeComponent();
         _settings = settings;
-        Loaded += (s, e) => RunDiagnostics();
+        Loaded += (s, e) => RunAuditAndDiagnostics();
     }
 
-    private void RunDiagnostics()
+    private void RunAuditAndDiagnostics()
     {
         List<SharedPrinterInfo>? printers = null;
         try
@@ -28,8 +28,17 @@ public partial class CompatibilityDialog : Window
         }
         catch { }
 
-        var report = CompatibilityChecker.RunDiagnostics(_settings, printers);
+        // 1. Run Live System Audit (7 Groups = 100%)
+        var audit = LiveSystemAuditor.RunAudit(_settings, printers);
+        DgAuditItems.ItemsSource = audit.Items;
+        TxtScorePercent.Text = $"{audit.VerifiedOperationalPercent:F1}%";
+        TxtExecutionRate.Text = $"{audit.ExecutionRatePercent:F0}%";
+        TxtPassFailSummary.Text = $"{audit.PassCount} PASS • {audit.BlockedCount} BLOCKED";
+        TxtDataSourceSummary.Text = $"{audit.RealDataCount + audit.CachedDataCount} REAL/CACHED • {audit.MockDataCount} MOCK";
+        TxtHostSpecs.Text = $"{audit.MachineName} • {audit.OperatingSystem}";
 
+        // 2. Run Diagnostics
+        var report = CompatibilityChecker.RunDiagnostics(_settings, printers);
         DgDiagnostics.ItemsSource = report.Items;
         TxtDeviceSpec.Text = $"{report.OperatingSystem} • {report.Architecture}";
 
@@ -63,7 +72,7 @@ public partial class CompatibilityDialog : Window
 
     private void BtnRescan_Click(object sender, RoutedEventArgs e)
     {
-        RunDiagnostics();
+        RunAuditAndDiagnostics();
     }
 
     private void BtnRestartSpooler_Click(object sender, RoutedEventArgs e)
@@ -77,7 +86,7 @@ public partial class CompatibilityDialog : Window
         {
             MessageBox.Show($"Không thể tự động khởi động dịch vụ Spooler: {err}\nVui lòng chạy ứng dụng với quyền 'Run as administrator'.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
-        RunDiagnostics();
+        RunAuditAndDiagnostics();
     }
 
     private void BtnClose_Click(object sender, RoutedEventArgs e)
@@ -85,4 +94,3 @@ public partial class CompatibilityDialog : Window
         Close();
     }
 }
-

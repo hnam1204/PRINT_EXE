@@ -24,6 +24,12 @@
             <converters:LevelToBadgeBgConverter x:Key="LevelToBadgeBg"/>
             <converters:LevelToBadgeFgConverter x:Key="LevelToBadgeFg"/>
             <converters:LevelToTextConverter x:Key="LevelToText"/>
+            <converters:AuditStatusToBadgeBgConverter x:Key="AuditStatusToBadgeBg"/>
+            <converters:AuditStatusToBadgeFgConverter x:Key="AuditStatusToBadgeFg"/>
+            <converters:AuditStatusToTextConverter x:Key="AuditStatusToText"/>
+            <converters:DataSourceToBadgeBgConverter x:Key="DataSourceToBadgeBg"/>
+            <converters:DataSourceToBadgeFgConverter x:Key="DataSourceToBadgeFg"/>
+            <converters:DataSourceToTextConverter x:Key="DataSourceToText"/>
 
             <!-- ========================================================= -->
             <!-- COLORS: REMOTE PRINT MANAGER OFFICIAL ORANGE PALETTE      -->

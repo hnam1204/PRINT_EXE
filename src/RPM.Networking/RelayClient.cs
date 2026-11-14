@@ -20,6 +20,8 @@ public class RelayClient : IDisposable
     private bool _isDisposed;
     private string _relayUrl = string.Empty;
     private bool _shouldAutoReconnect = true;
+    private int _consecutiveFails = 0;
+    private bool _wasConnectedBefore = false;
 
     public bool IsConnected => _ws != null && _ws.State == WebSocketState.Open;
 
@@ -69,11 +71,21 @@ public class RelayClient : IDisposable
                 _ws = new ClientWebSocket();
                 _ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
 
-                OnLog?.Invoke(this, $"Đang kết nối tới Relay: {_relayUrl}...");
+                if (_consecutiveFails == 0)
+                {
+                    OnLog?.Invoke(this, $"Đang kết nối tới Relay: {_relayUrl}...");
+                }
+                else if (_consecutiveFails % 12 == 0)
+                {
+                    OnLog?.Invoke(this, $"Đang thử kết nối lại tới Relay (lần {_consecutiveFails})...");
+                }
+
                 await _ws.ConnectAsync(new Uri(_relayUrl), _cts.Token);
 
                 if (_ws.State == WebSocketState.Open)
                 {
+                    _consecutiveFails = 0;
+                    _wasConnectedBefore = true;
                     OnLog?.Invoke(this, "Kết nối Relay thành công!");
                     OnConnected?.Invoke(this, EventArgs.Empty);
 
@@ -82,10 +94,18 @@ public class RelayClient : IDisposable
             }
             catch (Exception ex)
             {
-                OnLog?.Invoke(this, $"Lỗi kết nối Relay: {ex.Message}");
+                _consecutiveFails++;
+                if (_consecutiveFails == 1)
+                {
+                    OnLog?.Invoke(this, $"Lỗi kết nối Relay: {ex.Message} (Tự động kết nối lại ngầm)");
+                }
             }
 
-            OnDisconnected?.Invoke(this, "Mất kết nối tới Relay.");
+            if (_wasConnectedBefore)
+            {
+                _wasConnectedBefore = false;
+                OnDisconnected?.Invoke(this, "Mất kết nối tới Relay.");
+            }
 
             if (!_shouldAutoReconnect || _isDisposed) break;
 

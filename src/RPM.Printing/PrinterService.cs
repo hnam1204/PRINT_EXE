@@ -1,6 +1,8 @@
 using System.Drawing;
 using System.Drawing.Printing;
 using System.IO;
+using System.Management;
+using System.Runtime.InteropServices;
 using RPM.Core.Models;
 
 namespace RPM.Printing;
@@ -9,9 +11,69 @@ public class PrinterService
 {
     public List<SharedPrinterInfo> GetInstalledPrinters()
     {
-        var list = new List<SharedPrinterInfo>();
-        string defaultPrinter = string.Empty;
+        var map = new Dictionary<string, SharedPrinterInfo>(StringComparer.OrdinalIgnoreCase);
 
+        // 1. Query real hardware and port details via WMI Win32_Printer
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            try
+            {
+                using var searcher = new ManagementObjectSearcher(
+                    "SELECT Name, DriverName, PortName, Default, WorkOffline, PrinterStatus, ExtendedPrinterStatus, SpoolEnabled FROM Win32_Printer"
+                );
+
+                foreach (ManagementObject obj in searcher.Get())
+                {
+                    string name = obj["Name"]?.ToString() ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(name)) continue;
+
+                    string driver = obj["DriverName"]?.ToString() ?? string.Empty;
+                    string port = obj["PortName"]?.ToString() ?? string.Empty;
+                    bool isDefault = (bool)(obj["Default"] ?? false);
+                    bool workOffline = (bool)(obj["WorkOffline"] ?? false);
+                    uint statusVal = 3;
+                    if (obj["PrinterStatus"] != null)
+                    {
+                        uint.TryParse(obj["PrinterStatus"].ToString(), out statusVal);
+                    }
+
+                    string statusStr = "Ready";
+                    if (workOffline)
+                    {
+                        statusStr = "Offline";
+                    }
+                    else
+                    {
+                        statusStr = statusVal switch
+                        {
+                            3 => "Ready",
+                            4 => "Printing",
+                            5 => "Warmup",
+                            7 => "Offline",
+                            1 => "Paused",
+                            2 => "Error",
+                            _ => "Ready"
+                        };
+                    }
+
+                    map[name] = new SharedPrinterInfo
+                    {
+                        Name = name,
+                        DriverName = driver,
+                        PortName = port,
+                        IsDefault = isDefault,
+                        Status = statusStr
+                    };
+                }
+            }
+            catch
+            {
+                // Fallback to Win32 Spooler API
+            }
+        }
+
+        // 2. Query capabilities (Color, Duplex, PaperSizes) via PrinterSettings
+        string defaultPrinter = string.Empty;
         try
         {
             var defaultSettings = new PrinterSettings();
@@ -20,19 +82,20 @@ public class PrinterService
                 defaultPrinter = defaultSettings.PrinterName;
             }
         }
-        catch
-        {
-            // Ignore if no default printer is configured
-        }
+        catch { }
 
         foreach (string printerName in PrinterSettings.InstalledPrinters)
         {
-            var info = new SharedPrinterInfo
+            if (!map.TryGetValue(printerName, out var info))
             {
-                Name = printerName,
-                IsDefault = string.Equals(printerName, defaultPrinter, StringComparison.OrdinalIgnoreCase),
-                Status = "Ready"
-            };
+                info = new SharedPrinterInfo
+                {
+                    Name = printerName,
+                    IsDefault = string.Equals(printerName, defaultPrinter, StringComparison.OrdinalIgnoreCase),
+                    Status = "Ready"
+                };
+                map[printerName] = info;
+            }
 
             try
             {
@@ -52,11 +115,23 @@ public class PrinterService
             {
                 info.Status = "Unavailable";
             }
-
-            list.Add(info);
         }
 
-        return list;
+        return map.Values.OrderByDescending(x => x.IsDefault).ThenBy(x => x.Name).ToList();
+    }
+
+    public int GetActiveSpoolerJobsCount()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return 0;
+        try
+        {
+            using var searcher = new ManagementObjectSearcher("SELECT Document, JobStatus FROM Win32_PrintJob");
+            return searcher.Get().Count;
+        }
+        catch
+        {
+            return 0;
+        }
     }
 
     public bool PrintTestPage(string printerName, string clientName, string serverName, out string errorMessage)

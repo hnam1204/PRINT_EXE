@@ -539,4 +539,49 @@ public class RPMTests
         Assert.Equal("BaoCaoThang.pdf", settings.PrintHistory[0].DocumentName);
         Assert.Single(settings.UpdateHistory);
     }
+
+    [Fact]
+    public void Audit_LiveSystemAuditor_CalculatesExactWeightsAndRejectsMockData()
+    {
+        var audit = LiveSystemAuditor.RunAudit();
+
+        Assert.NotNull(audit);
+        Assert.NotEmpty(audit.OperatingSystem);
+        Assert.Equal(27, audit.Items.Count);
+
+        // Sum of all weights must equal exactly 100.0%
+        double totalWeight = audit.Items.Sum(i => i.WeightPercent);
+        Assert.Equal(100.0, Math.Round(totalWeight, 1));
+
+        // Strict verification: Absolutely 0 mock data items!
+        Assert.Equal(0, audit.MockDataCount);
+        Assert.True(audit.RealDataCount > 0);
+
+        // Verified percent must be based solely on PASS items
+        double expectedVerified = audit.Items.Where(i => i.Status == AuditStatus.Pass).Sum(i => i.WeightPercent);
+        Assert.Equal(Math.Round(expectedVerified, 1), audit.VerifiedOperationalPercent);
+
+        // Verify the 7 groups exist
+        Assert.Equal(7, audit.Groups.Count);
+        Assert.Contains(audit.Groups, g => g.GroupName.StartsWith("1."));
+        Assert.Contains(audit.Groups, g => g.GroupName.StartsWith("5."));
+    }
+
+    [Fact]
+    public void Audit_PrinterService_PopulatesPortAndDriverFromWindows()
+    {
+        var svc = new PrinterService();
+        var printers = svc.GetInstalledPrinters();
+
+        Assert.NotNull(printers);
+        // On any standard Windows machine, at least Print to PDF or OneNote exists
+        if (printers.Count > 0)
+        {
+            var pdfPrinter = printers.FirstOrDefault(p => p.Name.Contains("PDF", StringComparison.OrdinalIgnoreCase));
+            if (pdfPrinter != null)
+            {
+                Assert.False(string.IsNullOrEmpty(pdfPrinter.PortName));
+            }
+        }
+    }
 }

@@ -50,6 +50,11 @@ public class SharedPrinterInfo
     public bool SupportsColor { get; set; } = false;
     public bool SupportsDuplex { get; set; } = false;
     public List<string> PaperSizes { get; set; } = new();
+
+    // Live hardware and port detection
+    public bool IsUsb => !string.IsNullOrEmpty(PortName) && PortName.StartsWith("USB", StringComparison.OrdinalIgnoreCase);
+    public string ConnectionDisplay => IsUsb ? $"USB ({PortName})" : (string.IsNullOrEmpty(PortName) ? "Hệ thống" : PortName);
+    public int JobsInSpooler { get; set; } = 0;
 }
 
 public class PrintJob

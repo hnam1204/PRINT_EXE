@@ -112,7 +112,7 @@ public partial class ServerView : UserControl
         TxtOverviewJobsCount.Text = $"{completedJobs} Hoàn tất";
         TxtOverviewQueueStatus.Text = $"Hàng đợi: {pendingJobs} đang chờ xử lý";
 
-        TxtRelayStatus.Text = _serverService.Relay.IsConnected ? "Đã kết nối ổn định (WSS)" : "Đang kết nối lại...";
+        TxtRelayStatus.Text = _serverService.Relay.IsConnected ? "Đã kết nối ổn định (WSS)" : "Máy chủ nội bộ (Sẵn sàng)";
 
         TxtClientsStats.Text = $"Tổng: {_serverService.ConnectedClients.Count} thiết bị | Online: {onlineClients} | Chờ duyệt: {pendingClients} | Offline: {offlineClients}";
     }

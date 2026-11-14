@@ -14,7 +14,7 @@
                            Foreground="{StaticResource TextMainBrush}" 
                            HorizontalAlignment="Center" Margin="0,0,0,6"/>
                 
-                <TextBlock Text="Giải pháp chia sẻ máy in qua Internet độc lập trong bán kính văn phòng 1 km" 
+                <TextBlock Text="Giải pháp kết nối &amp; chia sẻ máy in qua Internet an toàn cho doanh nghiệp" 
                            FontSize="14" Foreground="{StaticResource TextMutedBrush}" 
                            HorizontalAlignment="Center"/>
             </StackPanel>
