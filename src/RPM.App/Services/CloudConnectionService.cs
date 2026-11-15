@@ -10,7 +10,7 @@ namespace RPM.App.Services;
 public sealed class CloudConnectionService : IAsyncDisposable
 {
     private readonly AppSettings _settings;
-    private readonly CloudDeviceTokenStore _tokenStore = new();
+    private readonly CloudDeviceTokenStore _tokenStore;
     private readonly CloudDeviceKeyStore _keyStore = new();
     private readonly CancellationTokenSource _stop = new();
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
@@ -22,7 +22,11 @@ public sealed class CloudConnectionService : IAsyncDisposable
     public event EventHandler<string>? OnLog;
     public event EventHandler? OnStateChanged;
 
-    public CloudConnectionService(AppSettings settings) => _settings = settings;
+    public CloudConnectionService(AppSettings settings)
+    {
+        _settings = settings;
+        _tokenStore = new CloudDeviceTokenStore(scope: $"{settings.DeviceId}-{settings.Role}");
+    }
 
     public async Task<bool> EnrollAsync(string enrollmentSecret, CancellationToken cancellationToken = default)
     {
@@ -69,6 +73,12 @@ public sealed class CloudConnectionService : IAsyncDisposable
             if (profile is null || profile.IsRevoked)
             {
                 SetOffline("Thiết bị Cloud đã bị thu hồi hoặc chưa sẵn sàng.");
+                return false;
+            }
+            string expectedRole = _settings.Role == AppRole.Server ? "HOST" : "CLIENT";
+            if (!string.Equals(profile.Role, expectedRole, StringComparison.OrdinalIgnoreCase))
+            {
+                SetOffline($"Token Cloud thuộc vai trò {profile.Role}; cần kích hoạt lại cho vai trò {expectedRole}.");
                 return false;
             }
             var heartbeat = await GetOrCreateClient().HeartbeatAsync(cancellationToken);

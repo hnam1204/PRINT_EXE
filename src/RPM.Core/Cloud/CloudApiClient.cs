@@ -222,13 +222,19 @@ public sealed class CloudDeviceTokenStore
 {
     private readonly string _path;
 
-    public CloudDeviceTokenStore(string? path = null)
+    public CloudDeviceTokenStore(string? path = null, string? scope = null)
     {
+        string fileName = string.IsNullOrWhiteSpace(scope)
+            ? "cloud-device-token.bin"
+            : $"cloud-device-token-{SanitizeScope(scope)}.bin";
         _path = path ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "RemotePrintManager",
-            "cloud-device-token.bin");
+            fileName);
     }
+
+    private static string SanitizeScope(string scope) =>
+        string.Concat(scope.Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' ? ch : '_'));
 
     public void Save(string token)
     {

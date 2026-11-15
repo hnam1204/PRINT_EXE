@@ -42,6 +42,7 @@ public class ServerService : IDisposable, IAsyncDisposable
     public ObservableCollection<SharedPrinterInfo> SharedPrinters { get; } = new();
     public SharedPrinterInfo? ActiveSharedPrinter { get; private set; }
     public bool IsCloudOnline => _cloud.IsOnline;
+    public bool HasStoredCloudToken => _cloud.HasStoredToken;
     public bool IsOnline => _cloud.IsOnline || _relayClient.IsConnected;
     public string ConnectionStatus => _cloud.IsOnline
         ? "Cloud Online"

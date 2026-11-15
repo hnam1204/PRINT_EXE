@@ -427,7 +427,8 @@ public partial class MainDashboardView : UserControl
 
     private void UpdateCloudEnrollmentUI()
     {
-        bool isActivated = _settings.CloudTransportEnabled;
+        bool hasStoredToken = _serverService?.HasStoredCloudToken == true || _clientService?.HasStoredCloudToken == true;
+        bool isActivated = _settings.CloudTransportEnabled && hasStoredToken;
         bool hasHint = !string.IsNullOrWhiteSpace(_settings.CloudEnrollmentKeyPrefix);
         TxtCloudEnrollmentMaskedKey.Text = hasHint
             ? $"{_settings.CloudEnrollmentKeyPrefix}{new string('*', 20)}"
