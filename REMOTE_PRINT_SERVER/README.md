@@ -129,6 +129,9 @@ The bot endpoint is `/api/v1/internal/telegram/webhook` and supports:
 /revoke-code CODE
 ```
 
+Use `forever` for a perpetual code and `unlimited` for unlimited devices:
+`/create-code Enterprise forever unlimited`. These codes remain revocable and should be reserved for trusted enterprise customers.
+
 Set the Telegram webhook after the Vercel deployment using the Bot API, passing
 `TELEGRAM_WEBHOOK_SECRET` as the `secret_token` header value. Keep the bot token
 and webhook secret out of source control and never send them in chat.

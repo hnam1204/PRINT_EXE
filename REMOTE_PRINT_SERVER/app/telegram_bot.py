@@ -27,14 +27,14 @@ def generate_activation_code(length: int = 12) -> str:
     return "".join(secrets.choice(CODE_ALPHABET) for _ in range(length))
 
 
-def create_activation_code(session, *, label: str, days: int, max_devices: int, created_by: str) -> str:
+def create_activation_code(session, *, label: str, days: int | None, max_devices: int | None, created_by: str) -> str:
     code = generate_activation_code()
     session.add(ActivationCode(
         code_hash=hash_token(code),
         code_hint=code[:5],
         label=label[:160] or "customer",
         max_devices=max_devices,
-        expires_at=utcnow() + timedelta(days=days),
+        expires_at=utcnow() + timedelta(days=days) if days is not None else None,
         created_by=created_by,
     ))
     session.add(AuditEvent(

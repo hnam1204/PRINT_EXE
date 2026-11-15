@@ -65,3 +65,17 @@ def test_customer_code_rejects_expired_and_revoked_codes(tmp_path):
         json=registration_payload("revoked-device"),
     )
     assert revoked_response.status_code == 401
+
+
+def test_perpetual_unlimited_code_accepts_multiple_devices(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'activation-unlimited.db'}")
+    client = TestClient(app)
+    with app.state.session_factory() as session:
+        code = create_activation_code(session, label="Enterprise", days=None, max_devices=None, created_by="admin")
+        session.commit()
+
+    headers = {"X-Enrollment-Secret": code}
+    first = client.post("/api/v1/devices/register", headers=headers, json=registration_payload("enterprise-01"))
+    second = client.post("/api/v1/devices/register", headers=headers, json=registration_payload("enterprise-02"))
+    assert first.status_code == 201
+    assert second.status_code == 201

@@ -244,12 +244,14 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                     .with_for_update()
                 )
                 now = utcnow()
-                if activation_code is None or activation_code.revoked_at is not None or as_utc(activation_code.expires_at) <= now:
+                if activation_code is None or activation_code.revoked_at is not None or (
+                    activation_code.expires_at is not None and as_utc(activation_code.expires_at) <= now
+                ):
                     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired activation code")
                 if device is not None and device.activation_code_id not in (None, activation_code.id):
                     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device is already activated with another code")
                 if device is None or device.activation_code_id is None:
-                    if activation_code.used_devices >= activation_code.max_devices:
+                    if activation_code.max_devices is not None and activation_code.used_devices >= activation_code.max_devices:
                         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Activation code device limit reached")
                     activation_code.used_devices += 1
 
@@ -926,14 +928,18 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 "/list-codes - Xem danh sách mã\n"
                 "/revoke-code [ma] - Thu hồi mã\n\n"
                 "Ví dụ:\n"
-                "/create-code CongTyABC 30 1"
+
+                "/create-code CongTyABC 30 1\n"
+                "/create-code CongTyABC forever unlimited"
             )
         elif command.name == "/create-code":
             label = command.args[0] if command.args else "customer"
-            days = int(command.args[1]) if len(command.args) > 1 and command.args[1].isdigit() else 30
-            max_devices = int(command.args[2]) if len(command.args) > 2 and command.args[2].isdigit() else 1
-            if not 1 <= days <= 365 or not 1 <= max_devices <= 15:
-                reply = "Số ngày phải từ 1 đến 365 và số thiết bị phải từ 1 đến 15."
+            days_arg = command.args[1].lower() if len(command.args) > 1 else "30"
+            devices_arg = command.args[2].lower() if len(command.args) > 2 else "1"
+            days = None if days_arg in {"forever", "permanent", "vĩnhviễn", "vinhvien"} else int(days_arg) if days_arg.isdigit() else -1
+            max_devices = None if devices_arg in {"unlimited", "unlimited-devices", "vohan", "vôhạn"} else int(devices_arg) if devices_arg.isdigit() else -1
+            if (days is not None and not 1 <= days <= 365) or (max_devices is not None and not 1 <= max_devices <= 15):
+                reply = "Số ngày phải từ 1 đến 365 hoặc forever; số thiết bị phải từ 1 đến 15 hoặc unlimited."
             else:
                 with session_factory() as session:
                     code = create_activation_code(session, label=label, days=days, max_devices=max_devices, created_by=actor)
@@ -941,8 +947,8 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 reply = (
                     f"Đã tạo mã kích hoạt khách hàng:\n{code}\n\n"
                     f"Tên khách hàng: {label}\n"
-                    f"Thời hạn: {days} ngày\n"
-                    f"Số thiết bị tối đa: {max_devices}\n\n"
+                    f"Thời hạn: {'Vĩnh viễn' if days is None else f'{days} ngày'}\n"
+                    f"Số thiết bị tối đa: {'Không giới hạn' if max_devices is None else max_devices}\n\n"
                     "Lưu ý: Mã chỉ hiển thị một lần. Hãy gửi mã này cho khách hàng."
                 )
         elif command.name == "/list-codes":
@@ -950,8 +956,8 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 records = session.query(ActivationCode).order_by(ActivationCode.created_at.desc()).limit(20).all()
                 now = utcnow()
                 reply = "\n".join(
-                    f"{record.code_hint}... | {record.label} | {record.used_devices}/{record.max_devices} | "
-                    f"{'ĐÃ THU HỒI' if record.revoked_at else 'HẾT HẠN' if as_utc(record.expires_at) <= now else 'ĐANG HOẠT ĐỘNG'}"
+                    f"{record.code_hint}... | {record.label} | {record.used_devices}/{record.max_devices if record.max_devices is not None else 'Không giới hạn'} | "
+                    f"{'ĐÃ THU HỒI' if record.revoked_at else 'HẾT HẠN' if record.expires_at is not None and as_utc(record.expires_at) <= now else 'ĐANG HOẠT ĐỘNG'}"
                     for record in records
                 ) or "Chưa có mã khách hàng."
         elif command.name == "/revoke-code" and command.args:
