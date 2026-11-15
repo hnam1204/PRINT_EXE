@@ -95,8 +95,7 @@ def record_message(session, chat_id: int, message_id: int, direction: str) -> No
 def tracked_message_ids(session, chat_id: int) -> list[int]:
     return [row.message_id for row in session.query(TelegramMessage)
             .filter(TelegramMessage.chat_id == str(chat_id))
-            .order_by(TelegramMessage.created_at.desc())
-            .limit(100).all()]
+            .order_by(TelegramMessage.created_at.desc()).all()]
 
 
 def remove_tracked_message(session, chat_id: int, message_id: int) -> None:

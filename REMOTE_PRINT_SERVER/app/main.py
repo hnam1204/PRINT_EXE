@@ -1008,17 +1008,18 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         if command.name in {"/start", "/help"}:
             reply = (
                 "Remote Print Manager - Bot quản trị\n\n"
-                "Các lệnh sử dụng:\n"
-                "/create-code [ten_khach_hang] [so_ngay] [so_thiet_bi] [pham_vi_met]\n"
-                "/list-codes - Xem danh sách mã\n"
-                "/revoke-code [ma] - Thu hồi mã\n\n"
-                "/clear-chat - Xóa các tin nhắn bot đã ghi nhận\n\n"
+                "Lệnh quản lý:\n"
+                "/create [ten_khach_hang] [so_ngay|forever] [so_thiet_bi|unlimited] [pham_vi_met]\n"
+                "/list - Xem toàn bộ thông tin mã\n"
+                "/revoke [ma] - Thu hồi mã\n"
+                "/clear-chat - Xóa tin nhắn bot và người dùng đã ghi nhận\n\n"
+                "Lệnh cũ vẫn dùng được:\n"
+                "/create-code, /list-codes, /revoke-code\n\n"
                 "Ví dụ:\n"
-
-                "/create-code CongTyABC 30 1 500\n"
-                "/create-code CongTyABC forever unlimited 1000"
+                "/create CongTyABC 30 1 500\n"
+                "/create CongTyABC forever unlimited 1000"
             )
-        elif command.name == "/create-code":
+        elif command.name in {"/create", "/create-code"}:
             label = command.args[0] if command.args else "customer"
             days_arg = command.args[1].lower() if len(command.args) > 1 else "30"
             devices_arg = command.args[2].lower() if len(command.args) > 2 else "1"
@@ -1026,43 +1027,78 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             days = None if days_arg in {"forever", "permanent", "vĩnhviễn", "vinhvien"} else int(days_arg) if days_arg.isdigit() else -1
             max_devices = None if devices_arg in {"unlimited", "unlimited-devices", "vohan", "vôhạn"} else int(devices_arg) if devices_arg.isdigit() else -1
             radius = int(radius_arg) if radius_arg.isdigit() else -1
-            if (days is not None and not 1 <= days <= 365) or (max_devices is not None and not 1 <= max_devices <= 15) or not 1 <= radius <= 1000:
-                reply = "Cú pháp: /create-code [tên] [số_ngày|forever] [số_thiết_bị|unlimited] [phạm_vi_mét]. Phạm vi phải từ 1 đến 1000 mét."
+            if len(command.args) != 4 or (days is not None and not 1 <= days <= 365) or (max_devices is not None and not 1 <= max_devices <= 15) or not 1 <= radius <= 1000:
+                reply = "Cú pháp: /create [tên] [số_ngày|forever] [số_thiết_bị|unlimited] [phạm_vi_mét]. Phạm vi từ 1 đến 1000 mét."
             else:
                 with session_factory() as session:
                     code = create_activation_code(session, label=label, days=days, max_devices=max_devices, geofence_radius_meters=radius, created_by=actor)
+                    session.flush()
+                    record = session.query(ActivationCode).filter(ActivationCode.code_hash == hash_token(code)).one()
+                    record_id = record.id
+                    code_hint = record.code_hint
+                    created_at = record.created_at
+                    expires_at = record.expires_at
                     session.commit()
                 reply = (
-                    f"Đã tạo mã kích hoạt khách hàng:\n{code}\n\n"
-                    f"Tên khách hàng: {label}\n"
+                    "ĐÃ TẠO MÃ KÍCH HOẠT\n\n"
+                    f"Mã: {code}\n"
+                    f"Mã tham chiếu: {code_hint}...\n"
+                    f"ID: {record_id}\n"
+                    f"Khách hàng: {label}\n"
                     f"Thời hạn: {'Vĩnh viễn' if days is None else f'{days} ngày'}\n"
-                    f"Số thiết bị tối đa: {'Không giới hạn' if max_devices is None else max_devices}\n\n"
-                    f"Phạm vi: {radius} mét từ máy chủ\n\n"
-                    "Lưu ý: Mã chỉ hiển thị một lần. Hãy gửi mã này cho khách hàng."
+                    f"Thiết bị tối đa: {'Không giới hạn' if max_devices is None else max_devices}\n"
+                    f"Phạm vi: {radius} mét từ máy chủ\n"
+                    f"Tạo lúc: {created_at.strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+                    f"Hết hạn: {'Không hết hạn' if expires_at is None else expires_at.strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+                    "Trạng thái: ĐANG HOẠT ĐỘNG\n\n"
+                    "Lưu ý: Mã đầy đủ chỉ hiển thị một lần. Hãy gửi mã cho khách hàng ngay."
                 )
-        elif command.name == "/list-codes":
+        elif command.name in {"/list", "/list-codes"}:
             with session_factory() as session:
                 purge_revoked_activation_codes(session, actor)
                 session.commit()
-                records = session.query(ActivationCode).order_by(ActivationCode.created_at.desc()).limit(20).all()
+                records = session.query(ActivationCode).order_by(ActivationCode.created_at.desc()).all()
                 now = utcnow()
-                reply = "\n".join(
-                    f"{record.code_hint}... | {record.label} | {record.used_devices}/{record.max_devices if record.max_devices is not None else 'Không giới hạn'} | "
-                    f"Phạm vi {record.geofence_radius_meters}m | "
-                    f"{'ĐÃ THU HỒI' if record.revoked_at else 'HẾT HẠN' if record.expires_at is not None and as_utc(record.expires_at) <= now else 'ĐANG HOẠT ĐỘNG'}"
-                    for record in records
-                ) or "Chưa có mã khách hàng."
-        elif command.name == "/revoke-code" and command.args:
+                details = []
+                for index, record in enumerate(records, 1):
+                    expired = record.expires_at is not None and as_utc(record.expires_at) <= now
+                    details.append(
+                        f"{index}. {record.code_hint}...\n"
+                        f"   ID: {record.id}\n"
+                        f"   Khách hàng: {record.label}\n"
+                        f"   Trạng thái: {'HẾT HẠN' if expired else 'ĐANG HOẠT ĐỘNG'}\n"
+                        f"   Thiết bị: {record.used_devices}/{record.max_devices if record.max_devices is not None else 'Không giới hạn'}\n"
+                        f"   Phạm vi: {record.geofence_radius_meters} mét\n"
+                        f"   Tạo lúc: {record.created_at.strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+                        f"   Hết hạn: {'Không hết hạn' if record.expires_at is None else record.expires_at.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                    )
+                reply = "DANH SÁCH MÃ KÍCH HOẠT\n\n" + "\n\n".join(details) if details else "Chưa có mã khách hàng."
+        elif command.name in {"/revoke", "/revoke-code"} and command.args:
             with session_factory() as session:
                 revoked = revoke_activation_code(session, command.args[0], actor)
                 session.commit()
-            reply = "Đã thu hồi mã kích hoạt." if revoked else "Không tìm thấy mã hoặc mã đã được thu hồi."
+            reply = "Đã thu hồi mã và vô hiệu hóa thiết bị liên quan." if revoked else "Không tìm thấy mã hoặc mã đã được thu hồi."
         else:
             reply = "Lệnh không hợp lệ. Gửi /help để xem hướng dẫn bằng tiếng Việt."
 
-        sent_message_id = await asyncio.to_thread(send_message, settings.telegram_bot_token, chat_id, reply)
+        # Telegram rejects messages over 4096 characters; preserve every record by splitting on entry boundaries.
+        chunks = []
+        current = ""
+        for entry in reply.split("\n\n"):
+            candidate = entry if not current else f"{current}\n\n{entry}"
+            if len(candidate) > 3900 and current:
+                chunks.append(current)
+                current = entry
+            else:
+                current = candidate
+        if current:
+            chunks.append(current)
+        sent_message_ids = []
+        for chunk in chunks or [reply]:
+            sent_message_ids.append(await asyncio.to_thread(send_message, settings.telegram_bot_token, chat_id, chunk))
         with session_factory() as session:
-            record_message(session, chat_id, sent_message_id, "OUT")
+            for sent_message_id in sent_message_ids:
+                record_message(session, chat_id, sent_message_id, "OUT")
             session.commit()
         return {"ok": True}
 

@@ -20,6 +20,12 @@ def test_parse_telegram_command_accepts_geofence_radius():
     assert command.args == ("Acme", "30", "2", "500")
 
 
+def test_parse_telegram_command_supports_short_management_names():
+    assert parse_command("/create Acme forever unlimited 1000").name == "/create"
+    assert parse_command("/list").name == "/list"
+    assert parse_command("/revoke ABC123").name == "/revoke"
+
+
 def test_create_and_revoke_customer_activation_code(tmp_path):
     _, session_factory = create_session_factory(f"sqlite:///{tmp_path / 'activation.db'}")
     with session_factory() as session:
@@ -79,6 +85,17 @@ def test_telegram_message_tracking_supports_chat_cleanup(tmp_path):
 
     with session_factory() as session:
         assert tracked_message_ids(session, 123) == [10]
+
+
+def test_telegram_message_tracking_keeps_all_messages_for_cleanup(tmp_path):
+    _, session_factory = create_session_factory(f"sqlite:///{tmp_path / 'telegram-all.db'}")
+    with session_factory() as session:
+        for message_id in range(1, 126):
+            record_message(session, 123, message_id, "IN" if message_id % 2 else "OUT")
+        session.commit()
+
+    with session_factory() as session:
+        assert len(tracked_message_ids(session, 123)) == 125
 
 
 def test_purge_revoked_codes_removes_legacy_revoked_rows(tmp_path):
