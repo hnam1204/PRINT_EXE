@@ -219,6 +219,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         request: Request,
         enrollment_secret: str | None = Header(default=None, alias="X-Enrollment-Secret"),
     ):
+        enrollment_secret = enrollment_secret.strip() if enrollment_secret else None
         if not enrollment_secret or not settings.enrollment_secret or not secrets.compare_digest(enrollment_secret, settings.enrollment_secret):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid enrollment secret")
 

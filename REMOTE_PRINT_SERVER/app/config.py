@@ -11,6 +11,11 @@ def _csv(value: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in value.split(",") if item.strip())
 
 
+def _secret(value: str) -> str:
+    """Remove transport whitespace without weakening the secret itself."""
+    return value.strip()
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str
@@ -38,9 +43,9 @@ class Settings:
         environment = os.getenv("RPM_SERVER_ENV", "development").lower()
         database_url = os.getenv("DATABASE_URL", "sqlite:///./remote_print_server.db")
         origins = _csv(os.getenv("ALLOWED_ORIGINS", "http://localhost:3000"))
-        enrollment_secret = os.getenv("ENROLLMENT_SECRET", "")
-        admin_api_key = os.getenv("ADMIN_API_KEY", "")
-        cron_secret = os.getenv("CRON_SECRET", "")
+        enrollment_secret = _secret(os.getenv("ENROLLMENT_SECRET", ""))
+        admin_api_key = _secret(os.getenv("ADMIN_API_KEY", ""))
+        cron_secret = _secret(os.getenv("CRON_SECRET", ""))
         blob_store_id = os.getenv("BLOB_STORE_ID", "")
         blob_read_write_token = os.getenv("BLOB_READ_WRITE_TOKEN", os.getenv("VERCEL_BLOB_READ_WRITE_TOKEN", ""))
 
