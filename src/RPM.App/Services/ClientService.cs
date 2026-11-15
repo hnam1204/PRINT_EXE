@@ -46,6 +46,7 @@ public class ClientService : IDisposable, IAsyncDisposable
 
     public event EventHandler<string>? OnLog;
     public event EventHandler? OnStateChanged;
+    public event EventHandler? OnEnrollmentRevoked;
 
     public ClientService(AppSettings settings)
     {
@@ -53,6 +54,7 @@ public class ClientService : IDisposable, IAsyncDisposable
         _cloud = new CloudConnectionService(settings);
         _cloud.OnLog += (s, msg) => OnLog?.Invoke(this, msg);
         _cloud.OnStateChanged += (s, e) => OnStateChanged?.Invoke(this, EventArgs.Empty);
+        _cloud.OnEnrollmentRevoked += (s, e) => OnEnrollmentRevoked?.Invoke(this, EventArgs.Empty);
 
         // Restore history
         foreach (var job in _settings.PrintHistory.Take(50))

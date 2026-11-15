@@ -60,12 +60,14 @@ public class ServerService : IDisposable, IAsyncDisposable
     public event EventHandler<string>? OnLog;
     public event EventHandler<DeviceInfo>? OnClientRequestedApproval;
     public event EventHandler? OnStatusChanged;
+    public event EventHandler? OnEnrollmentRevoked;
 
     public ServerService(AppSettings settings)
     {
         _settings = settings;
         _cloud = new CloudConnectionService(settings);
         _cloud.OnLog += (s, msg) => OnLog?.Invoke(this, msg);
+        _cloud.OnEnrollmentRevoked += (s, e) => OnEnrollmentRevoked?.Invoke(this, EventArgs.Empty);
         _cloud.OnStateChanged += (s, e) =>
         {
             if (_settings.CloudTransportEnabled && _cloud.IsOnline)

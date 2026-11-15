@@ -39,6 +39,7 @@ public partial class MainDashboardView : UserControl
     private SettingsTab _currentSettingsTab = SettingsTab.General;
     private bool _restoringPrinterSelection;
     private int _printerLoadVersion;
+    private bool _cloudRevocationNoticeShown;
 
     public event EventHandler? OnMinimizeRequested;
     public event EventHandler? OnRoleChangeRequested;
@@ -68,6 +69,7 @@ public partial class MainDashboardView : UserControl
                     ApplyClientFilters();
                 }
             });
+            _serverService.OnEnrollmentRevoked += (s, e) => Dispatcher.Invoke(ShowCloudRevokedModal);
             _serverService.PrintJobs.CollectionChanged += (s, e) => Dispatcher.Invoke(() =>
             {
                 RefreshRecentJobs();
@@ -90,6 +92,7 @@ public partial class MainDashboardView : UserControl
                     LoadPrintersViewAsync();
                 }
             });
+            _clientService.OnEnrollmentRevoked += (s, e) => Dispatcher.Invoke(ShowCloudRevokedModal);
             _clientService.PrintHistory.CollectionChanged += (s, e) => Dispatcher.Invoke(() =>
             {
                 RefreshRecentJobs();
@@ -98,6 +101,20 @@ public partial class MainDashboardView : UserControl
         }
 
         Loaded += MainDashboardView_Loaded;
+    }
+
+    private void ShowCloudRevokedModal()
+    {
+        if (_cloudRevocationNoticeShown) return;
+        _cloudRevocationNoticeShown = true;
+        MessageBox.Show(
+            "Mã kích hoạt đã bị thu hồi.\n\n" +
+            "Kết nối máy chủ từ xa đã bị vô hiệu hóa.\n" +
+            "Kết nối nội bộ vẫn có thể hoạt động.\n\n" +
+            "Vui lòng nhập mã kích hoạt mới để sử dụng lại Cloud.",
+            "Mã kích hoạt không còn hiệu lực",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
     }
 
     private void MainDashboardView_Loaded(object sender, RoutedEventArgs e)
@@ -487,6 +504,7 @@ public partial class MainDashboardView : UserControl
                 : _clientService is not null && await _clientService.EnrollCloudAsync(secret);
             if (success)
             {
+                _cloudRevocationNoticeShown = false;
                 _settings.CloudEnrollmentKeyPrefix = secret[..Math.Min(5, secret.Length)];
                 ConfigManager.Save(_settings);
                 UpdateCloudEnrollmentUI();
@@ -498,13 +516,35 @@ public partial class MainDashboardView : UserControl
         {
             TxtCloudEnrollmentSecret.Clear();
             TxtCloudStatus.Text = "Chưa kết nối";
-            MessageBox.Show($"Kích hoạt thất bại: {ex.Message}", "Kết nối máy chủ từ xa", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(GetCloudEnrollmentErrorMessage(ex), "Kết nối máy chủ từ xa", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally
         {
             TxtCloudEnrollmentSecret.Clear();
             SetCloudEnrollBusy(false);
         }
+    }
+
+    private static string GetCloudEnrollmentErrorMessage(Exception exception)
+    {
+        string message = exception.ToString();
+        if (message.Contains("already activated with another code", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Thiết bị này đang liên kết với một mã kích hoạt khác.\n\n" +
+                   "Muốn sử dụng mã mới, hãy thu hồi mã cũ hoặc liên hệ quản trị viên để đổi mã kích hoạt.\n" +
+                   "Sau khi đổi mã, thiết bị sẽ cần kết nối và ghép nối lại với máy chủ.";
+        }
+
+        if (message.Contains("invalid or expired activation code", StringComparison.OrdinalIgnoreCase))
+            return "Mã kích hoạt không hợp lệ hoặc đã hết hạn. Vui lòng kiểm tra lại mã với quản trị viên.";
+
+        if (message.Contains("activation code device limit reached", StringComparison.OrdinalIgnoreCase))
+            return "Mã kích hoạt đã đạt giới hạn số thiết bị. Vui lòng liên hệ quản trị viên.";
+
+        if (message.Contains("device is revoked", StringComparison.OrdinalIgnoreCase))
+            return "Thiết bị này đã bị thu hồi quyền kích hoạt. Vui lòng liên hệ quản trị viên để được cấp lại quyền.";
+
+        return "Không thể kích hoạt máy chủ từ xa. Vui lòng kiểm tra mã kích hoạt và kết nối Internet rồi thử lại.";
     }
 
     private void BtnChangeCloudEnrollment_Click(object sender, RoutedEventArgs e)

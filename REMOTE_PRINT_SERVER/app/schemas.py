@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, FiniteFloat
 
 
 class DeviceRegistration(BaseModel):
@@ -91,7 +91,7 @@ class GeofenceSettings(BaseModel):
     enabled: bool = False
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
-    radiusMeters: float = Field(default=1000, gt=0, le=100000)
+    radiusMeters: FiniteFloat = Field(default=1000, gt=0, le=100000)
 
 
 class GeofenceResponse(GeofenceSettings):

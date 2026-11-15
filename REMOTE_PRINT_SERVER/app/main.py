@@ -506,6 +506,8 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         with session_factory() as session:
             host = session.get(Device, device.id)
             activation = session.get(ActivationCode, host.activation_code_id) if host.activation_code_id else None
+            if activation is not None and not payload.enabled:
+                raise HTTPException(status_code=403, detail="Geofence is required by the activation code")
             if activation is not None and payload.radiusMeters > activation.geofence_radius_meters:
                 raise HTTPException(
                     status_code=422,

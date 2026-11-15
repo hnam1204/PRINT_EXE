@@ -98,3 +98,61 @@ def test_perpetual_unlimited_code_accepts_multiple_devices(tmp_path):
     second = client.post("/api/v1/devices/register", headers=headers, json=registration_payload("enterprise-02"))
     assert first.status_code == 201
     assert second.status_code == 201
+
+
+def test_activation_host_requires_geofence_and_cannot_exceed_radius(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'activation-geofence-policy.db'}")
+    client = TestClient(app)
+    with app.state.session_factory() as session:
+        host_code = create_activation_code(
+            session, label="Customer", days=30, max_devices=2,
+            geofence_radius_meters=250, created_by="admin",
+        )
+        session.commit()
+
+    host = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Enrollment-Secret": host_code},
+        json={**registration_payload("host-01"), "role": "HOST"},
+    )
+    assert host.status_code == 201
+    host_headers = {"Authorization": f"Bearer {host.json()['deviceToken']}"}
+
+    client_registration = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Enrollment-Secret": "test-enrollment-secret"},
+        json=registration_payload("client-01"),
+    )
+    assert client_registration.status_code == 201
+    client_headers = {"Authorization": f"Bearer {client_registration.json()['deviceToken']}"}
+
+    too_large = client.put(
+        "/api/v1/devices/geofence",
+        headers=host_headers,
+        json={"enabled": True, "latitude": 10, "longitude": 106, "radiusMeters": 251},
+    )
+    assert too_large.status_code == 422
+
+    disabled = client.post("/api/v1/pairings", headers=client_headers, json={"hostId": "host-01"})
+    assert disabled.status_code == 503
+
+    configured = client.put(
+        "/api/v1/devices/geofence",
+        headers=host_headers,
+        json={"enabled": True, "latitude": 10, "longitude": 106, "radiusMeters": 250},
+    )
+    assert configured.status_code == 200
+
+    disable_attempt = client.put(
+        "/api/v1/devices/geofence",
+        headers=host_headers,
+        json={"enabled": False, "radiusMeters": 250},
+    )
+    assert disable_attempt.status_code == 403
+
+    invalid_radius = client.put(
+        "/api/v1/devices/geofence",
+        headers=host_headers,
+        json={"enabled": True, "latitude": 10, "longitude": 106, "radiusMeters": "NaN"},
+    )
+    assert invalid_radius.status_code == 422

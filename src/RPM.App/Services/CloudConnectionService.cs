@@ -1,6 +1,8 @@
 using RPM.Core.Cloud;
 using RPM.Core.Config;
 using RPM.Core.Models;
+using System.Net;
+using System.Net.Http;
 
 namespace RPM.App.Services;
 
@@ -15,6 +17,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
     private Task? _heartbeatTask;
+    private bool _disabledByServer;
 
     public CloudApiClient? Client { get; private set; }
     public CloudActivationInfo? ActivationInfo { get; private set; }
@@ -22,6 +25,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
     public bool HasStoredToken => _tokenStore.HasToken;
     public event EventHandler<string>? OnLog;
     public event EventHandler? OnStateChanged;
+    public event EventHandler? OnEnrollmentRevoked;
 
     public CloudConnectionService(AppSettings settings)
     {
@@ -38,6 +42,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
     public async Task<bool> EnrollAsync(string enrollmentSecret, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(enrollmentSecret)) throw new ArgumentException("Enrollment secret is required.", nameof(enrollmentSecret));
+        _disabledByServer = false;
         var client = GetOrCreateClient();
         var registration = await client.RegisterDeviceAsync(_settings, enrollmentSecret, cancellationToken);
         ActivationInfo = new CloudActivationInfo(registration.ActivationLabel, registration.ActivationExpiresAt, registration.ActivationMaxDevices, registration.ActivationUsedDevices, registration.ActivationGeofenceRadiusMeters);
@@ -76,6 +81,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
 
     public async Task<bool> ProbeAsync(CancellationToken cancellationToken = default)
     {
+        if (_disabledByServer) return false;
         try
         {
             var profile = await GetOrCreateClient().GetProfileAsync(cancellationToken);
@@ -101,6 +107,11 @@ public sealed class CloudConnectionService : IAsyncDisposable
             IsOnline = true;
             OnStateChanged?.Invoke(this, EventArgs.Empty);
             return true;
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            InvalidateEnrollment("Mã kích hoạt đã bị thu hồi hoặc không còn quyền sử dụng.");
+            return false;
         }
         catch (Exception ex)
         {
@@ -145,6 +156,31 @@ public sealed class CloudConnectionService : IAsyncDisposable
     {
         IsOnline = false;
         OnLog?.Invoke(this, message);
+        OnStateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void InvalidateEnrollment(string reason)
+    {
+        _disabledByServer = true;
+        _tokenStore.Clear();
+        ActivationInfo = null;
+        _settings.CloudTransportEnabled = false;
+        _settings.CloudEnrollmentKeyPrefix = string.Empty;
+        _settings.CloudActivationLabel = string.Empty;
+        _settings.CloudActivationExpiresAt = null;
+        _settings.CloudActivationMaxDevices = null;
+        _settings.CloudActivationUsedDevices = null;
+        _settings.CloudActivationGeofenceRadiusMeters = null;
+        _settings.CloudHostId = string.Empty;
+        _settings.CloudHostPublicKey = string.Empty;
+        _settings.CloudPairingCode = string.Empty;
+        _settings.CloudPairingExpiresAt = null;
+        _settings.CloudPairingSessionId = string.Empty;
+        _settings.CloudPairingId = string.Empty;
+        ConfigManager.Save(_settings);
+        IsOnline = false;
+        OnLog?.Invoke(this, reason);
+        OnEnrollmentRevoked?.Invoke(this, EventArgs.Empty);
         OnStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
