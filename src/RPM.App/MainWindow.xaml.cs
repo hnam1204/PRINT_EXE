@@ -143,25 +143,24 @@ public partial class MainWindow : Window
             Activate();
         }
 
-        ShowExitConfirmation(wasHidden);
+        _ = ShowExitConfirmationAsync(wasHidden);
     }
 
-    private void MainWindow_Closing(object? sender, CancelEventArgs e)
+    private async void MainWindow_Closing(object? sender, CancelEventArgs e)
     {
         if (_isExplicitExit)
         {
-            // Already confirmed exit
-            DisposeServices();
+            // Shutdown was already confirmed and services were disposed asynchronously.
             return;
         }
 
         // Cancel the native close first. The confirmation dialog must run outside
         // the current close operation; showing a window from Closing is invalid.
         e.Cancel = true;
-        ShowExitConfirmation(wasHidden: false);
+        await ShowExitConfirmationAsync(wasHidden: false);
     }
 
-    private void ShowExitConfirmation(bool wasHidden)
+    private async Task ShowExitConfirmationAsync(bool wasHidden)
     {
         if (_isExitDialogOpen) return;
 
@@ -177,11 +176,8 @@ public partial class MainWindow : Window
             if (dialog.UserAction == ExitAction.Exit)
             {
                 _isExplicitExit = true;
-                DisposeServices();
-
-                // Let the current Closing event finish before starting the
-                // confirmed close operation.
-                Dispatcher.BeginInvoke(new Action(Close), System.Windows.Threading.DispatcherPriority.Background);
+                await DisposeServicesAsync();
+                Application.Current.Shutdown();
             }
             else if (dialog.UserAction == ExitAction.MinimizeToTray)
             {
@@ -205,13 +201,13 @@ public partial class MainWindow : Window
         }
     }
 
-    private void DisposeServices()
+    private async Task DisposeServicesAsync()
     {
         if (_servicesDisposed) return;
         _servicesDisposed = true;
 
         try { _trayService?.Dispose(); } catch { }
-        try { _serverService?.Dispose(); } catch { }
-        try { _clientService?.Dispose(); } catch { }
+        try { if (_serverService is not null) await _serverService.DisposeAsync(); } catch { }
+        try { if (_clientService is not null) await _clientService.DisposeAsync(); } catch { }
     }
 }

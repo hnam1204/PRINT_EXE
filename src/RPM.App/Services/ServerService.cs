@@ -12,7 +12,7 @@ using RPM.Printing;
 
 namespace RPM.App.Services;
 
-public class ServerService : IDisposable
+public class ServerService : IDisposable, IAsyncDisposable
 {
     private readonly AppSettings _settings;
     private readonly RelayClient _relayClient = new();
@@ -23,6 +23,9 @@ public class ServerService : IDisposable
     private readonly Dictionary<string, string> _cloudPairingIds = new(StringComparer.Ordinal);
     private readonly CloudJobStateStore _cloudJobStateStore = new();
     private int _cloudWorkersStarted;
+    private Task? _cloudWorkerTask;
+    private Task? _cloudPairingWorkerTask;
+    private int _isDisposed;
     private readonly Queue<PrintJob> _printQueue = new();
     private readonly SemaphoreSlim _queueLock = new(1, 1);
     private readonly HashSet<string> _recentlyPrintedHashes = new();
@@ -204,8 +207,8 @@ public class ServerService : IDisposable
         {
             await RegisterCloudPrintersAsync();
             await IssueCloudPairingCodeAsync(previousCloudSessionId);
-            _ = Task.Run(CloudWorkerLoopAsync);
-            _ = Task.Run(CloudPairingLoopAsync);
+            _cloudWorkerTask = Task.Run(CloudWorkerLoopAsync);
+            _cloudPairingWorkerTask = Task.Run(CloudPairingLoopAsync);
         }
         catch
         {
@@ -1107,13 +1110,33 @@ public class ServerService : IDisposable
         }
     }
 
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _isDisposed, 1) != 0) return;
+        _cloudWorkerStop.Cancel();
+        _embeddedRelay?.Stop();
+
+        var workers = new[] { _cloudWorkerTask, _cloudPairingWorkerTask }
+            .Where(task => task is not null)
+            .Cast<Task>()
+            .ToArray();
+        if (workers.Length > 0)
+        {
+            try { await Task.WhenAll(workers).WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (OperationCanceledException) { }
+            catch (TimeoutException) { }
+            catch (Exception ex) { OnLog?.Invoke(this, $"[Shutdown] Worker dừng với cảnh báo: {ex.Message}"); }
+        }
+
+        try { await _relayClient.StopAsync(); } catch { }
+        _relayClient.Dispose();
+        await _cloud.DisposeAsync();
+        _queueLock.Dispose();
+        _cloudWorkerStop.Dispose();
+    }
+
     public void Dispose()
     {
-        _cloudWorkerStop.Cancel();
-        _cloud.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _cloudWorkerStop.Dispose();
-        _relayClient.Dispose();
-        _queueLock.Dispose();
-        _embeddedRelay?.Stop();
+        DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 }

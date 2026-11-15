@@ -12,7 +12,7 @@ using RPM.Printing;
 
 namespace RPM.App.Services;
 
-public class ClientService : IDisposable
+public class ClientService : IDisposable, IAsyncDisposable
 {
     private readonly AppSettings _settings;
     private readonly RelayClient _relayClient = new();
@@ -24,6 +24,7 @@ public class ClientService : IDisposable
     private SharedPrinterInfo? _remotePrinter;
     private readonly Dictionary<string, string> _cloudPrinterIds = new(StringComparer.OrdinalIgnoreCase);
     private TaskCompletionSource<bool>? _joinRequestCompletion;
+    private int _isDisposed;
 
     public RelayClient Relay => _relayClient;
     public LocalIppServer IppServer => _ippServer;
@@ -625,11 +626,18 @@ public class ClientService : IDisposable
         }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _isDisposed, 1) != 0) return;
+        try { await _relayClient.StopAsync(); } catch { }
         _relayClient.Dispose();
         _ippServer.Dispose();
-        _cloud.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        await _cloud.DisposeAsync();
+    }
+
+    public void Dispose()
+    {
+        DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 }
 
