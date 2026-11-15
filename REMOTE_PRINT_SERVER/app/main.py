@@ -309,33 +309,6 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             keyAlgorithm=device.key_algorithm,
         )
 
-    @app.get("/api/v1/devices/{device_id}", response_model=DeviceProfile, tags=["Devices"])
-    def get_authorized_device_profile(device_id: str, device: Device = Depends(require_device)):
-        with session_factory() as session:
-            target = session.get(Device, device_id)
-            if target is None or target.is_revoked:
-                raise HTTPException(status_code=404, detail="Device not found")
-            if target.id != device.id:
-                approved = session.scalar(
-                    select(Pairing).where(
-                        Pairing.status == "APPROVED",
-                        ((Pairing.host_id == target.id) & (Pairing.client_id == device.id))
-                        | ((Pairing.client_id == target.id) & (Pairing.host_id == device.id)),
-                    )
-                )
-                if approved is None:
-                    raise HTTPException(status_code=403, detail="Approved pairing required")
-            return DeviceProfile(
-                deviceId=target.id,
-                name=target.name,
-                role=target.role,
-                appVersion=target.app_version,
-                isRevoked=target.is_revoked,
-                lastSeenAt=target.last_seen_at,
-                publicKey=target.public_key,
-                keyAlgorithm=target.key_algorithm,
-            )
-
     @app.post("/api/v1/devices/heartbeat", response_model=HeartbeatResponse, tags=["Devices"])
     def heartbeat(request: Request, device: Device = Depends(require_device)):
         with session_factory() as session:
@@ -474,6 +447,33 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             longitude=device.geofence_longitude,
             radiusMeters=device.geofence_radius_meters,
         )
+
+    @app.get("/api/v1/devices/{device_id}", response_model=DeviceProfile, tags=["Devices"])
+    def get_authorized_device_profile(device_id: str, device: Device = Depends(require_device)):
+        with session_factory() as session:
+            target = session.get(Device, device_id)
+            if target is None or target.is_revoked:
+                raise HTTPException(status_code=404, detail="Device not found")
+            if target.id != device.id:
+                approved = session.scalar(
+                    select(Pairing).where(
+                        Pairing.status == "APPROVED",
+                        ((Pairing.host_id == target.id) & (Pairing.client_id == device.id))
+                        | ((Pairing.client_id == target.id) & (Pairing.host_id == device.id)),
+                    )
+                )
+                if approved is None:
+                    raise HTTPException(status_code=403, detail="Approved pairing required")
+            return DeviceProfile(
+                deviceId=target.id,
+                name=target.name,
+                role=target.role,
+                appVersion=target.app_version,
+                isRevoked=target.is_revoked,
+                lastSeenAt=target.last_seen_at,
+                publicKey=target.public_key,
+                keyAlgorithm=target.key_algorithm,
+            )
 
     @app.put("/api/v1/devices/geofence", response_model=GeofenceResponse, tags=["Devices"])
     def update_geofence(payload: GeofenceSettings, device: Device = Depends(require_device)):

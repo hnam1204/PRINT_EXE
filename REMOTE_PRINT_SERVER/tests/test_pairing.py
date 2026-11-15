@@ -52,3 +52,17 @@ def test_client_requests_and_host_approves_pairing(tmp_path):
     )
     assert status.status_code == 200
     assert status.json()["status"] == "APPROVED"
+
+
+def test_host_geofence_route_is_not_captured_by_device_id_route(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'geofence-route.db'}")
+    client = TestClient(app)
+    host_token = register(client, "host-geofence", "HOST")
+
+    response = client.get(
+        "/api/v1/devices/geofence",
+        headers={"Authorization": f"Bearer {host_token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["hostId"] == "host-geofence"
