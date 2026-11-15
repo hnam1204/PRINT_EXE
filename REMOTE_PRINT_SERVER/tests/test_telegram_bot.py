@@ -1,9 +1,9 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from app.database import ActivationCode, AuditEvent, Device, as_utc, create_session_factory, utcnow
-from app.telegram_bot import create_activation_code, parse_command, purge_revoked_activation_codes, record_message, remove_tracked_message, revoke_activation_code, tracked_message_ids
+from app.telegram_bot import create_activation_code, format_remaining, format_vietnam_datetime, parse_command, purge_revoked_activation_codes, record_message, remove_tracked_message, revoke_activation_code, tracked_message_ids
 
 
 def test_parse_telegram_command_with_bot_suffix():
@@ -59,6 +59,14 @@ def test_create_perpetual_unlimited_activation_code(tmp_path):
 
         assert record.expires_at is None
         assert record.max_devices is None
+
+
+def test_activation_expiry_formats_in_vietnam_time_and_counts_down():
+    created = datetime(2026, 11, 15, 0, 0, tzinfo=timezone.utc)
+    expires = created + timedelta(days=1, hours=2, minutes=3, seconds=4)
+    assert format_vietnam_datetime(created) == "15/11/2026 07:00:00 (giờ Việt Nam)"
+    assert format_remaining(expires, created) == "Còn lại: 1 ngày 02 giờ 03 phút 04 giây"
+    assert format_remaining(None, created) == "Vĩnh viễn"
 
 
 def test_activation_code_geofence_radius_is_bounded(tmp_path):

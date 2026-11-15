@@ -54,6 +54,8 @@ from .telegram_bot import (
     purge_revoked_activation_codes,
     revoke_activation_code,
     send_message,
+    format_remaining,
+    format_vietnam_datetime,
     tracked_message_ids,
 )
 
@@ -1048,8 +1050,9 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                     f"Thời hạn: {'Vĩnh viễn' if days is None else f'{days} ngày'}\n"
                     f"Thiết bị tối đa: {'Không giới hạn' if max_devices is None else max_devices}\n"
                     f"Phạm vi: {radius} mét từ máy chủ\n"
-                    f"Tạo lúc: {created_at.strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
-                    f"Hết hạn: {'Không hết hạn' if expires_at is None else expires_at.strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+                    f"Tạo lúc: {format_vietnam_datetime(created_at)}\n"
+                    f"Hết hạn: {format_vietnam_datetime(expires_at)}\n"
+                    f"Đếm ngược: {format_remaining(expires_at)}\n"
                     "Trạng thái: ĐANG HOẠT ĐỘNG\n\n"
                     "Lưu ý: Mã đầy đủ chỉ hiển thị một lần. Hãy gửi mã cho khách hàng ngay."
                 )
@@ -1069,8 +1072,9 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                         f"   Trạng thái: {'HẾT HẠN' if expired else 'ĐANG HOẠT ĐỘNG'}\n"
                         f"   Thiết bị: {record.used_devices}/{record.max_devices if record.max_devices is not None else 'Không giới hạn'}\n"
                         f"   Phạm vi: {record.geofence_radius_meters} mét\n"
-                        f"   Tạo lúc: {record.created_at.strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
-                        f"   Hết hạn: {'Không hết hạn' if record.expires_at is None else record.expires_at.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                        f"   Tạo lúc: {format_vietnam_datetime(record.created_at)}\n"
+                        f"   Hết hạn: {format_vietnam_datetime(record.expires_at)}\n"
+                        f"   Đếm ngược: {format_remaining(record.expires_at, now)}"
                     )
                 reply = "DANH SÁCH MÃ KÍCH HOẠT\n\n" + "\n\n".join(details) if details else "Chưa có mã khách hàng."
         elif command.name in {"/revoke", "/revoke-code"} and command.args:

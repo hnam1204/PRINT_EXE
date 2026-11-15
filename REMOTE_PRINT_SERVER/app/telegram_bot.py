@@ -2,7 +2,8 @@ import json
 import secrets
 import urllib.request
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from .database import ActivationCode, AuditEvent, Device, TelegramMessage, utcnow
 from .security import hash_token
@@ -10,6 +11,7 @@ from .security import hash_token
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 MIN_GEOFENCE_RADIUS_METERS = 1
 MAX_GEOFENCE_RADIUS_METERS = 1000
+VIETNAM_TIMEZONE = ZoneInfo("Asia/Ho_Chi_Minh")
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,32 @@ def parse_command(text: str) -> TelegramCommand | None:
 
 def generate_activation_code(length: int = 12) -> str:
     return "".join(secrets.choice(CODE_ALPHABET) for _ in range(length))
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def format_vietnam_datetime(value: datetime | None) -> str:
+    if value is None:
+        return "Không hết hạn"
+    formatted = _as_utc(value).astimezone(VIETNAM_TIMEZONE).strftime("%d/%m/%Y %H:%M:%S")
+    return f"{formatted} (giờ Việt Nam)"
+
+
+def format_remaining(expires_at: datetime | None, now: datetime | None = None) -> str:
+    if expires_at is None:
+        return "Vĩnh viễn"
+    remaining = _as_utc(expires_at) - _as_utc(now or utcnow())
+    if remaining.total_seconds() <= 0:
+        return "ĐÃ HẾT HẠN"
+    total_seconds = int(remaining.total_seconds())
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"Còn lại: {days} ngày {hours:02d} giờ {minutes:02d} phút {seconds:02d} giây"
 
 
 def create_activation_code(session, *, label: str, days: int | None, max_devices: int | None, created_by: str, geofence_radius_meters: int = MAX_GEOFENCE_RADIUS_METERS) -> str:

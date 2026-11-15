@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Button = System.Windows.Controls.Button;
 using RPM.App.Services;
 using RPM.Core.Config;
@@ -40,6 +41,7 @@ public partial class MainDashboardView : UserControl
     private bool _restoringPrinterSelection;
     private int _printerLoadVersion;
     private bool _cloudRevocationNoticeShown;
+    private readonly DispatcherTimer _activationCountdownTimer;
 
     public event EventHandler? OnMinimizeRequested;
     public event EventHandler? OnRoleChangeRequested;
@@ -51,6 +53,9 @@ public partial class MainDashboardView : UserControl
         _clientService = clientService;
 
         InitializeComponent();
+
+        _activationCountdownTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _activationCountdownTimer.Tick += ActivationCountdownTimer_Tick;
 
         // Bind in-page controls
         IcRecentJobs.ItemsSource = _recentJobs;
@@ -101,6 +106,7 @@ public partial class MainDashboardView : UserControl
         }
 
         Loaded += MainDashboardView_Loaded;
+        Unloaded += MainDashboardView_Unloaded;
     }
 
     private void ShowCloudRevokedModal()
@@ -145,6 +151,23 @@ public partial class MainDashboardView : UserControl
         RefreshRecentJobs();
         ConfigureUpdateControl();
         CloseSettings();
+    }
+
+    private void MainDashboardView_Unloaded(object sender, RoutedEventArgs e)
+    {
+        _activationCountdownTimer.Stop();
+    }
+
+    private void ActivationCountdownTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_settings.CloudTransportEnabled && !string.IsNullOrWhiteSpace(_settings.CloudActivationLabel))
+        {
+            TxtCloudLicenseSummary.Text = BuildCloudLicenseSummary();
+        }
+        else
+        {
+            _activationCountdownTimer.Stop();
+        }
     }
 
     // =========================================================
@@ -459,6 +482,10 @@ public partial class MainDashboardView : UserControl
         BtnChangeCloudEnrollment.Visibility = isActivated ? Visibility.Visible : Visibility.Collapsed;
         TxtCloudLicenseSummary.Text = isActivated ? BuildCloudLicenseSummary() : string.Empty;
         TxtCloudLicenseSummary.Visibility = isActivated ? Visibility.Visible : Visibility.Collapsed;
+        if (isActivated)
+            _activationCountdownTimer.Start();
+        else
+            _activationCountdownTimer.Stop();
     }
 
     private string BuildCloudLicenseSummary()
@@ -467,14 +494,43 @@ public partial class MainDashboardView : UserControl
             return "Đang kiểm tra thông tin bản quyền...";
 
         DateTime? expiresAt = _settings.CloudActivationExpiresAt;
-        string expiration = expiresAt is null ? "Vĩnh viễn" : $"Đến {expiresAt.Value.ToLocalTime():dd/MM/yyyy}";
+        string expiration = expiresAt is null
+            ? "Vĩnh viễn"
+            : $"Đến {ToVietnamTime(expiresAt.Value):dd/MM/yyyy HH:mm:ss} (giờ Việt Nam)";
+        string remaining = FormatRemaining(expiresAt);
         string devices = _settings.CloudActivationMaxDevices is int max
             ? $"{_settings.CloudActivationUsedDevices ?? 0}/{max} thiết bị"
             : "Không giới hạn thiết bị";
         string radius = _settings.CloudActivationGeofenceRadiusMeters is int meters
             ? $" • Phạm vi: {meters} m"
             : string.Empty;
-        return $"Thời hạn: {expiration} • Thiết bị: {devices}{radius}";
+        return $"Thời hạn: {expiration} • {remaining} • Thiết bị: {devices}{radius}";
+    }
+
+    private static DateTime AsUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Local => value.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+    };
+
+    private static DateTime ToVietnamTime(DateTime value)
+    {
+        var vietnamZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+        return TimeZoneInfo.ConvertTimeFromUtc(AsUtc(value), vietnamZone);
+    }
+
+    private static string FormatRemaining(DateTime? expiresAt)
+    {
+        if (expiresAt is null) return "Vĩnh viễn";
+        var remaining = AsUtc(expiresAt.Value) - DateTime.UtcNow;
+        if (remaining <= TimeSpan.Zero) return "ĐÃ HẾT HẠN";
+        var totalSeconds = (long)remaining.TotalSeconds;
+        var days = totalSeconds / 86400;
+        var hours = (totalSeconds % 86400) / 3600;
+        var minutes = (totalSeconds % 3600) / 60;
+        var seconds = totalSeconds % 60;
+        return $"Còn lại: {days} ngày {hours:00} giờ {minutes:00} phút {seconds:00} giây";
     }
 
     private void SetCloudEnrollBusy(bool isBusy)
