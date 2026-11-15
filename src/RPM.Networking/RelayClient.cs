@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using RPM.Core.Networking;
 using RPM.Core.Models;
 using RPM.Core.Protocol;
 using RPM.Core.Security;
@@ -37,9 +38,9 @@ public class RelayClient : IDisposable
     {
         if (!Uri.TryCreate(relayUrl, UriKind.Absolute, out var uri) ||
             (uri.Scheme is not ("ws" or "wss")) ||
-            (uri.Scheme == "ws" && !IsLoopback(uri.Host)))
+            (uri.Scheme == "ws" && !RelayEndpointPolicy.IsPrivateNetworkHost(uri.Host)))
         {
-            throw new ArgumentException("Public relay connections must use wss://; ws:// is allowed only for loopback.", nameof(relayUrl));
+            throw new ArgumentException("ws:// chỉ được dùng cho IP mạng LAN riêng; Relay công khai phải dùng wss://.", nameof(relayUrl));
         }
 
         _relayUrl = relayUrl;
@@ -276,7 +277,4 @@ public class RelayClient : IDisposable
         _sendLock.Dispose();
     }
 
-    private static bool IsLoopback(string host) =>
-        string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) ||
-        IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address);
 }

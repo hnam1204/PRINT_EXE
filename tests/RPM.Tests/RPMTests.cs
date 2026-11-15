@@ -52,9 +52,15 @@ public class RPMTests
     }
 
     [Fact]
-    public void RelayEndpointPolicy_RemotePlainWebSocketIsRejected()
+    public void RelayEndpointPolicy_PrivateLanPlainWebSocketIsAllowed()
     {
-        Assert.False(RelayEndpointPolicy.TryValidateForRole(AppRole.Client, "ws://192.168.1.20:9090", out var reason));
+        Assert.True(RelayEndpointPolicy.TryValidateForRole(AppRole.Client, "ws://192.168.1.20:9090", out _));
+    }
+
+    [Fact]
+    public void RelayEndpointPolicy_PublicPlainWebSocketIsRejected()
+    {
+        Assert.False(RelayEndpointPolicy.TryValidateForRole(AppRole.Client, "ws://8.8.8.8:9090", out var reason));
         Assert.Contains("wss", reason, StringComparison.OrdinalIgnoreCase);
     }
 

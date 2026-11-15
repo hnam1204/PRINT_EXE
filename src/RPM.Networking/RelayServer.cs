@@ -31,23 +31,30 @@ public class RelayServer
     private HttpListener? _listener;
     private readonly ConcurrentDictionary<string, Room> _rooms = new(StringComparer.OrdinalIgnoreCase);
     private bool _isRunning;
+    public bool IsLanAvailable { get; private set; }
 
     public void Start(int port = 9090)
     {
         _listener = new HttpListener();
-        _listener.Prefixes.Add($"http://localhost:{port}/");
-        _listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+        // Bind the embedded broker to LAN interfaces so another device can join.
+        _listener.Prefixes.Add($"http://+:{port}/");
         
         try
         {
             _listener.Start();
+            IsLanAvailable = true;
         }
-        catch (HttpListenerException)
+        catch (HttpListenerException ex) when (ex.ErrorCode == 5)
         {
+            // Windows requires an URL ACL for wildcard HttpListener prefixes.
+            // Keep the local fallback usable instead of failing application startup.
             _listener.Close();
             _listener = new HttpListener();
+            _listener.Prefixes.Add($"http://localhost:{port}/");
             _listener.Prefixes.Add($"http://127.0.0.1:{port}/");
             _listener.Start();
+            IsLanAvailable = false;
+            Console.WriteLine($"[RPM Relay] LAN binding bị Windows từ chối (URL ACL). Đang chạy loopback: {ex.Message}");
         }
 
         _isRunning = true;

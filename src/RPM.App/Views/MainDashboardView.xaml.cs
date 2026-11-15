@@ -144,6 +144,7 @@ public partial class MainDashboardView : UserControl
             BtnTabDevices.Visibility = Visibility.Collapsed;
 
             TxtClientCodeInput.Text = _settings.PairingCode;
+            TxtClientRelayAddress.Text = _settings.RelayServerUrl;
 
             UpdateClientUI();
         }
@@ -285,6 +286,12 @@ public partial class MainDashboardView : UserControl
         int maxClients = _serverService.CloudMaxClientCount;
         TxtServerClientsSummary.Text = $"{approvedClients}/{maxClients} máy ({onlineClients} online • {pendingClients} chờ duyệt)";
         TxtServerGeofenceStatus.Text = _serverService.GeofenceStatusDisplay;
+        var lanEndpoints = _serverService.LanRelayEndpoints;
+        TxtServerLanEndpoint.Text = !_serverService.IsLanRelayAvailable
+            ? "Chưa mở quyền LAN cho cổng 9090"
+            : lanEndpoints.Count > 0
+                ? string.Join("\n", lanEndpoints)
+                : "Không tìm thấy IP LAN";
 
         UpdateCloudEnrollmentUI();
         RefreshRecentJobs();
@@ -460,6 +467,7 @@ public partial class MainDashboardView : UserControl
         else
         {
             TxtClientCodeInput.Text = _settings.PairingCode;
+            TxtClientRelayAddress.Text = _settings.RelayServerUrl;
             UpdateClientUI();
         }
 
@@ -1271,6 +1279,7 @@ public partial class MainDashboardView : UserControl
             }
 
             _settings.PairingCode = code;
+            _settings.RelayServerUrl = TxtClientRelayAddress.Text.Trim();
             ConfigManager.Save(_settings);
             BtnClientConnectToggle.IsEnabled = false;
             TxtClientConnectBtnText.Text = "Đang tìm...";

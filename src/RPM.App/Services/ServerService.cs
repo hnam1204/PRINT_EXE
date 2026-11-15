@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Net;
+using System.Net.NetworkInformation;
 using System.Text.Json;
 using System.Security.Cryptography;
 using System.Windows;
@@ -51,11 +53,13 @@ public class ServerService : IDisposable, IAsyncDisposable
     public string ConnectionStatus => _cloud.IsOnline
         ? "Đã kết nối máy chủ từ xa"
         : _relayClient.IsConnected ? "Đã kết nối nội bộ" : "Ngoại tuyến";
+    public bool IsLanRelayAvailable => _embeddedRelay?.IsLanAvailable == true;
     public int CloudApprovedClientCount { get; private set; }
     public int CloudOnlineClientCount { get; private set; }
     public int CloudMaxClientCount { get; private set; } = 15;
     public bool CloudCapacityLoaded { get; private set; }
     public string GeofenceStatusDisplay { get; private set; } = "Chưa bật";
+    public IReadOnlyList<string> LanRelayEndpoints => GetLanRelayEndpoints();
 
     public event EventHandler<string>? OnLog;
     public event EventHandler<DeviceInfo>? OnClientRequestedApproval;
@@ -123,21 +127,18 @@ public class ServerService : IDisposable, IAsyncDisposable
             }
         }
 
-        if (cloudReady)
-        {
-            OnLog?.Invoke(this, "[Cloud] Host worker đã khởi động; Relay giữ ở trạng thái dự phòng.");
-            return;
-        }
-
-        // Auto-start embedded relay if server is configured for local address
-        if (_settings.RelayServerUrl.Contains("127.0.0.1") || _settings.RelayServerUrl.Contains("localhost"))
+        // Keep the embedded Relay available even when Cloud is online. It is the
+        // LAN fallback and must listen on the same port for other devices.
+        if (_settings.Role == AppRole.Server &&
+            Uri.TryCreate(_settings.RelayServerUrl, UriKind.Absolute, out var relayUri) &&
+            relayUri.Scheme == "ws")
         {
             try
             {
                 int port = 9090;
-                if (Uri.TryCreate(_settings.RelayServerUrl, UriKind.Absolute, out var uri) && uri.Port > 0)
+                if (relayUri.Port > 0)
                 {
-                    port = uri.Port;
+                    port = relayUri.Port;
                 }
                 _embeddedRelay = new RelayServer();
                 _embeddedRelay.Start(port);
@@ -150,6 +151,33 @@ public class ServerService : IDisposable, IAsyncDisposable
         }
 
         await _relayClient.StartAsync(_settings.RelayServerUrl);
+
+        if (cloudReady)
+        {
+            OnLog?.Invoke(this, "[Cloud] Host worker đã khởi động; kết nối nội bộ LAN vẫn sẵn sàng dự phòng.");
+        }
+    }
+
+    private IReadOnlyList<string> GetLanRelayEndpoints()
+    {
+        int port = 9090;
+        if (Uri.TryCreate(_settings.RelayServerUrl, UriKind.Absolute, out var uri) && uri.Port > 0)
+        {
+            port = uri.Port;
+        }
+
+        return NetworkInterface.GetAllNetworkInterfaces()
+            .Where(adapter => adapter.OperationalStatus == OperationalStatus.Up
+                && adapter.NetworkInterfaceType != NetworkInterfaceType.Loopback
+                && adapter.NetworkInterfaceType != NetworkInterfaceType.Tunnel)
+            .SelectMany(adapter => adapter.GetIPProperties().UnicastAddresses)
+            .Select(address => address.Address)
+            .Where(address => address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
+                && !IPAddress.IsLoopback(address)
+                && !address.ToString().StartsWith("169.254.", StringComparison.Ordinal))
+            .Distinct()
+            .Select(address => $"ws://{address}:{port}")
+            .ToList();
     }
 
     public async Task<bool> RotatePairingCodeAsync(CancellationToken cancellationToken = default)
@@ -345,6 +373,8 @@ public class ServerService : IDisposable, IAsyncDisposable
             var client = _cloud.Client;
             var pending = await client.ListPendingPairingsAsync(cancellationToken);
             var summary = await client.GetPairingSummaryAsync(cancellationToken);
+            var pendingItems = pending ?? Array.Empty<CloudPendingPairing>();
+            var pendingClientIds = pendingItems.Select(item => item.ClientId).ToHashSet(StringComparer.Ordinal);
             if (summary is not null)
             {
                 CloudApprovedClientCount = summary.ApprovedCount;
@@ -361,7 +391,7 @@ public class ServerService : IDisposable, IAsyncDisposable
                     : "Chưa bật";
             }
 
-            foreach (var item in pending ?? Array.Empty<CloudPendingPairing>())
+            foreach (var item in pendingItems)
             {
                 bool isNewPairing = !_cloudPairingIds.TryGetValue(item.ClientId, out var existingPairingId)
                     || existingPairingId != item.PairingId;
@@ -380,7 +410,52 @@ public class ServerService : IDisposable, IAsyncDisposable
                     SaveClientList();
                 }
 
+                if (isNewPairing)
+                {
+                    // A new request is authoritative: allow a previously rejected device to be approved again.
+                    device.IsApproved = false;
+                    device.IsBlocked = false;
+                    device.DeviceName = item.ClientName;
+                    device.IsOnline = true;
+                    device.LastSeen = DateTime.UtcNow;
+                    SaveClientList();
+                }
+
                 if (isNewPairing) OnClientRequestedApproval?.Invoke(this, device);
+            }
+
+            // Do not keep stale pairing IDs for devices that are no longer pending.
+            foreach (var clientId in _cloudPairingIds.Keys.ToList())
+            {
+                var device = ConnectedClients.FirstOrDefault(x => x.DeviceId == clientId);
+                if (!pendingClientIds.Contains(clientId) && device is not null && !device.IsApproved)
+                {
+                    _cloudPairingIds.Remove(clientId, out _);
+                }
+            }
+
+            // Rejected requests are not active devices. Remove them from the visible
+            // list after refresh; a later request creates the device again as pending.
+            var staleRejected = ConnectedClients
+                .Where(device => device.IsBlocked && !pendingClientIds.Contains(device.DeviceId))
+                .ToList();
+            if (staleRejected.Count > 0)
+            {
+                Application.Current?.Dispatcher.Invoke(() =>
+                {
+                    foreach (var device in staleRejected)
+                    {
+                        ConnectedClients.Remove(device);
+                    }
+                });
+                if (Application.Current is null)
+                {
+                    foreach (var device in staleRejected)
+                    {
+                        ConnectedClients.Remove(device);
+                    }
+                }
+                SaveClientList();
             }
 
             OnStatusChanged?.Invoke(this, EventArgs.Empty);
@@ -571,26 +646,38 @@ public class ServerService : IDisposable, IAsyncDisposable
     {
         client.IsApproved = false;
         client.IsBlocked = true;
-        SaveClientList();
 
         if (_settings.CloudTransportEnabled && _cloud.Client is not null && _cloudPairingIds.TryGetValue(client.DeviceId, out var cloudPairingId))
         {
             await _cloud.Client.DecidePairingAsync(cloudPairingId, false, Array.Empty<string>());
             OnLog?.Invoke(this, $"[Cloud] Đã từ chối thiết bị: {client.DeviceName}");
-            return;
+        }
+        else
+        {
+            var packet = new NetworkPacket
+            {
+                Type = MessageType.DeviceRevoked,
+                SenderId = _settings.DeviceId,
+                TargetId = client.DeviceId,
+                PairingCode = _settings.PairingCode,
+                PayloadJson = "{\"status\":\"revoked\"}"
+            };
+
+            await _relayClient.SendPacketAsync(packet);
+            OnLog?.Invoke(this, $"[Thu hồi] Đã thu hồi quyền máy con: {client.DeviceName}");
         }
 
-        var packet = new NetworkPacket
+        _cloudPairingIds.Remove(client.DeviceId);
+        if (Application.Current is not null)
         {
-            Type = MessageType.DeviceRevoked,
-            SenderId = _settings.DeviceId,
-            TargetId = client.DeviceId,
-            PairingCode = _settings.PairingCode,
-            PayloadJson = "{\"status\":\"revoked\"}"
-        };
-
-        await _relayClient.SendPacketAsync(packet);
-        OnLog?.Invoke(this, $"[Thu hồi] Đã thu hồi quyền máy con: {client.DeviceName}");
+            Application.Current.Dispatcher.Invoke(() => ConnectedClients.Remove(client));
+        }
+        else
+        {
+            ConnectedClients.Remove(client);
+        }
+        SaveClientList();
+        OnStatusChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public void SetClientDepartment(string deviceId, string department)
@@ -801,6 +888,12 @@ public class ServerService : IDisposable, IAsyncDisposable
                 existing.OperatingSystem = client.OperatingSystem;
                 existing.LastSeen = DateTime.UtcNow;
                 existing.IsOnline = true;
+                if (existing.IsBlocked)
+                {
+                    // A fresh join request is allowed to start a new approval cycle.
+                    existing.IsApproved = false;
+                    existing.IsBlocked = false;
+                }
             }
 
             // Persist and notify on the UI thread so the bound device list
