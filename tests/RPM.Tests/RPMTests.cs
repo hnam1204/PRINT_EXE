@@ -418,6 +418,35 @@ public class RPMTests
     }
 
     [Fact]
+    public async Task UpdateService_DownloadToFile_ReleasesFileBeforeValidation()
+    {
+        string targetFile = Path.Combine(Path.GetTempPath(), $"rpm_update_lock_{Guid.NewGuid():N}.bin");
+        byte[] content = Encoding.UTF8.GetBytes("downloaded update content");
+
+        try
+        {
+            await UpdateService.DownloadToFileAsync(
+                new MemoryStream(content),
+                targetFile,
+                content.Length);
+
+            await using var reopened = new FileStream(targetFile, FileMode.Open, FileAccess.Read, FileShare.None);
+            Assert.Equal(content, await ReadAllBytesAsync(reopened));
+        }
+        finally
+        {
+            if (File.Exists(targetFile)) File.Delete(targetFile);
+        }
+    }
+
+    private static async Task<byte[]> ReadAllBytesAsync(Stream stream)
+    {
+        using var buffer = new MemoryStream();
+        await stream.CopyToAsync(buffer);
+        return buffer.ToArray();
+    }
+
+    [Fact]
     public void Scalability_Supports100Clients_WithoutHardcodedLimits()
     {
         var clients = new List<DeviceInfo>();

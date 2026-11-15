@@ -58,8 +58,7 @@ public static class UpdateService
             response.EnsureSuccessStatusCode();
             if (response.Content.Headers.ContentLength is > MaxUpdateBytes) return (false, "Từ chối cập nhật: gói tải xuống quá lớn.", string.Empty);
             await using var input = await response.Content.ReadAsStreamAsync(ct);
-            await using var output = new FileStream(targetFile, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true);
-            await CopyBoundedAsync(input, output, response.Content.Headers.ContentLength, progress, ct);
+            await DownloadToFileAsync(input, targetFile, response.Content.Headers.ContentLength, progress, ct);
             if (!IsPeExecutable(targetFile)) { TryDelete(targetFile); return (false, "Từ chối cập nhật: gói không phải EXE Windows hợp lệ.", string.Empty); }
             string actualHash = await ComputeSha256Async(targetFile, ct);
             if (!actualHash.Equals(manifest.Sha256.Trim(), StringComparison.OrdinalIgnoreCase)) { TryDelete(targetFile); return (false, "Xác minh gói thất bại: SHA-256 không khớp.", string.Empty); }
@@ -67,6 +66,20 @@ public static class UpdateService
         }
         catch (OperationCanceledException) { TryDelete(targetFile); return (false, "Đã hủy tải cập nhật.", string.Empty); }
         catch (Exception ex) { TryDelete(targetFile); return (false, $"Không thể tải bản cập nhật: {ex.Message}", string.Empty); }
+    }
+
+    internal static async Task DownloadToFileAsync(
+        Stream input,
+        string targetFile,
+        long? expectedLength,
+        IProgress<int>? progress = null,
+        CancellationToken ct = default)
+    {
+        // Close the writer before validation reopens the file for PE and hash checks.
+        await using (var output = new FileStream(targetFile, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true))
+        {
+            await CopyBoundedAsync(input, output, expectedLength, progress, ct);
+        }
     }
 
     public static bool ApplyUpdateAndRestart(string newExePath, out string errorMessage)
