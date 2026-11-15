@@ -18,7 +18,7 @@ public static class RelayEndpointPolicy
         reason = string.Empty;
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || uri.Scheme is not ("ws" or "wss"))
         {
-            reason = "Địa chỉ Relay không hợp lệ.";
+            reason = "Địa chỉ kết nối nội bộ không hợp lệ.";
             return false;
         }
 
@@ -30,7 +30,7 @@ public static class RelayEndpointPolicy
 
         if (uri.Scheme == "ws" && !IsLoopback(endpoint))
         {
-            reason = "Kết nối Relay ngoài máy phải dùng wss://.";
+            reason = "Kết nối nội bộ ngoài máy phải dùng wss://.";
             return false;
         }
 

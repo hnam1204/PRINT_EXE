@@ -104,7 +104,7 @@
                                     <StackPanel Grid.Column="0">
                                         <TextBlock Text="MÃ KẾT NỐI" FontSize="9" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
                                         <TextBlock x:Name="TxtServerPairingCode" Text="RPM-8197" FontSize="22" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,2,0,0"/>
-                                        <TextBlock x:Name="TxtServerPairingExpiry" Text="Mã Relay cục bộ" FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
+                                        <TextBlock x:Name="TxtServerPairingExpiry" Text="Mã kết nối nội bộ" FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                         <Button x:Name="BtnRegeneratePairingCode" Style="{StaticResource SecondaryBtn}" Click="BtnRegeneratePairingCode_Click" Padding="10,6" Margin="0,0,6,0">
@@ -375,7 +375,7 @@
                                     <Grid>
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="170"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                            <TextBlock Text="Kết nối Cloud" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}"/>
+                                            <TextBlock Text="Kết nối máy chủ từ xa" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}"/>
                                             <TextBlock x:Name="TxtCloudStatus" Text="Đang tắt" FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,1,0,0"/>
                                         </StackPanel>
                                         <Grid Grid.Column="1">
@@ -434,6 +434,21 @@
                                         <TextBlock Grid.Column="1" x:Name="TxtSettingsUpdateVersion" Text="V1.0.1" FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="10,0,12,0"/>
                                     <Button x:Name="BtnSettingsUpdateAction" Grid.Column="2" Style="{StaticResource SecondaryBtn}" Click="BtnSettingsCheckUpdate_Click" Height="34" VerticalAlignment="Center" Padding="10,5">
                                         <TextBlock x:Name="TxtSettingsUpdateAction" Text="Kiểm tra cập nhật" FontSize="11"/>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                                <Border Background="#EAF8F5" BorderBrush="#B7E5DB" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,8,0,0">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                            <TextBlock Text="Bộ phận hỗ trợ Zalo" FontSize="12" FontWeight="SemiBold" Foreground="#075E54"/>
+                                            <TextBlock Text="0379052767 · Hỗ trợ cài đặt và kết nối" FontSize="11" Foreground="#287C70" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Style="{StaticResource SecondaryBtn}" Click="BtnOpenZaloSupport_Click" Height="34" Padding="12,5" VerticalAlignment="Center">
+                                            <TextBlock Text="Mở Zalo" FontSize="11" FontWeight="SemiBold"/>
                                         </Button>
                                     </Grid>
                                 </Border>

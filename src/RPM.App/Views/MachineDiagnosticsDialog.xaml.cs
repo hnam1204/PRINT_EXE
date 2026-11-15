@@ -58,10 +58,10 @@ public partial class MachineDiagnosticsDialog : Window
         rows.Add(new DiagnosticRow("Internet", internet ? "Windows báo có kết nối mạng." : "Không phát hiện kết nối mạng.", internet ? DiagnosticState.Success : DiagnosticState.Warning));
 
         bool relayConnected = _serverService?.Relay.IsConnected ?? _clientService?.Relay.IsConnected ?? false;
-        rows.Add(new DiagnosticRow("Kênh kết nối ứng dụng", relayConnected ? "Relay đang kết nối thực tế." : "Relay chưa kết nối; chưa xác nhận được máy ở xa.", relayConnected ? DiagnosticState.Success : DiagnosticState.Warning));
+        rows.Add(new DiagnosticRow("Kênh kết nối ứng dụng", relayConnected ? "Kết nối nội bộ đang hoạt động." : "Kết nối nội bộ chưa hoạt động; chưa xác nhận được máy ở xa.", relayConnected ? DiagnosticState.Success : DiagnosticState.Warning));
 
         bool endpointValid = RPM.Core.Networking.RelayEndpointPolicy.TryValidateForRole(_settings.Role, _settings.RelayServerUrl, out var endpointReason);
-        string endpointType = _settings.Role == AppRole.Server ? "Relay nội bộ của Host" : "Relay từ xa của Client";
+        string endpointType = _settings.Role == AppRole.Server ? "Kết nối nội bộ của máy chủ" : "Kết nối nội bộ của máy con";
         rows.Add(new DiagnosticRow(endpointType, endpointValid ? _settings.RelayServerUrl : $"{_settings.RelayServerUrl} • {endpointReason}", endpointValid ? DiagnosticState.Success : DiagnosticState.Warning));
         rows.Add(new DiagnosticRow("Cổng nhận lệnh in cục bộ", $"127.0.0.1:{_settings.LocalIppPort} (chỉ dùng trên máy này)", DiagnosticState.Success));
 

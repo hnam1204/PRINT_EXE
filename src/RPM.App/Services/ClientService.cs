@@ -39,8 +39,8 @@ public class ClientService : IDisposable, IAsyncDisposable
     public bool IsConnecting { get; private set; }
     public string ConnectionStatus => _connectionStatus;
     public string ConnectionStatusDisplay => _cloud.IsOnline
-        ? "Cloud Online"
-        : _relayClient.IsConnected ? "Relay Online" : "Ngoại tuyến";
+        ? "Đã kết nối máy chủ từ xa"
+        : _relayClient.IsConnected ? "Đã kết nối nội bộ" : "Ngoại tuyến";
     public string GeofenceStatusDisplay { get; private set; } = "Chưa xác minh";
 
     public event EventHandler<string>? OnLog;
@@ -79,7 +79,7 @@ public class ClientService : IDisposable, IAsyncDisposable
         if (!RelayEndpointPolicy.TryValidateForRole(AppRole.Client, _settings.RelayServerUrl, out var reason))
         {
             _connectionStatus = "Chưa kết nối";
-            OnLog?.Invoke(this, reason + " Hãy thiết lập địa chỉ Host/Relay trong Chẩn đoán.");
+            OnLog?.Invoke(this, reason + " Hãy thiết lập địa chỉ Host/kết nối nội bộ trong Chẩn đoán.");
             OnStateChanged?.Invoke(this, EventArgs.Empty);
             _ippServer.Start(_settings.LocalIppPort);
             return;
@@ -122,7 +122,7 @@ public class ClientService : IDisposable, IAsyncDisposable
         {
             _connectionStatus = "Chưa kết nối";
             _joinRequestCompletion = null;
-            OnLog?.Invoke(this, reason + " Hãy thiết lập địa chỉ Host/Relay trong Chẩn đoán.");
+            OnLog?.Invoke(this, reason + " Hãy thiết lập địa chỉ Host/kết nối nội bộ trong Chẩn đoán.");
             OnStateChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
@@ -182,13 +182,13 @@ public class ClientService : IDisposable, IAsyncDisposable
             return;
         }
         IsConnecting = true;
-        _connectionStatus = "Đang tìm máy chủ Cloud...";
+        _connectionStatus = "Đang tìm máy chủ từ xa...";
         OnStateChanged?.Invoke(this, EventArgs.Empty);
         try
         {
             if (!_cloud.IsOnline || !await _cloud.ProbeAsync())
             {
-                _connectionStatus = "Chưa kết nối Cloud";
+                _connectionStatus = "Chưa kết nối máy chủ từ xa";
                 return;
             }
             var location = await _locationService.TryGetCurrentAsync();
@@ -216,10 +216,10 @@ public class ClientService : IDisposable, IAsyncDisposable
                 _ => "Chưa xác minh"
             };
             _connectionStatus = "Đã gửi yêu cầu ghép đôi, chờ máy chủ duyệt...";
-            OnLog?.Invoke(this, "Đã gửi yêu cầu Cloud. Máy chủ cần phê duyệt trước khi in.");
+            OnLog?.Invoke(this, "Đã gửi yêu cầu đến máy chủ từ xa. Máy chủ cần phê duyệt trước khi in.");
             _ = WaitForCloudApprovalAsync(resolution.PairingId);
         }
-        catch (Exception ex) { _connectionStatus = "Không thể kết nối Cloud"; OnLog?.Invoke(this, $"Lỗi Cloud: {ex.Message}"); }
+        catch (Exception ex) { _connectionStatus = "Không thể kết nối máy chủ từ xa"; OnLog?.Invoke(this, $"Lỗi máy chủ từ xa: {ex.Message}"); }
         finally { IsConnecting = false; OnStateChanged?.Invoke(this, EventArgs.Empty); }
     }
 
@@ -237,7 +237,7 @@ public class ClientService : IDisposable, IAsyncDisposable
                 if (string.Equals(pairing.Status, "APPROVED", StringComparison.OrdinalIgnoreCase))
                 {
                     _isApproved = true;
-                    _connectionStatus = "Đã kết nối Cloud & được phê duyệt";
+                    _connectionStatus = "Đã kết nối máy chủ từ xa và được phê duyệt";
                     var printers = await api.ListPrintersAsync(_settings.CloudHostId);
                     Application.Current?.Dispatcher.Invoke(() =>
                     {
@@ -253,24 +253,24 @@ public class ClientService : IDisposable, IAsyncDisposable
                             if (_remotePrinter is not null) _ippServer.PrinterName = $"{_remotePrinter.Name} (Remote)";
                         }
                     });
-                    OnLog?.Invoke(this, $"[Thành công] Cloud đã phê duyệt, đồng bộ {AvailablePrinters.Count} máy in.");
+                    OnLog?.Invoke(this, $"[Thành công] Máy chủ từ xa đã phê duyệt, đồng bộ {AvailablePrinters.Count} máy in.");
                     OnStateChanged?.Invoke(this, EventArgs.Empty);
                     return;
                 }
                 if (string.Equals(pairing.Status, "REJECTED", StringComparison.OrdinalIgnoreCase))
                 {
-                    _connectionStatus = "Yêu cầu Cloud bị từ chối";
+                    _connectionStatus = "Yêu cầu kết nối từ xa bị từ chối";
                     OnStateChanged?.Invoke(this, EventArgs.Empty);
                     return;
                 }
             }
-            catch (Exception ex) { OnLog?.Invoke(this, $"Cloud chưa phản hồi: {ex.Message}"); }
+            catch (Exception ex) { OnLog?.Invoke(this, $"Máy chủ từ xa chưa phản hồi: {ex.Message}"); }
         }
     }
 
     private async void Relay_OnConnected(object? sender, EventArgs e)
     {
-        _connectionStatus = "Đã kết nối Relay. Đang ghép đôi...";
+        _connectionStatus = "Đã kết nối nội bộ. Đang ghép đôi...";
         OnStateChanged?.Invoke(this, EventArgs.Empty);
 
         if (!string.IsNullOrWhiteSpace(_settings.PairingCode))
@@ -533,14 +533,14 @@ public class ClientService : IDisposable, IAsyncDisposable
         if (!_cloud.IsOnline || _cloud.Client is null || string.IsNullOrWhiteSpace(_settings.CloudHostId) || string.IsNullOrWhiteSpace(_settings.CloudHostPublicKey))
         {
             job.Status = PrintJobStatus.Failed;
-            job.StatusMessage = "Cloud chưa sẵn sàng; không gửi bản sao qua Relay khi Cloud đã bật.";
+            job.StatusMessage = "Máy chủ từ xa chưa sẵn sàng; không gửi bản sao qua kết nối nội bộ khi kết nối từ xa đã bật.";
             return;
         }
         var encrypted = CloudDocumentCrypto.EncryptForHost(data, _settings.CloudHostPublicKey);
         string hash = RPMCrypto.ComputeSha256(encrypted);
         string printerName = AvailablePrinters.FirstOrDefault(p => p.IsDefault)?.Name ?? AvailablePrinters.FirstOrDefault()?.Name ?? string.Empty;
         if (!_cloudPrinterIds.TryGetValue(printerName, out var printerId))
-            throw new InvalidOperationException("Không xác định được máy in Cloud đã được cấp quyền.");
+            throw new InvalidOperationException("Không xác định được máy in từ xa đã được cấp quyền.");
         var location = await _locationService.TryGetCurrentAsync();
         var request = new CloudPrintJobRequest(_settings.CloudHostId, printerId, new Dictionary<string, object?>
         {
@@ -551,9 +551,9 @@ public class ClientService : IDisposable, IAsyncDisposable
         }, null, hash, encrypted.Length, "application/octet-stream",
             location?.Latitude, location?.Longitude, location?.AccuracyMeters, location?.LocationTimestamp);
         var created = await _cloud.Client.CreateJobAsync(request, job.JobId);
-        if (created is null) throw new InvalidOperationException("Cloud không tạo được Print Job.");
+        if (created is null) throw new InvalidOperationException("Máy chủ từ xa không tạo được lệnh in.");
         await _cloud.Client.UploadDocumentAsync(created.JobId, encrypted);
-        job.StatusMessage = "Đã gửi tài liệu mã hóa lên Cloud, chờ máy chủ xử lý.";
+        job.StatusMessage = "Đã gửi tài liệu mã hóa lên máy chủ từ xa, chờ máy chủ xử lý.";
     }
 
     public async Task<bool> SendTestPrintAsync()

@@ -45,8 +45,8 @@ public class ServerService : IDisposable, IAsyncDisposable
     public bool HasStoredCloudToken => _cloud.HasStoredToken;
     public bool IsOnline => _cloud.IsOnline || _relayClient.IsConnected;
     public string ConnectionStatus => _cloud.IsOnline
-        ? "Cloud Online"
-        : _relayClient.IsConnected ? "Relay Online" : "Ngoại tuyến";
+        ? "Đã kết nối máy chủ từ xa"
+        : _relayClient.IsConnected ? "Đã kết nối nội bộ" : "Ngoại tuyến";
     public int CloudApprovedClientCount { get; private set; }
     public int CloudOnlineClientCount { get; private set; }
     public int CloudMaxClientCount { get; private set; } = 15;

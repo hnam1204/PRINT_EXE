@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -211,7 +212,7 @@ public partial class MainDashboardView : UserControl
         bool isOnline = isCloudOnline || isRelayOnline;
         var statusBrush = (SolidColorBrush)Application.Current.Resources[isOnline ? "SuccessBrush" : "WarningBrush"];
         var statusLightBrush = (SolidColorBrush)Application.Current.Resources[isOnline ? "SuccessLightBrush" : "WarningLightBrush"];
-        TxtHeaderStatus.Text = isCloudOnline ? "Cloud Online" : isRelayOnline ? "Relay Online" : "Ngoại tuyến";
+        TxtHeaderStatus.Text = isCloudOnline ? "Đã kết nối máy chủ từ xa" : isRelayOnline ? "Đã kết nối nội bộ" : "Ngoại tuyến";
         DotStatus.Fill = statusBrush;
         PillStatus.Background = statusLightBrush;
         TxtHeaderStatus.Foreground = statusBrush;
@@ -393,11 +394,11 @@ public partial class MainDashboardView : UserControl
         {
             TxtServerPairingExpiry.Text = _settings.CloudPairingExpiresAt is DateTime expiresAt
                 ? $"Có hiệu lực đến {expiresAt.ToLocalTime():HH:mm:ss}"
-                : "Mã Cloud đang hoạt động";
+                : "Mã kết nối từ xa đang hoạt động";
         }
         else
         {
-            TxtServerPairingExpiry.Text = "Mã Relay cục bộ";
+            TxtServerPairingExpiry.Text = "Mã kết nối nội bộ";
         }
     }
 
@@ -471,13 +472,13 @@ public partial class MainDashboardView : UserControl
                 UpdateCloudEnrollmentUI();
             }
             TxtCloudStatus.Text = success ? "Đang hoạt động" : "Chưa kết nối";
-            MessageBox.Show(success ? "Đã kích hoạt kết nối Cloud." : "Không thể kích hoạt Cloud.", "Kết nối Cloud", MessageBoxButton.OK, success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+            MessageBox.Show(success ? "Đã kích hoạt kết nối máy chủ từ xa." : "Không thể kết nối máy chủ từ xa.", "Kết nối máy chủ từ xa", MessageBoxButton.OK, success ? MessageBoxImage.Information : MessageBoxImage.Warning);
         }
         catch (Exception ex)
         {
             TxtCloudEnrollmentSecret.Clear();
             TxtCloudStatus.Text = "Chưa kết nối";
-            MessageBox.Show($"Kích hoạt thất bại: {ex.Message}", "Kết nối Cloud", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show($"Kích hoạt thất bại: {ex.Message}", "Kết nối máy chủ từ xa", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally
         {
@@ -493,6 +494,22 @@ public partial class MainDashboardView : UserControl
         BtnCloudEnroll.Visibility = Visibility.Visible;
         BtnChangeCloudEnrollment.Visibility = Visibility.Collapsed;
         TxtCloudEnrollmentSecret.Focus();
+    }
+
+    private void BtnOpenZaloSupport_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "https://zalo.me/0379052767",
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Không thể mở Zalo: {ex.Message}", "Hỗ trợ Zalo", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     private void BtnSwitchRole_Click(object sender, RoutedEventArgs e)
@@ -571,7 +588,7 @@ public partial class MainDashboardView : UserControl
         MessageBox.Show(
             _serverService != null
                 ? $"Đã tìm thấy {_sharedPrinters.Count} máy in trên máy chủ."
-                : $"Đã đồng bộ {_sharedPrinters.Count} máy in được cấp quyền từ Cloud.",
+                : $"Đã đồng bộ {_sharedPrinters.Count} máy in được cấp quyền từ máy chủ từ xa.",
             "Máy in", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
@@ -729,7 +746,7 @@ public partial class MainDashboardView : UserControl
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Không thể làm mới danh sách thiết bị: {ex.Message}", "Lỗi đồng bộ Cloud", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show($"Không thể làm mới danh sách thiết bị: {ex.Message}", "Lỗi đồng bộ máy chủ từ xa", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally
         {

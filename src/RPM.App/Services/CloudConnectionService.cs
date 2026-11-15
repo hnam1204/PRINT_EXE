@@ -47,7 +47,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
         {
             _settings.CloudTransportEnabled = true;
             ConfigManager.Save(_settings);
-            OnLog?.Invoke(this, "Đã khôi phục kích hoạt Cloud từ token đã lưu; đang kiểm tra lại máy chủ.");
+            OnLog?.Invoke(this, "Đã khôi phục kết nối máy chủ từ xa từ token đã lưu; đang kiểm tra lại máy chủ.");
         }
         await _lifecycleLock.WaitAsync(cancellationToken);
         try
@@ -55,7 +55,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
             if (_heartbeatTask is not null) return;
             if (!_tokenStore.HasToken)
             {
-                SetOffline("Cloud chưa được kích hoạt; tiếp tục dùng Relay.");
+                SetOffline("Kết nối máy chủ từ xa chưa được kích hoạt; tiếp tục dùng kết nối nội bộ.");
                 return;
             }
 
@@ -72,19 +72,19 @@ public sealed class CloudConnectionService : IAsyncDisposable
             var profile = await GetOrCreateClient().GetProfileAsync(cancellationToken);
             if (profile is null || profile.IsRevoked)
             {
-                SetOffline("Thiết bị Cloud đã bị thu hồi hoặc chưa sẵn sàng.");
+                SetOffline("Thiết bị trên máy chủ từ xa đã bị thu hồi hoặc chưa sẵn sàng.");
                 return false;
             }
             string expectedRole = _settings.Role == AppRole.Server ? "HOST" : "CLIENT";
             if (!string.Equals(profile.Role, expectedRole, StringComparison.OrdinalIgnoreCase))
             {
-                SetOffline($"Token Cloud thuộc vai trò {profile.Role}; cần kích hoạt lại cho vai trò {expectedRole}.");
+                SetOffline($"Mã xác thực máy chủ từ xa thuộc vai trò {profile.Role}; cần kích hoạt lại cho vai trò {expectedRole}.");
                 return false;
             }
             var heartbeat = await GetOrCreateClient().HeartbeatAsync(cancellationToken);
             if (heartbeat is null || !string.Equals(heartbeat.Status, "ONLINE", StringComparison.OrdinalIgnoreCase))
             {
-                SetOffline("Cloud chưa xác nhận thiết bị trực tuyến.");
+                SetOffline("Máy chủ từ xa chưa xác nhận thiết bị trực tuyến.");
                 return false;
             }
             IsOnline = true;
@@ -93,7 +93,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            SetOffline($"Cloud chưa kết nối: {ex.Message}");
+            SetOffline($"Máy chủ từ xa chưa kết nối: {ex.Message}");
             return false;
         }
     }
@@ -116,7 +116,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
             catch (OperationCanceledException) when (_stop.IsCancellationRequested) { break; }
             catch (Exception ex)
             {
-                SetOffline($"Cloud heartbeat lỗi: {ex.Message}");
+                SetOffline($"Lỗi kiểm tra kết nối máy chủ từ xa: {ex.Message}");
                 try { await Task.Delay(TimeSpan.FromSeconds(15), _stop.Token); }
                 catch (OperationCanceledException) { break; }
             }
