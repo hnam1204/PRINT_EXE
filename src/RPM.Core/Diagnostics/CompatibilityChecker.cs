@@ -97,7 +97,7 @@ public static class CompatibilityChecker
             Recommendation = "Tương thích tốt với mọi dòng máy (Dell, HP, Lenovo, ASUS, Acer, MSI...)."
         });
 
-        // 3. Quyền hạn người dùng (Administrator / Standard User)
+        // 3. Quyền hạn người dùng
         bool isAdmin = CheckIsAdministrator();
         report.IsAdministrator = isAdmin;
         if (isAdmin)
@@ -106,7 +106,7 @@ public static class CompatibilityChecker
             {
                 Category = "Quyền hệ thống",
                 Name = "Quyền hạn thực thi",
-                Detail = "Quyền Quản trị viên (Administrator)",
+                Detail = "Quyền quản trị viên",
                 Level = CompatibilityLevel.Compatible,
                 Recommendation = "Sẵn sàng cho việc tạo máy in ảo và điều khiển dịch vụ in."
             });
@@ -117,9 +117,9 @@ public static class CompatibilityChecker
             {
                 Category = "Quyền hệ thống",
                 Name = "Quyền hạn thực thi",
-                Detail = "Quyền người dùng tiêu chuẩn (Standard User)",
+                Detail = "Quyền người dùng tiêu chuẩn",
                 Level = CompatibilityLevel.NeedsSetup,
-                Recommendation = "Khuyên dùng: Nhấp chuột phải chọn 'Run as administrator' khi cài máy in ảo lần đầu."
+                Recommendation = "Nhấp chuột phải và chọn 'Mở bằng quyền quản trị viên' khi cài máy in ảo lần đầu."
             });
         }
 
@@ -131,8 +131,8 @@ public static class CompatibilityChecker
             items.Add(new DiagnosticItem
             {
                 Category = "Dịch vụ in ấn",
-                Name = "Windows Print Spooler (spoolsv)",
-                Detail = "Dịch vụ đang chạy bình thường (Running)",
+                Name = "Dịch vụ in của Windows",
+                Detail = "Dịch vụ đang hoạt động bình thường.",
                 Level = CompatibilityLevel.Compatible,
                 Recommendation = "Hàng đợi Windows sẵn sàng tiếp nhận tài liệu từ Word, Excel, Chrome..."
             });
@@ -142,10 +142,10 @@ public static class CompatibilityChecker
             items.Add(new DiagnosticItem
             {
                 Category = "Dịch vụ in ấn",
-                Name = "Windows Print Spooler",
+                Name = "Dịch vụ in của Windows",
                 Detail = "Dịch vụ đang tạm dừng hoặc bị tắt.",
                 Level = CompatibilityLevel.NeedsSetup,
-                Recommendation = "Cần bật lại dịch vụ Spooler bằng lệnh: net start spooler."
+                Recommendation = "Bật lại dịch vụ in của Windows rồi kiểm tra lại."
             });
             if (report.OverallLevel == CompatibilityLevel.Compatible)
             {
@@ -175,7 +175,7 @@ public static class CompatibilityChecker
             items.Add(new DiagnosticItem
             {
                 Category = "Máy in vật lý",
-                Name = "Nhận diện máy in & Driver",
+                Name = "Nhận diện máy in",
                 Detail = $"Phát hiện {installedPrinters.Count} máy in ({brandSummary})",
                 Level = CompatibilityLevel.Compatible,
                 Recommendation = "Tương thích tốt với máy in cắm cáp USB và mạng nội bộ."
@@ -199,10 +199,10 @@ public static class CompatibilityChecker
         items.Add(new DiagnosticItem
         {
             Category = "Cổng kết nối",
-            Name = $"Cổng máy in ảo IPP ({ippPort})",
+            Name = $"Kết nối máy in ảo ({ippPort})",
             Detail = isPortAvailable ? "Cổng sẵn sàng (Sẵn sàng mở luồng in)" : "Cổng đang được ứng dụng sử dụng",
             Level = CompatibilityLevel.Compatible,
-            Recommendation = "Cổng tiêu chuẩn phục vụ kết nối in ấn từ xa."
+            Recommendation = "Kết nối này phục vụ việc nhận tài liệu in từ máy con."
         });
 
         // 7. Khả năng tương thích ứng dụng (Word, Excel, Chrome, PDF...)
@@ -223,7 +223,7 @@ public static class CompatibilityChecker
         }
         else if (report.OverallLevel == CompatibilityLevel.NeedsSetup)
         {
-            report.SummaryMessage = "Thiết bị cơ bản tương thích nhưng cần thiết lập bổ sung (như quyền Administrator hoặc bật Spooler).";
+            report.SummaryMessage = "Thiết bị cơ bản tương thích nhưng cần thiết lập bổ sung (như quyền quản trị viên hoặc bật dịch vụ in của Windows).";
         }
         else
         {

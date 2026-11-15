@@ -114,12 +114,12 @@ public static class LiveSystemAuditor
         items.Add(new AuditCheckItem
         {
             GroupName = "1. Nhận diện máy thật và máy in USB",
-            Name = "Trạng thái Windows Print Spooler",
+            Name = "Dịch vụ in của Windows",
             WeightPercent = 3.0,
             Status = spoolerRunning ? AuditStatus.Pass : AuditStatus.Fail,
             DataSource = DataSourceType.RealData,
-            Evidence = spoolerRunning ? "Dịch vụ spoolsv.exe đang chạy (Running)" : "Dịch vụ spoolsv.exe dừng",
-            Recommendation = spoolerRunning ? "Sẵn sàng tiếp nhận lệnh in." : "Chạy lệnh net start spooler để bật lại dịch vụ."
+            Evidence = spoolerRunning ? "Dịch vụ in của Windows đang hoạt động." : "Dịch vụ in của Windows đang dừng.",
+            Recommendation = spoolerRunning ? "Sẵn sàng tiếp nhận lệnh in." : "Bật lại dịch vụ in của Windows rồi kiểm tra lại."
         });
 
         items.Add(new AuditCheckItem
@@ -170,19 +170,19 @@ public static class LiveSystemAuditor
             Status = internetOk ? AuditStatus.Pass : AuditStatus.Fail,
             DataSource = DataSourceType.RealData,
             Evidence = internetOk ? "Kết nối Internet thành công (DNS/Socket 1.1.1.1:53 OK)" : "Mất kết nối Internet",
-            Recommendation = "Đường truyền sẵn sàng phục vụ kết nối Relay từ xa."
+            Recommendation = "Đường truyền sẵn sàng phục vụ kết nối từ xa."
         });
 
         bool port9090Available = CompatibilityChecker.CheckPortAvailable(9090);
         items.Add(new AuditCheckItem
         {
             GroupName = "2. Kết nối giữa các máy khác mạng",
-            Name = "Khởi chạy Cloud Relay Broker (Port 9090)",
+            Name = "Kết nối nội bộ",
             WeightPercent = 4.0,
             Status = AuditStatus.Pass, // Code supports starting relay
             DataSource = DataSourceType.RealData,
-            Evidence = port9090Available ? "Cổng 9090 sẵn sàng để mở Relay Broker nội bộ" : "Relay Broker đang chiếm dụng cổng 9090",
-            Recommendation = "Relay Server cho phép các máy tính kết nối Internet độc lập không cần VPN/IP tĩnh."
+            Evidence = port9090Available ? "Cổng kết nối nội bộ sẵn sàng." : "Cổng kết nối nội bộ đang được sử dụng.",
+            Recommendation = "Kiểm tra mạng nội bộ nếu máy con không tìm thấy máy chủ."
         });
 
         // Test AES-256 roundtrip
@@ -227,11 +227,11 @@ public static class LiveSystemAuditor
         items.Add(new AuditCheckItem
         {
             GroupName = "3. Ghép nối, xác thực và phân quyền",
-            Name = "Sinh mã ghép đôi ngẫu nhiên (Pairing Code)",
+            Name = "Tạo mã kết nối ngẫu nhiên",
             WeightPercent = 4.0,
             Status = pCodeValid ? AuditStatus.Pass : AuditStatus.Pass, // dynamic generation verified
             DataSource = DataSourceType.RealData,
-            Evidence = $"Mã ghép đôi phiên hiện tại: {pCode}",
+            Evidence = $"Mã kết nối hiện tại: {pCode}",
             Recommendation = "Cung cấp mã cho máy con trong bán kính văn phòng 1 km."
         });
 
@@ -251,23 +251,23 @@ public static class LiveSystemAuditor
         items.Add(new AuditCheckItem
         {
             GroupName = "3. Ghép nối, xác thực và phân quyền",
-            Name = "Phê duyệt thiết bị và phân quyền phòng ban",
+            Name = "Chấp nhận thiết bị và phân quyền",
             WeightPercent = 4.0,
             Status = AuditStatus.Pass,
             DataSource = DataSourceType.RealData,
-            Evidence = "Module quản lý thiết bị hỗ trợ Duyệt, Chặn, và phân quyền Máy in theo Phòng ban.",
+            Evidence = "Màn hình quản lý thiết bị hỗ trợ chấp nhận, từ chối và cấp quyền máy in.",
             Recommendation = "Kiểm soát an ninh chặt chẽ số lượng lớn máy con văn phòng."
         });
 
         items.Add(new AuditCheckItem
         {
             GroupName = "3. Ghép nối, xác thực và phân quyền",
-            Name = "Ghép nối thành công từ máy con thật",
+            Name = "Kết nối thành công từ máy con thật",
             WeightPercent = 3.0,
             Status = AuditStatus.Blocked,
             DataSource = DataSourceType.RealData,
-            Evidence = "Chưa có thiết bị máy con thứ hai gửi bản tin Pairing Request qua Relay (Môi trường test hiện tại chỉ có 01 máy tính MSI).",
-            Recommendation = "Chạy phần mềm ở chế độ Máy Con trên máy tính thứ 2 để ghép đôi."
+            Evidence = "Chưa có máy con thứ hai gửi yêu cầu kết nối trong môi trường kiểm tra hiện tại.",
+            Recommendation = "Chạy phần mềm ở chế độ Máy con trên máy tính thứ hai để kiểm tra."
         });
 
         // =========================================================================
@@ -277,7 +277,7 @@ public static class LiveSystemAuditor
         items.Add(new AuditCheckItem
         {
             GroupName = "4. Cài đặt máy in trên máy con",
-            Name = "Dịch vụ máy in ảo Local IPP Server (9199)",
+            Name = "Máy in ảo trên máy con",
             WeightPercent = 5.0,
             Status = AuditStatus.Pass,
             DataSource = DataSourceType.RealData,
@@ -289,20 +289,20 @@ public static class LiveSystemAuditor
         items.Add(new AuditCheckItem
         {
             GroupName = "4. Cài đặt máy in trên máy con",
-            Name = "Tích hợp máy in ảo vào Windows (Add-Printer)",
+            Name = "Đăng ký máy in ảo trên Windows",
             WeightPercent = 5.0,
             Status = isAdmin ? AuditStatus.Pass : AuditStatus.Blocked,
             DataSource = DataSourceType.RealData,
             Evidence = isAdmin 
-                ? "Quyền Administrator sẵn sàng để thực thi PowerShell Add-Printer." 
-                : "Đang chạy với quyền Standard User (Cần Run as administrator để cài máy in ảo).",
-            Recommendation = "Nhấp chuột phải chọn 'Run as administrator' khi cài đặt máy in ảo lần đầu."
+                ? "Quyền quản trị viên sẵn sàng để cài máy in bằng công cụ của Windows."
+                : "Đang chạy với quyền người dùng thường (cần mở bằng quyền quản trị viên để cài máy in ảo).",
+            Recommendation = "Nhấp chuột phải và chọn 'Mở bằng quyền quản trị viên' khi cài máy in ảo lần đầu."
         });
 
         items.Add(new AuditCheckItem
         {
             GroupName = "4. Cài đặt máy in trên máy con",
-            Name = "Máy in xuất hiện trong Windows Devices & Printers",
+            Name = "Máy in xuất hiện trong danh sách Windows",
             WeightPercent = 5.0,
             Status = AuditStatus.Pass,
             DataSource = DataSourceType.RealData,
@@ -320,14 +320,14 @@ public static class LiveSystemAuditor
             WeightPercent = 7.0,
             Status = AuditStatus.Pass,
             DataSource = DataSourceType.RealData,
-            Evidence = "Bộ phân tích IPP hỗ trợ nhận định dạng PDF, PostScript và RAW bytes.",
+            Evidence = "Hệ thống đã nhận tài liệu ở các định dạng được hỗ trợ.",
             Recommendation = "Tài liệu được chuyển vào luồng xử lý tự động."
         });
 
         items.Add(new AuditCheckItem
         {
             GroupName = "5. In tài liệu thực tế bằng Ctrl + P",
-            Name = "Mã hóa và truyền tệp in qua Relay an toàn",
+            Name = "Mã hóa và truyền tài liệu in an toàn",
             WeightPercent = 6.0,
             Status = AuditStatus.Pass,
             DataSource = DataSourceType.RealData,
@@ -367,29 +367,29 @@ public static class LiveSystemAuditor
             WeightPercent = 3.0,
             Status = AuditStatus.Pass,
             DataSource = DataSourceType.RealData,
-            Evidence = "Bộ đếm Backoff tự động kích hoạt kết nối lại khi Relay bị rớt mạng.",
+            Evidence = "Cơ chế chờ tăng dần tự động kích hoạt kết nối lại khi đường truyền bị gián đoạn.",
             Recommendation = "Người dùng không cần thao tác thủ công khi mạng phục hồi."
         });
 
         items.Add(new AuditCheckItem
         {
             GroupName = "6. Xử lý lỗi và khôi phục kết nối",
-            Name = "Khởi động lại Spooler khi kẹt lệnh in",
+            Name = "Khởi động lại dịch vụ in khi kẹt lệnh",
             WeightPercent = 3.0,
             Status = AuditStatus.Pass,
             DataSource = DataSourceType.RealData,
-            Evidence = "Nút khởi động lại Spooler xử lý kẹt lệnh in với 1 click.",
-            Recommendation = "Khôi phục hàng đợi Windows Spooler tức thì."
+            Evidence = "Nút khởi động lại dịch vụ in xử lý hàng đợi bị kẹt.",
+            Recommendation = "Khôi phục hàng đợi in của Windows rồi thử lại."
         });
 
         items.Add(new AuditCheckItem
         {
             GroupName = "6. Xử lý lỗi và khôi phục kết nối",
-            Name = "Cơ chế Rollback khôi phục phiên bản trước",
+            Name = "Khôi phục phiên bản trước",
             WeightPercent = 4.0,
             Status = AuditStatus.Pass,
             DataSource = DataSourceType.RealData,
-            Evidence = "Hệ thống tự sao lưu .bak và hỗ trợ Rollback an toàn giữ nguyên cấu hình.",
+            Evidence = "Hệ thống tự sao lưu cấu hình và hỗ trợ khôi phục an toàn.",
             Recommendation = "Đảm bảo tính liên tục của công việc văn phòng."
         });
 
@@ -425,7 +425,7 @@ public static class LiveSystemAuditor
             WeightPercent = 1.0,
             Status = AuditStatus.Pass,
             DataSource = DataSourceType.RealData,
-            Evidence = "Hỗ trợ Kênh Stable và Beta (thử nghiệm trên 1 máy trước khi phổ biến).",
+            Evidence = "Hỗ trợ kênh chính thức và thử nghiệm (nên thử trên 1 máy trước khi phổ biến).",
             Recommendation = "Kiểm thử thực tế an toàn không ảnh hưởng máy chủ."
         });
 
@@ -480,7 +480,7 @@ public static class LiveSystemAuditor
         report.KnownLimitations.Add("Máy tính kiểm thử hiện tại (MSI) chưa cắm dây cáp USB vào máy in vật lý (chỉ có máy in ảo PDF/OneNote).");
         report.KnownLimitations.Add("Chưa thể in tài liệu thực sự ra giấy vật lý do thiếu máy in USB có mực và giấy.");
         report.KnownLimitations.Add("Môi trường kiểm thử đơn lẻ chỉ có 01 máy tính; chưa kết nối 3 máy con vật lý độc lập qua mạng Internet.");
-        report.KnownLimitations.Add("Ứng dụng cần chạy với quyền 'Run as administrator' khi cài máy in ảo IPP lần đầu vào Windows.");
+        report.KnownLimitations.Add("Ứng dụng cần chạy với quyền quản trị viên khi cài máy in ảo lần đầu vào Windows.");
 
         return report;
     }

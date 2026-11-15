@@ -25,8 +25,8 @@ public partial class DeviceManageDialog : Window
         InitializeComponent();
         _device = device;
         TxtDeviceName.Text = device.DeviceName;
-        TxtDeviceDetails.Text = $"ID: {device.DeviceId}\nPhê duyệt: {(device.IsApproved ? "Đã phê duyệt" : device.IsBlocked ? "Đã từ chối" : device.ReconnectAllowed ? "Được phép yêu cầu lại" : "Chờ phê duyệt")}";
-        TxtDeviceStatus.Text = device.DeviceStatus;
+        TxtDeviceDetails.Text = $"Mã thiết bị: {device.DeviceId}";
+        TxtDeviceStatus.Text = $"{device.PermissionStatus} • {device.ConnectionStatus}";
         TxtLastSeen.Text = $"Hoạt động gần nhất: {device.LastSeen.ToLocalTime():dd/MM/yyyy HH:mm:ss}";
         ReconnectPanel.Visibility = device.IsBlocked || device.ReconnectAllowed ? Visibility.Visible : Visibility.Collapsed;
         BtnApprove.Visibility = device.IsApproved || device.IsBlocked || device.ReconnectAllowed ? Visibility.Collapsed : Visibility.Visible;
@@ -35,7 +35,7 @@ public partial class DeviceManageDialog : Window
         BtnSave.IsEnabled = device.IsApproved;
         if (device.ReconnectAllowed)
         {
-            TxtReconnectStatus.Text = "Đã mở quyền yêu cầu lại. Đang chờ máy con nhập mã và gửi yêu cầu mới.";
+            TxtReconnectStatus.Text = "Đã cho phép máy gửi yêu cầu kết nối mới. Máy con cần nhập mã kết nối hiện tại và chờ bạn chấp nhận.";
         }
 
         foreach (string printer in sharedPrinters.OrderBy(x => x))
@@ -46,20 +46,20 @@ public partial class DeviceManageDialog : Window
 
     private void BtnApprove_Click(object sender, RoutedEventArgs e)
     {
-        if (MessageBox.Show($"Phê duyệt thiết bị '{_device.DeviceName}'?", "Xác nhận", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        if (MessageBox.Show($"Chấp nhận kết nối của máy '{_device.DeviceName}'?", "Chấp nhận kết nối", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         Action = DeviceManageAction.Approve; DialogResult = true;
     }
 
     private void BtnRevoke_Click(object sender, RoutedEventArgs e)
     {
-        if (MessageBox.Show($"Thu hồi quyền của '{_device.DeviceName}'?", "Xác nhận", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        if (MessageBox.Show($"Thu hồi quyền kết nối của máy '{_device.DeviceName}'?", "Thu hồi quyền kết nối", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         Action = DeviceManageAction.Revoke; DialogResult = true;
     }
 
     private void BtnAllowReconnect_Click(object sender, RoutedEventArgs e)
     {
         if (MessageBox.Show(
-                $"Cho phép thiết bị '{_device.DeviceName}' gửi yêu cầu kết nối mới?\n\nThiết bị vẫn phải nhập mã hiện tại và chờ bạn phê duyệt lại.",
+                $"Cho phép máy '{_device.DeviceName}' gửi yêu cầu kết nối mới?\n\nMáy con vẫn phải nhập mã kết nối hiện tại và chờ bạn chấp nhận.",
                 "Cho phép kết nối lại",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question) != MessageBoxResult.Yes) return;

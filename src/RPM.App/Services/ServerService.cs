@@ -51,14 +51,14 @@ public class ServerService : IDisposable, IAsyncDisposable
     public CloudActivationInfo? CloudActivationInfo => _cloud.ActivationInfo;
     public bool IsOnline => _cloud.IsOnline || _relayClient.IsConnected;
     public string ConnectionStatus => _cloud.IsOnline
-        ? "Đã kết nối máy chủ từ xa"
-        : _relayClient.IsConnected ? "Đã kết nối nội bộ" : "Ngoại tuyến";
+        ? "Đã kết nối dịch vụ"
+        : _relayClient.IsConnected ? "Đã kết nối nội bộ" : "Mất kết nối dịch vụ";
     public bool IsLanRelayAvailable => _embeddedRelay?.IsLanAvailable == true;
     public int CloudApprovedClientCount { get; private set; }
     public int CloudOnlineClientCount { get; private set; }
     public int CloudMaxClientCount { get; private set; } = 15;
     public bool CloudCapacityLoaded { get; private set; }
-    public string GeofenceStatusDisplay { get; private set; } = "Chưa bật";
+    public string GeofenceStatusDisplay { get; private set; } = "Đang tắt";
     public IReadOnlyList<string> LanRelayEndpoints => GetLanRelayEndpoints();
 
     public event EventHandler<string>? OnLog;
@@ -249,7 +249,7 @@ public class ServerService : IDisposable, IAsyncDisposable
             var location = await _locationService.TryGetCurrentAsync(cancellationToken);
             if (location is null)
             {
-                GeofenceStatusDisplay = "Chưa cấp quyền vị trí";
+                GeofenceStatusDisplay = "Không có quyền truy cập vị trí";
                 OnStatusChanged?.Invoke(this, EventArgs.Empty);
                 OnLog?.Invoke(this, "[Cloud] Chưa thể bật phạm vi vì Windows Location Services chưa được cấp quyền.");
                 return;
@@ -262,7 +262,7 @@ public class ServerService : IDisposable, IAsyncDisposable
                 location.Longitude,
                 radius), cancellationToken);
             Interlocked.Exchange(ref _cloudGeofenceConfigured, 1);
-            GeofenceStatusDisplay = updated?.Enabled == true ? $"Bán kính {updated.RadiusMeters:0} m" : "Chưa bật";
+            GeofenceStatusDisplay = updated?.Enabled == true ? $"Đang bật: {updated.RadiusMeters:0} m" : "Đang tắt";
             OnStatusChanged?.Invoke(this, EventArgs.Empty);
         }
         finally
@@ -318,7 +318,7 @@ public class ServerService : IDisposable, IAsyncDisposable
             _settings.CloudPairingExpiresAt = code.ExpiresAt;
             _settings.CloudPairingSessionId = code.SessionId;
             ConfigManager.Save(_settings);
-            OnLog?.Invoke(this, $"[Cloud] Mã ghép nối: {code.Code}");
+            OnLog?.Invoke(this, $"Mã kết nối: {code.Code}");
         }
     }
 
@@ -359,7 +359,7 @@ public class ServerService : IDisposable, IAsyncDisposable
                 await Task.Delay(TimeSpan.FromSeconds(2), _cloudWorkerStop.Token);
             }
             catch (OperationCanceledException) when (_cloudWorkerStop.IsCancellationRequested) { break; }
-            catch (Exception ex) { OnLog?.Invoke(this, $"[Cloud] Lỗi kiểm tra yêu cầu ghép đôi: {ex.Message}"); await Task.Delay(2000); }
+            catch (Exception ex) { OnLog?.Invoke(this, $"Không thể kiểm tra yêu cầu kết nối: {ex.Message}"); await Task.Delay(2000); }
         }
     }
 
@@ -387,8 +387,8 @@ public class ServerService : IDisposable, IAsyncDisposable
             if (geofence is not null)
             {
                 GeofenceStatusDisplay = geofence.Enabled
-                    ? $"Bán kính {geofence.RadiusMeters:0} m"
-                    : "Chưa bật";
+                    ? $"Đang bật: {geofence.RadiusMeters:0} m"
+                    : "Đang tắt";
             }
 
             foreach (var item in pendingItems)
@@ -663,7 +663,7 @@ public class ServerService : IDisposable, IAsyncDisposable
         client.IsOnline = false;
         _cloudPairingIds.Remove(client.DeviceId);
         SaveClientList();
-        OnLog?.Invoke(this, $"[Kết nối lại] Đã cho phép '{client.DeviceName}' gửi yêu cầu ghép nối mới.");
+        OnLog?.Invoke(this, $"[Kết nối lại] Đã cho phép '{client.DeviceName}' gửi yêu cầu kết nối mới.");
         OnStatusChanged?.Invoke(this, EventArgs.Empty);
         return true;
     }
@@ -1073,13 +1073,13 @@ public class ServerService : IDisposable, IAsyncDisposable
             if (printerInfo == null || !printerInfo.IsShared)
             {
                 job.Status = PrintJobStatus.Failed;
-                job.StatusMessage = $"Máy in '{destPrinter}' đang tạm dừng chia sẻ.";
+                job.StatusMessage = $"Máy in '{destPrinter}' hiện không khả dụng.";
                 await NotifyJobProgressAsync(job);
                 continue;
             }
 
             job.Status = PrintJobStatus.Printing;
-            job.StatusMessage = $"Đang gửi dữ liệu tới máy in USB ({destPrinter})...";
+            job.StatusMessage = $"Đang gửi đến máy in ({destPrinter})...";
             await NotifyJobProgressAsync(job);
 
             bool printed = false;
@@ -1099,7 +1099,7 @@ public class ServerService : IDisposable, IAsyncDisposable
             {
                 job.Status = PrintJobStatus.Completed;
                 job.CompletedAt = DateTime.UtcNow;
-                job.StatusMessage = "Đã xuất tài liệu ra máy in thành công!";
+                job.StatusMessage = "Đã gửi đến máy in. Chưa xác minh được việc in ra giấy.";
                 if (!string.IsNullOrEmpty(job.ContentSha256))
                 {
                     _recentlyPrintedHashes.Add(job.ContentSha256);
@@ -1113,7 +1113,7 @@ public class ServerService : IDisposable, IAsyncDisposable
                     SaveClientList();
                 }
 
-                OnLog?.Invoke(this, $"[In thành công] {job.DocumentName} từ {job.SenderDeviceName} ({job.Department}) -> {destPrinter}");
+                OnLog?.Invoke(this, $"[Đã gửi đến máy in] {job.DocumentName} từ {job.SenderDeviceName} ({job.Department}) -> {destPrinter}");
             }
             else
             {

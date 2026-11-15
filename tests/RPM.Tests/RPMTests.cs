@@ -18,6 +18,30 @@ namespace RPM.Tests;
 public class RPMTests
 {
     [Fact]
+    public void DeviceStatus_SeparatesPermissionFromConnection()
+    {
+        var device = new DeviceInfo { IsApproved = true, IsOnline = false };
+
+        Assert.Equal("Đã được chấp nhận", device.PermissionStatus);
+        Assert.Equal("Máy đang ngoại tuyến", device.ConnectionStatus);
+
+        device.IsOnline = true;
+        Assert.Equal("Máy đang trực tuyến", device.ConnectionStatus);
+    }
+
+    [Fact]
+    public void PrintJobStatus_DoesNotClaimPhysicalCompletion()
+    {
+        var job = new PrintJob
+        {
+            Status = PrintJobStatus.Completed,
+            StatusMessage = "Đã gửi đến máy in. Chưa xác minh được việc in ra giấy."
+        };
+
+        Assert.Equal("Đã gửi đến máy in", job.StatusText);
+    }
+
+    [Fact]
     public void CloudDocumentCrypto_EncryptsForHostAndRejectsWrongKey()
     {
         string folder = Path.Combine(Path.GetTempPath(), $"rpm_cloud_crypto_{Guid.NewGuid():N}");

@@ -115,9 +115,9 @@ public partial class MainDashboardView : UserControl
         _cloudRevocationNoticeShown = true;
         MessageBox.Show(
             "Mã kích hoạt đã bị thu hồi.\n\n" +
-            "Kết nối máy chủ từ xa đã bị vô hiệu hóa.\n" +
+            "Kết nối dịch vụ đã bị vô hiệu hóa.\n" +
             "Kết nối nội bộ vẫn có thể hoạt động.\n\n" +
-            "Vui lòng nhập mã kích hoạt mới để sử dụng lại Cloud.",
+            "Vui lòng nhập mã kích hoạt mới để sử dụng lại dịch vụ.",
             "Mã kích hoạt không còn hiệu lực",
             MessageBoxButton.OK,
             MessageBoxImage.Warning);
@@ -253,7 +253,7 @@ public partial class MainDashboardView : UserControl
         bool isOnline = isCloudOnline || isRelayOnline;
         var statusBrush = (SolidColorBrush)Application.Current.Resources[isOnline ? "SuccessBrush" : "WarningBrush"];
         var statusLightBrush = (SolidColorBrush)Application.Current.Resources[isOnline ? "SuccessLightBrush" : "WarningLightBrush"];
-        TxtHeaderStatus.Text = isCloudOnline ? "Đã kết nối máy chủ từ xa" : isRelayOnline ? "Đã kết nối nội bộ" : "Ngoại tuyến";
+        TxtHeaderStatus.Text = isCloudOnline ? "Đã kết nối dịch vụ" : isRelayOnline ? "Đã kết nối nội bộ" : "Mất kết nối dịch vụ";
         DotStatus.Fill = statusBrush;
         PillStatus.Background = statusLightBrush;
         TxtHeaderStatus.Foreground = statusBrush;
@@ -266,7 +266,7 @@ public partial class MainDashboardView : UserControl
         if (_serverService.ActiveSharedPrinter != null)
         {
             TxtSharedPrinterName.Text = _serverService.ActiveSharedPrinter.Name;
-            TxtSharedPrinterPort.Text = $"Cổng: {_serverService.ActiveSharedPrinter.PortName} • {sharedCount} máy dùng chung";
+            TxtSharedPrinterPort.Text = $"Cổng: {_serverService.ActiveSharedPrinter.PortName} • {sharedCount} máy in chia sẻ";
             TxtActivePrinterSummary.Text = $"Máy in chính: {_serverService.ActiveSharedPrinter.Name}";
         }
         else
@@ -284,7 +284,7 @@ public partial class MainDashboardView : UserControl
             : _serverService.ConnectedClients.Count(c => c.IsApproved && !c.IsBlocked);
         int pendingClients = _serverService.ConnectedClients.Count(c => !c.IsApproved && !c.IsBlocked);
         int maxClients = _serverService.CloudMaxClientCount;
-        TxtServerClientsSummary.Text = $"{approvedClients}/{maxClients} máy ({onlineClients} online • {pendingClients} chờ duyệt)";
+        TxtServerClientsSummary.Text = $"{approvedClients}/{maxClients} máy đã được chấp nhận ({onlineClients} máy đang trực tuyến • {pendingClients} yêu cầu đang chờ)";
         TxtServerGeofenceStatus.Text = _serverService.GeofenceStatusDisplay;
         var lanEndpoints = _serverService.LanRelayEndpoints;
         TxtServerLanEndpoint.Text = !_serverService.IsLanRelayAvailable
@@ -315,7 +315,7 @@ public partial class MainDashboardView : UserControl
             TxtClientApprovalStatus.Text = "Đang tìm máy chủ...";
             BorderApprovalStatus.Background = (SolidColorBrush)Application.Current.Resources["WarningLightBrush"];
             TxtClientApprovalStatus.Foreground = (SolidColorBrush)Application.Current.Resources["WarningBrush"];
-            TxtClientConnectBtnText.Text = "Đang tìm...";
+            TxtClientConnectBtnText.Text = "Đang tìm máy chủ...";
             BtnClientConnectToggle.Style = (Style)Application.Current.Resources["PrimaryBtn"];
             BtnClientConnectToggle.IsEnabled = false;
         }
@@ -325,7 +325,7 @@ public partial class MainDashboardView : UserControl
             PillStatus.Background = (SolidColorBrush)Application.Current.Resources["SuccessLightBrush"];
             TxtHeaderStatus.Foreground = (SolidColorBrush)Application.Current.Resources["SuccessBrush"];
 
-            TxtClientApprovalStatus.Text = "Đã phê duyệt";
+            TxtClientApprovalStatus.Text = "Đã được chấp nhận";
             BorderApprovalStatus.Background = (SolidColorBrush)Application.Current.Resources["SuccessLightBrush"];
             TxtClientApprovalStatus.Foreground = (SolidColorBrush)Application.Current.Resources["SuccessBrush"];
 
@@ -339,7 +339,7 @@ public partial class MainDashboardView : UserControl
             PillStatus.Background = (SolidColorBrush)Application.Current.Resources["WarningLightBrush"];
             TxtHeaderStatus.Foreground = (SolidColorBrush)Application.Current.Resources["WarningBrush"];
 
-            TxtClientApprovalStatus.Text = isApproved ? $"Đã ghép nối • {_clientService.ConnectionStatusDisplay}" : _clientService.ConnectionStatus;
+            TxtClientApprovalStatus.Text = isApproved ? _clientService.ConnectionStatusDisplay : _clientService.ConnectionStatus;
             BorderApprovalStatus.Background = (SolidColorBrush)Application.Current.Resources["WarningLightBrush"];
             TxtClientApprovalStatus.Foreground = (SolidColorBrush)Application.Current.Resources["WarningBrush"];
 
@@ -351,13 +351,13 @@ public partial class MainDashboardView : UserControl
         if (_clientService.RemotePrinter != null)
         {
             TxtClientPrinterName.Text = _clientService.RemotePrinter.Name;
-            TxtClientPrinterStatus.Text = $"Cổng: 127.0.0.1:{_settings.LocalIppPort}";
+            TxtClientPrinterStatus.Text = "Máy in đã sẵn sàng";
             TxtActivePrinterSummary.Text = $"Máy in: {_clientService.RemotePrinter.Name}";
         }
         else
         {
-            TxtClientPrinterName.Text = "Chưa kết nối máy in";
-            TxtClientPrinterStatus.Text = "Vui lòng kết nối tới máy chủ";
+            TxtClientPrinterName.Text = "Chưa có máy in";
+            TxtClientPrinterStatus.Text = "Kết nối tới máy chủ để nhận danh sách máy in";
             TxtActivePrinterSummary.Text = "Đang chờ kết nối";
         }
 
@@ -397,7 +397,7 @@ public partial class MainDashboardView : UserControl
         TxtSettingsUpdateVersion.Text = $"V{_settings.AppVersion}";
         TxtSettingsWindowsVersion.Text = GetWindowsVersionDisplay();
         TxtCloudStatus.Text = _settings.CloudTransportEnabled
-            ? (_serverService?.IsCloudOnline == true || _clientService?.IsCloudOnline == true ? "Đang hoạt động" : "Đã bật, đang chờ kết nối")
+            ? (_serverService?.IsCloudOnline == true || _clientService?.IsCloudOnline == true ? "Đã kết nối dịch vụ" : "Mất kết nối dịch vụ")
             : "Đang tắt";
         UpdateCloudEnrollmentUI();
         ChkSettingsMinimizeTray.IsChecked = _settings.MinimizeToSystemTray;
@@ -442,8 +442,8 @@ public partial class MainDashboardView : UserControl
         if (_settings.CloudTransportEnabled && !string.IsNullOrWhiteSpace(_settings.CloudPairingCode))
         {
             TxtServerPairingExpiry.Text = _settings.CloudPairingExpiresAt is DateTime expiresAt
-                ? $"Có hiệu lực đến {expiresAt.ToLocalTime():HH:mm:ss}"
-                : "Mã kết nối từ xa đang hoạt động";
+                ? $"Hết hạn lúc {expiresAt.ToLocalTime():HH:mm:ss}"
+                : "Mã kết nối đang hoạt động";
         }
         else
         {
@@ -510,7 +510,7 @@ public partial class MainDashboardView : UserControl
             ? $"{_settings.CloudActivationUsedDevices ?? 0}/{max} thiết bị"
             : "Không giới hạn thiết bị";
         string radius = _settings.CloudActivationGeofenceRadiusMeters is int meters
-            ? $" • Phạm vi: {meters} m"
+            ? $" • Giới hạn khoảng cách: {meters} m"
             : string.Empty;
         return $"Thời hạn: {expiration} • {remaining} • Thiết bị: {devices}{radius}";
     }
@@ -573,14 +573,14 @@ public partial class MainDashboardView : UserControl
                 ConfigManager.Save(_settings);
                 UpdateCloudEnrollmentUI();
             }
-            TxtCloudStatus.Text = success ? "Đang hoạt động" : "Chưa kết nối";
-            MessageBox.Show(success ? "Đã kích hoạt kết nối máy chủ từ xa." : "Không thể kết nối máy chủ từ xa.", "Kết nối máy chủ từ xa", MessageBoxButton.OK, success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+            TxtCloudStatus.Text = success ? "Đã kết nối dịch vụ" : "Mất kết nối dịch vụ";
+            MessageBox.Show(success ? "Đã kích hoạt kết nối dịch vụ." : "Không thể kết nối dịch vụ.", "Kết nối dịch vụ", MessageBoxButton.OK, success ? MessageBoxImage.Information : MessageBoxImage.Warning);
         }
         catch (Exception ex)
         {
             TxtCloudEnrollmentSecret.Clear();
-            TxtCloudStatus.Text = "Chưa kết nối";
-            MessageBox.Show(GetCloudEnrollmentErrorMessage(ex), "Kết nối máy chủ từ xa", MessageBoxButton.OK, MessageBoxImage.Warning);
+            TxtCloudStatus.Text = "Mất kết nối dịch vụ";
+            MessageBox.Show(GetCloudEnrollmentErrorMessage(ex), "Kết nối dịch vụ", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally
         {
@@ -596,7 +596,7 @@ public partial class MainDashboardView : UserControl
         {
             return "Thiết bị này đang liên kết với một mã kích hoạt khác.\n\n" +
                    "Muốn sử dụng mã mới, hãy thu hồi mã cũ hoặc liên hệ quản trị viên để đổi mã kích hoạt.\n" +
-                   "Sau khi đổi mã, thiết bị sẽ cần kết nối và ghép nối lại với máy chủ.";
+                   "Sau khi đổi mã, thiết bị sẽ cần kết nối lại với máy chủ.";
         }
 
         if (message.Contains("invalid or expired activation code", StringComparison.OrdinalIgnoreCase))
@@ -750,7 +750,16 @@ public partial class MainDashboardView : UserControl
     private void UpdateSelectedPrinterText(SharedPrinterInfo printer)
     {
         TxtSelectedPrinterInfo.Text = printer.Name;
-        TxtSelectedPrinterStatus.Text = $"{printer.DriverName} • {printer.PortName} • {(printer.IsShared ? "Đang chia sẻ" : "Chưa chia sẻ")}";
+        TxtSelectedPrinterStatus.Text = $"{GetPrinterStatusDisplay(printer)} • {(printer.IsShared ? "Đang chia sẻ" : "Chưa chia sẻ")}";
+    }
+
+    private static string GetPrinterStatusDisplay(SharedPrinterInfo printer)
+    {
+        if (string.Equals(printer.Status, "Ready", StringComparison.OrdinalIgnoreCase)) return "Máy in sẵn sàng";
+        if (string.Equals(printer.Status, "Offline", StringComparison.OrdinalIgnoreCase)) return "Máy in ngoại tuyến";
+        if (string.Equals(printer.Status, "Error", StringComparison.OrdinalIgnoreCase)) return "Máy in báo lỗi";
+        if (string.Equals(printer.Status, "Paused", StringComparison.OrdinalIgnoreCase)) return "Máy in đang tạm dừng";
+        return "Chưa xác định trạng thái";
     }
 
     private void BtnPrinterToggleSelected_Click(object sender, RoutedEventArgs e)
@@ -826,17 +835,19 @@ public partial class MainDashboardView : UserControl
                 !client.DeviceName.Contains(searchText, StringComparison.OrdinalIgnoreCase) &&
                 !client.DeviceId.Contains(searchText, StringComparison.OrdinalIgnoreCase)) continue;
 
-            if (statusFilter == "Trực tuyến" && (!client.IsApproved || !client.IsOnline)) continue;
-            if (statusFilter == "Ngoại tuyến" && (!client.IsApproved || client.IsOnline)) continue;
-            if (statusFilter == "Chờ phê duyệt" && (client.IsApproved || client.IsBlocked || client.ReconnectAllowed)) continue;
+            if (statusFilter == "Máy đang trực tuyến" && (!client.IsApproved || !client.IsOnline)) continue;
+            if (statusFilter == "Máy đang ngoại tuyến" && (!client.IsApproved || client.IsOnline)) continue;
+            if (statusFilter == "Chờ duyệt" && (client.IsApproved || client.IsBlocked || client.ReconnectAllowed)) continue;
+            if (statusFilter == "Đã được chấp nhận" && (!client.IsApproved || client.IsBlocked)) continue;
             if (statusFilter == "Đã từ chối" && !client.IsBlocked) continue;
+            if (statusFilter == "Đã thu hồi quyền" && (!client.IsBlocked || client.ReconnectAllowed)) continue;
 
             _filteredClients.Add(client);
         }
 
         if (TxtClientStats != null)
         {
-            TxtClientStats.Text = $"{_serverService.ConnectedClients.Count} thiết bị · {onlineCount} trực tuyến · {pendingCount} chờ duyệt";
+            TxtClientStats.Text = $"{_serverService.ConnectedClients.Count} máy con · {onlineCount} máy đang trực tuyến · {pendingCount} yêu cầu đang chờ";
         }
         if (PanelClientsEmpty != null) PanelClientsEmpty.Visibility = _filteredClients.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -925,7 +936,7 @@ public partial class MainDashboardView : UserControl
             ApplyClientFilters();
             UpdateServerUI();
             MessageBox.Show(
-                $"Đã cho phép '{client.DeviceName}' gửi yêu cầu kết nối lại.\n\nThiết bị chưa được cấp quyền in; hãy chờ yêu cầu mới rồi phê duyệt.",
+                $"Đã cho phép '{client.DeviceName}' gửi yêu cầu kết nối lại.\n\nThiết bị chưa được cấp quyền in; hãy chờ yêu cầu mới rồi chấp nhận.",
                 "Đã mở quyền kết nối lại",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
@@ -1235,7 +1246,7 @@ public partial class MainDashboardView : UserControl
 
             await Task.Delay(1500);
 
-            TxtCopyPairingCode.Text = "Chép mã";
+            TxtCopyPairingCode.Text = "Sao chép mã";
             if (BtnCopyPairingCode != null)
             {
                 BtnCopyPairingCode.ClearValue(BackgroundProperty);
@@ -1248,7 +1259,7 @@ public partial class MainDashboardView : UserControl
         if (_serverService == null) return;
 
         if (MessageBox.Show(
-                "Mã hiện tại sẽ hết hiệu lực và các máy con phải ghép nối lại. Bạn có muốn tiếp tục không?",
+                "Mã hiện tại sẽ hết hiệu lực và các máy con phải gửi yêu cầu kết nối lại. Bạn có muốn tiếp tục không?",
                 "Tạo mã kết nối mới",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question) != MessageBoxResult.Yes)

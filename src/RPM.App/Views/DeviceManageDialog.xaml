@@ -1,7 +1,7 @@
 <Window x:Class="RPM.App.Views.DeviceManageDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Quản lý thiết bị" Width="430" Height="600" WindowStartupLocation="CenterOwner"
+        Title="Quản lý thiết bị" Width="560" Height="600" WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize" Background="{StaticResource BgBrush}">
     <Border Margin="12" Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="16">
         <Grid>
@@ -18,20 +18,20 @@
                 <Border x:Name="ReconnectPanel" Background="#EAF3FF" BorderBrush="#B9D7FF" BorderThickness="1" CornerRadius="7" Padding="10" Margin="0,0,0,12" Visibility="Collapsed">
                     <StackPanel>
                         <TextBlock Text="KẾT NỐI LẠI" FontSize="11" FontWeight="Bold" Foreground="{StaticResource NavyMainBrush}"/>
-                        <TextBlock x:Name="TxtReconnectStatus" Text="Thiết bị này đã bị từ chối. Cho phép máy con gửi yêu cầu ghép nối mới; thiết bị vẫn phải nhập mã hiện tại và chờ bạn phê duyệt lại." FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,4,0,8"/>
+                        <TextBlock x:Name="TxtReconnectStatus" Text="Máy này đã bị từ chối. Bạn có thể cho phép máy gửi yêu cầu kết nối mới." FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,4,0,8"/>
                         <Button x:Name="BtnAllowReconnect" Style="{StaticResource PrimaryBtn}" Click="BtnAllowReconnect_Click" Padding="12,6" HorizontalAlignment="Left">
                             <TextBlock Text="Cho phép kết nối lại" FontSize="11"/>
                         </Button>
                     </StackPanel>
                 </Border>
-                <TextBlock Text="MÁY IN ĐƯỢC CẤP QUYỀN" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6"/>
-                <TextBlock x:Name="TxtAllPrintersHint" Text="Không chọn máy cụ thể = được dùng tất cả máy in chia sẻ." FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                <TextBlock Text="MÁY IN ĐƯỢC PHÉP SỬ DỤNG" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6"/>
+                <TextBlock x:Name="TxtAllPrintersHint" Text="Chọn máy in mà thiết bị được phép sử dụng." FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,0,0,6"/>
                 <ListBox x:Name="LstPrinters" Height="150" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"/>
             </StackPanel>
             <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-                <Button Style="{StaticResource SuccessBtn}" x:Name="BtnApprove" Click="BtnApprove_Click" Padding="12,6" Margin="0,0,6,0"><TextBlock Text="Phê duyệt"/></Button>
-                <Button Style="{StaticResource DangerBtn}" x:Name="BtnRevoke" Click="BtnRevoke_Click" Padding="12,6" Margin="0,0,6,0"><TextBlock Text="Thu hồi"/></Button>
-                <Button Style="{StaticResource PrimaryBtn}" x:Name="BtnSave" Click="BtnSave_Click" Padding="12,6" Margin="0,0,6,0"><TextBlock Text="Lưu quyền"/></Button>
+                <Button Style="{StaticResource SuccessBtn}" x:Name="BtnApprove" Click="BtnApprove_Click" Padding="12,6" Margin="0,0,6,0"><TextBlock Text="Chấp nhận"/></Button>
+                <Button Style="{StaticResource DangerBtn}" x:Name="BtnRevoke" Click="BtnRevoke_Click" Padding="12,6" Margin="0,0,6,0"><TextBlock Text="Thu hồi quyền kết nối"/></Button>
+                <Button Style="{StaticResource PrimaryBtn}" x:Name="BtnSave" Click="BtnSave_Click" Padding="12,6" Margin="0,0,6,0"><TextBlock Text="Lưu quyền in"/></Button>
                 <Button Style="{StaticResource SecondaryBtn}" Click="BtnCancel_Click" Padding="12,6"><TextBlock Text="Đóng"/></Button>
             </StackPanel>
         </Grid>

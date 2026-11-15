@@ -19,7 +19,7 @@
                            HorizontalAlignment="Center"/>
             </StackPanel>
 
-            <TextBlock Text="Chọn cách dùng máy này:" 
+            <TextBlock Text="Chọn cách sử dụng"
                        FontSize="15" FontWeight="SemiBold" 
                        Foreground="{StaticResource TextMainBrush}" 
                        HorizontalAlignment="Center" Margin="0,0,0,24"/>
@@ -47,7 +47,7 @@
                             </Border>
                             <TextBlock Text="MÁY CHỦ" FontSize="18" FontWeight="Bold" 
                                        Foreground="{StaticResource PrimaryBrush}" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Máy cắm vào máy in" FontSize="12" 
+                            <TextBlock Text="Máy tính kết nối với máy in và nhận lệnh in từ máy khác." FontSize="12"
                                        Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
                         </StackPanel>
 
@@ -80,7 +80,7 @@
                             </Border>
                             <TextBlock Text="MÁY CON" FontSize="18" FontWeight="Bold" 
                                        Foreground="{StaticResource SuccessBrush}" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Máy dùng để in từ xa" FontSize="12" 
+                            <TextBlock Text="Máy tính kết nối đến máy chủ để gửi tài liệu in." FontSize="12"
                                        Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
                         </StackPanel>
 

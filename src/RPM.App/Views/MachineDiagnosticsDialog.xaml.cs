@@ -33,7 +33,7 @@ public partial class MachineDiagnosticsDialog : Window
     private async Task RunDiagnosticsAsync()
     {
         BtnRunDiagnostics.IsEnabled = false;
-        TxtSummary.Text = "Đang kiểm tra dữ liệu thực tế...";
+        TxtSummary.Text = "Đang kiểm tra...";
         Rows.Clear();
 
         var result = await Task.Run(BuildReport);
@@ -66,13 +66,13 @@ public partial class MachineDiagnosticsDialog : Window
         rows.Add(new DiagnosticRow("Cổng nhận lệnh in cục bộ", $"127.0.0.1:{_settings.LocalIppPort} (chỉ dùng trên máy này)", DiagnosticState.Success));
 
         bool paired = _serverService != null || (_clientService?.IsApproved == true);
-        rows.Add(new DiagnosticRow("Quyền ghép nối", paired ? "Vai trò hoặc quyền ghép nối hiện có." : "Chưa được máy chủ cấp quyền.", paired ? DiagnosticState.Success : DiagnosticState.Warning));
+        rows.Add(new DiagnosticRow("Quyền kết nối", paired ? "Vai trò hoặc quyền kết nối hiện có." : "Chưa được máy chủ cấp quyền.", paired ? DiagnosticState.Success : DiagnosticState.Warning));
         rows.Add(new DiagnosticRow("Phiên bản phần mềm", $"V{_settings.AppVersion}", DiagnosticState.Success));
 
         foreach (var printer in printers)
         {
             string type = GetPrinterType(printer);
-            string detail = $"{type} • Cổng: {printer.PortName ?? "chưa rõ"} • Trạng thái: {printer.Status}";
+            string detail = $"{type} • Cổng: {printer.PortName ?? "chưa rõ"} • Trạng thái: {GetPrinterStatusDisplay(printer.Status)}";
             var state = string.Equals(printer.Status, "Ready", StringComparison.OrdinalIgnoreCase)
                 ? DiagnosticState.Success
                 : DiagnosticState.Warning;
@@ -110,6 +110,15 @@ public partial class MachineDiagnosticsDialog : Window
         if (port.Equals("nul:", StringComparison.OrdinalIgnoreCase) || name.Contains("OneNote", StringComparison.OrdinalIgnoreCase) || name.Contains("PDF", StringComparison.OrdinalIgnoreCase) || name.Contains("XPS", StringComparison.OrdinalIgnoreCase)) return "Máy in ảo";
         return "Chưa xác định loại kết nối";
     }
+
+    private static string GetPrinterStatusDisplay(string? status) => status?.ToUpperInvariant() switch
+    {
+        "READY" => "Sẵn sàng",
+        "OFFLINE" => "Ngoại tuyến",
+        "ERROR" => "Báo lỗi",
+        "PAUSED" => "Đang tạm dừng",
+        _ => "Chưa xác định"
+    };
 
     private void BtnClose_Click(object sender, RoutedEventArgs e) => Close();
 

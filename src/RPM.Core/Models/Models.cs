@@ -40,7 +40,13 @@ public class DeviceInfo
         : string.Join(", ", AllowedPrinters);
 
     [System.Text.Json.Serialization.JsonIgnore]
-    public string DeviceStatus => IsBlocked ? "Đã từ chối" : ReconnectAllowed ? "Được phép yêu cầu lại" : !IsApproved ? "Chờ phê duyệt" : IsOnline ? "Trực tuyến" : "Ngoại tuyến";
+    public string ConnectionStatus => IsOnline ? "Máy đang trực tuyến" : "Máy đang ngoại tuyến";
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string PermissionStatus => IsBlocked ? "Đã từ chối" : ReconnectAllowed ? "Được phép kết nối lại" : !IsApproved ? "Chờ duyệt" : "Đã được chấp nhận";
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string DeviceStatus => PermissionStatus;
 }
 
 public class SharedPrinterInfo
@@ -79,7 +85,7 @@ public class PrintJob
     public bool IsColor { get; set; } = false;
     public bool IsDuplex { get; set; } = false;
     public PrintJobStatus Status { get; set; } = PrintJobStatus.Pending;
-    public string StatusMessage { get; set; } = "Pending in queue";
+    public string StatusMessage { get; set; } = "Đang chờ xử lý.";
     public long FileSizeBytes { get; set; }
     public string ContentSha256 { get; set; } = string.Empty;
     public string? LocalTempFilePath { get; set; }
@@ -94,9 +100,13 @@ public class PrintJob
     public string StatusText => Status switch
     {
         PrintJobStatus.Pending => "Đang chờ",
-        PrintJobStatus.Printing => "Đang in",
-        PrintJobStatus.Completed => "Hoàn tất",
-        PrintJobStatus.Failed => "Lỗi",
+        PrintJobStatus.Printing => StatusMessage.Contains("nhận", StringComparison.OrdinalIgnoreCase)
+            ? "Đang nhận tài liệu"
+            : "Đang gửi đến máy in",
+        PrintJobStatus.Completed => StatusMessage.Contains("Chưa xác minh", StringComparison.OrdinalIgnoreCase)
+            ? "Đã gửi đến máy in"
+            : "Đã xác nhận hoàn tất",
+        PrintJobStatus.Failed => "Không thể in",
         PrintJobStatus.Cancelled => "Đã hủy",
         _ => Status.ToString()
     };

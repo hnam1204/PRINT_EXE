@@ -49,7 +49,7 @@ public class BoolToApprovedTextConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        return value is true ? "Đã duyệt" : "Chờ duyệt";
+        return value is true ? "Đã được chấp nhận" : "Chờ duyệt";
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
@@ -59,7 +59,7 @@ public class BoolToOnlineTextConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        return value is true ? "Đang kết nối" : "Mất kết nối";
+        return value is true ? "Máy đang trực tuyến" : "Máy đang ngoại tuyến";
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
@@ -225,10 +225,10 @@ public class AuditStatusToTextConverter : IValueConverter
         {
             return status switch
             {
-                RPM.Core.Diagnostics.AuditStatus.Pass => "PASS",
-                RPM.Core.Diagnostics.AuditStatus.Fail => "FAIL",
-                RPM.Core.Diagnostics.AuditStatus.Blocked => "▲ BLOCKED",
-                RPM.Core.Diagnostics.AuditStatus.NotTested => "NOT TESTED",
+                RPM.Core.Diagnostics.AuditStatus.Pass => "Hoạt động bình thường",
+                RPM.Core.Diagnostics.AuditStatus.Fail => "Không hoạt động",
+                RPM.Core.Diagnostics.AuditStatus.Blocked => "Cần kiểm tra",
+                RPM.Core.Diagnostics.AuditStatus.NotTested => "Chưa kiểm tra",
                 _ => status.ToString()
             };
         }
@@ -286,15 +286,15 @@ public class DataSourceToTextConverter : IValueConverter
         {
             return ds switch
             {
-                RPM.Core.Diagnostics.DataSourceType.RealData => "REAL DATA",
-                RPM.Core.Diagnostics.DataSourceType.CachedData => "CACHED DATA",
-                RPM.Core.Diagnostics.DataSourceType.MockData => "MOCK DATA",
-                RPM.Core.Diagnostics.DataSourceType.NotImplemented => "NOT IMPLEMENTED",
-                RPM.Core.Diagnostics.DataSourceType.Error => "ERROR",
-                _ => ds.ToString()
+                RPM.Core.Diagnostics.DataSourceType.RealData => "Dữ liệu thực tế",
+                RPM.Core.Diagnostics.DataSourceType.CachedData => "Dữ liệu đã lưu",
+                RPM.Core.Diagnostics.DataSourceType.MockData => "Dữ liệu mô phỏng",
+                RPM.Core.Diagnostics.DataSourceType.NotImplemented => "Chưa triển khai",
+                RPM.Core.Diagnostics.DataSourceType.Error => "Lỗi",
+                _ => "Chưa xác định"
             };
         }
-        return "UNKNOWN";
+        return "Chưa xác định";
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();

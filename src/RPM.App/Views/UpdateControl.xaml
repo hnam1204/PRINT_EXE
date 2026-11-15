@@ -17,7 +17,7 @@
                     <Path Grid.Column="0" Data="{StaticResource GeoRefresh}" Fill="{StaticResource PrimaryBrush}" Width="22" Height="22" Stretch="Uniform" VerticalAlignment="Center" Margin="0,0,14,0"/>
                     
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                        <TextBlock Text="CẬP NHẬT" FontSize="15" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
+                        <TextBlock Text="CẬP NHẬT PHẦN MỀM" FontSize="15" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
                         <TextBlock Text="Cập nhật phần mềm và giữ nguyên dữ liệu." FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
                     </StackPanel>
 
@@ -25,7 +25,7 @@
                     <Border Grid.Column="2" x:Name="BorderStatusBadge" Background="{StaticResource PrimaryLightBrush}" CornerRadius="12" Padding="12,5" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal">
                             <Ellipse x:Name="DotUpdateStatus" Width="8" Height="8" Fill="{StaticResource PrimaryBrush}" Margin="0,0,6,0"/>
-                            <TextBlock x:Name="TxtStatusBadge" Text="Sẵn sàng kiểm tra" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource PrimaryBrush}"/>
+                            <TextBlock x:Name="TxtStatusBadge" Text="Chưa kiểm tra cập nhật" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource PrimaryBrush}"/>
                         </StackPanel>
                     </Border>
                 </Grid>
@@ -53,7 +53,7 @@
                     <!-- Release Channel -->
                     <Border Grid.Column="2" Background="{StaticResource BgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12">
                         <StackPanel>
-                            <TextBlock Text="KÊNH" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
+                        <TextBlock Text="KÊNH CẬP NHẬT" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
                             <TextBlock x:Name="TxtCurrentChannel" Text="Bản chính thức" FontSize="13" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,6,0,0"/>
                         </StackPanel>
                     </Border>
@@ -61,8 +61,8 @@
                     <!-- Latest Version -->
                     <Border Grid.Column="4" Background="{StaticResource BgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12">
                         <StackPanel>
-                            <TextBlock Text="BẢN MỚI" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
-                            <TextBlock x:Name="TxtLatestVersion" Text="Chưa kiểm tra" FontSize="16" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,4,0,0"/>
+                        <TextBlock Text="BẢN MỚI NHẤT" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}"/>
+                        <TextBlock x:Name="TxtLatestVersion" Text="Chưa kiểm tra cập nhật" FontSize="16" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}" Margin="0,4,0,0"/>
                         </StackPanel>
                     </Border>
 
@@ -78,13 +78,13 @@
                 <!-- Action Buttons -->
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
                     <Button x:Name="BtnCheckUpdate" Style="{StaticResource SecondaryBtn}" Click="BtnCheckUpdate_Click" Margin="0,0,10,0" Height="40" Padding="16,8">
-                        <StackPanel Orientation="Horizontal"><Path Data="{StaticResource GeoSignal}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/><TextBlock Text="Kiểm tra"/></StackPanel>
+                        <StackPanel Orientation="Horizontal"><Path Data="{StaticResource GeoSignal}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/><TextBlock Text="Kiểm tra cập nhật"/></StackPanel>
                     </Button>
                     <Button x:Name="BtnUpdateNow" Style="{StaticResource PrimaryBtn}" Click="BtnUpdateNow_Click" Margin="0,0,10,0" Height="40" Padding="20,8" Visibility="Collapsed">
                         <StackPanel Orientation="Horizontal"><Path Data="{StaticResource GeoRocket}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/><TextBlock Text="Cập nhật ngay"/></StackPanel>
                     </Button>
                     <Button x:Name="BtnRollback" Style="{StaticResource SecondaryBtn}" Click="BtnRollback_Click" Margin="0,0,10,0" Height="40" Padding="14,8" Visibility="Collapsed">
-                        <StackPanel Orientation="Horizontal"><Path Data="{StaticResource GeoRestart}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/><TextBlock Text="Khôi phục bản cũ"/></StackPanel>
+                        <StackPanel Orientation="Horizontal"><Path Data="{StaticResource GeoRestart}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/><TextBlock Text="Khôi phục phiên bản trước"/></StackPanel>
                     </Button>
                     <Button x:Name="BtnToggleChangelog" Style="{StaticResource SecondaryBtn}" Click="BtnToggleChangelog_Click" Margin="0,0,10,0" Height="40" Padding="14,8" Visibility="Collapsed">
                         <StackPanel Orientation="Horizontal"><Path Data="{StaticResource GeoDocument}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/><TextBlock Text="Xem thay đổi"/></StackPanel>
@@ -94,7 +94,7 @@
                 <!-- Progress Bar Area -->
                 <StackPanel x:Name="PanelProgress" Visibility="Collapsed" Margin="0,0,0,14">
                     <Grid Margin="0,0,0,6">
-                        <TextBlock x:Name="TxtProgressStatus" Text="Đang tải..." FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource PrimaryBrush}"/>
+                        <TextBlock x:Name="TxtProgressStatus" Text="Đang tải bản cập nhật..." FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource PrimaryBrush}"/>
                         <TextBlock x:Name="TxtProgressPercentage" Text="0%" HorizontalAlignment="Right" FontSize="12" FontWeight="Bold" Foreground="{StaticResource PrimaryBrush}"/>
                     </Grid>
                     <ProgressBar x:Name="PbDownload" Height="10" Maximum="100" Value="0" Foreground="{StaticResource PrimaryBrush}"/>
@@ -188,11 +188,11 @@
                               Height="140" Background="White" BorderBrush="{StaticResource BorderBrush}" 
                               HeadersVisibility="Column" GridLinesVisibility="Horizontal" Margin="0,8,0,0">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Từ Phiên Bản" Binding="{Binding FromVersion}" Width="100"/>
-                            <DataGridTextColumn Header="Lên Phiên Bản" Binding="{Binding ToVersion}" Width="110"/>
+                            <DataGridTextColumn Header="Phiên bản cũ" Binding="{Binding FromVersion}" Width="100"/>
+                            <DataGridTextColumn Header="Phiên bản mới" Binding="{Binding ToVersion}" Width="110"/>
                             <DataGridTextColumn Header="Kênh" Binding="{Binding Channel}" Width="90"/>
-                            <DataGridTextColumn Header="Thời Gian Nâng Cấp" Binding="{Binding InstalledAt, StringFormat='dd/MM/yyyy HH:mm'}" Width="130"/>
-                            <DataGridTextColumn Header="Trạng Thái" Binding="{Binding Status}" Width="100"/>
+                            <DataGridTextColumn Header="Thời gian cập nhật" Binding="{Binding InstalledAt, StringFormat='dd/MM/yyyy HH:mm'}" Width="130"/>
+                            <DataGridTextColumn Header="Trạng thái" Binding="{Binding Status}" Width="100"/>
                             <DataGridTextColumn Header="Ghi Chú" Binding="{Binding Notes}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>

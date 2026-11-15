@@ -40,9 +40,9 @@ public class ClientService : IDisposable, IAsyncDisposable
     public bool IsConnecting { get; private set; }
     public string ConnectionStatus => _connectionStatus;
     public string ConnectionStatusDisplay => _cloud.IsOnline
-        ? "Đã kết nối máy chủ từ xa"
-        : _relayClient.IsConnected ? "Đã kết nối nội bộ" : "Ngoại tuyến";
-    public string GeofenceStatusDisplay { get; private set; } = "Chưa xác minh";
+        ? "Đã kết nối dịch vụ"
+        : _relayClient.IsConnected ? "Đã kết nối nội bộ" : "Mất kết nối dịch vụ";
+    public string GeofenceStatusDisplay { get; private set; } = "Chưa xác minh vị trí";
 
     public event EventHandler<string>? OnLog;
     public event EventHandler? OnStateChanged;
@@ -109,7 +109,7 @@ public class ClientService : IDisposable, IAsyncDisposable
         _settings.PairingCode = pairingCode.Trim();
         if (!PacketSecurity.IsValidPairingCode(_settings.PairingCode))
         {
-            OnLog?.Invoke(this, "Mã ghép đôi không hợp lệ. Hãy nhập mã RPM đầy đủ.");
+            OnLog?.Invoke(this, "Mã kết nối không đúng. Hãy nhập đủ mã kết nối hiện tại.");
             return;
         }
         _relayClient.PairingCode = _settings.PairingCode;
@@ -181,17 +181,17 @@ public class ClientService : IDisposable, IAsyncDisposable
         string code = pairingCode.Trim().ToUpperInvariant();
         if (code.Length != 6)
         {
-            OnLog?.Invoke(this, "Mã ghép nối phải có 6 ký tự.");
+            OnLog?.Invoke(this, "Mã kết nối phải có 6 ký tự.");
             return;
         }
         IsConnecting = true;
-        _connectionStatus = "Đang tìm máy chủ từ xa...";
+        _connectionStatus = "Đang tìm máy chủ...";
         OnStateChanged?.Invoke(this, EventArgs.Empty);
         try
         {
             if (!_cloud.IsOnline || !await _cloud.ProbeAsync())
             {
-                _connectionStatus = "Chưa kết nối máy chủ từ xa";
+                _connectionStatus = "Mất kết nối dịch vụ";
                 return;
             }
             var location = await _locationService.TryGetCurrentAsync();
@@ -214,15 +214,15 @@ public class ClientService : IDisposable, IAsyncDisposable
             ConfigManager.Save(_settings);
             GeofenceStatusDisplay = resolution.LocationStatus switch
             {
-                "VERIFIED" => "Trong vùng 1 km",
-                "OUT_OF_RANGE" => "Ngoài vùng 1 km",
-                _ => "Chưa xác minh"
+                "VERIFIED" => "Trong giới hạn khoảng cách",
+                "OUT_OF_RANGE" => "Ngoài giới hạn khoảng cách",
+                _ => "Chưa xác minh vị trí"
             };
-            _connectionStatus = "Đã gửi yêu cầu ghép đôi, chờ máy chủ duyệt...";
-            OnLog?.Invoke(this, "Đã gửi yêu cầu đến máy chủ từ xa. Máy chủ cần phê duyệt trước khi in.");
+            _connectionStatus = "Đang gửi yêu cầu kết nối...";
+            OnLog?.Invoke(this, "Đã gửi yêu cầu kết nối. Chờ máy chủ chấp nhận trước khi in.");
             _ = WaitForCloudApprovalAsync(resolution.PairingId);
         }
-        catch (Exception ex) { _connectionStatus = "Không thể kết nối máy chủ từ xa"; OnLog?.Invoke(this, $"Lỗi máy chủ từ xa: {ex.Message}"); }
+        catch (Exception ex) { _connectionStatus = "Mất kết nối dịch vụ"; OnLog?.Invoke(this, $"Không thể kết nối máy chủ: {ex.Message}"); }
         finally { IsConnecting = false; OnStateChanged?.Invoke(this, EventArgs.Empty); }
     }
 
@@ -240,7 +240,7 @@ public class ClientService : IDisposable, IAsyncDisposable
                 if (string.Equals(pairing.Status, "APPROVED", StringComparison.OrdinalIgnoreCase))
                 {
                     _isApproved = true;
-                    _connectionStatus = "Đã kết nối máy chủ từ xa và được phê duyệt";
+                    _connectionStatus = "Đã được chấp nhận";
                     var printers = await api.ListPrintersAsync(_settings.CloudHostId);
                     Application.Current?.Dispatcher.Invoke(() =>
                     {
@@ -256,13 +256,13 @@ public class ClientService : IDisposable, IAsyncDisposable
                             if (_remotePrinter is not null) _ippServer.PrinterName = $"{_remotePrinter.Name} (Remote)";
                         }
                     });
-                    OnLog?.Invoke(this, $"[Thành công] Máy chủ từ xa đã phê duyệt, đồng bộ {AvailablePrinters.Count} máy in.");
+                    OnLog?.Invoke(this, $"[Thành công] Đã được máy chủ chấp nhận, đồng bộ {AvailablePrinters.Count} máy in.");
                     OnStateChanged?.Invoke(this, EventArgs.Empty);
                     return;
                 }
                 if (string.Equals(pairing.Status, "REJECTED", StringComparison.OrdinalIgnoreCase))
                 {
-                    _connectionStatus = "Yêu cầu kết nối từ xa bị từ chối";
+                    _connectionStatus = "Máy chủ đã từ chối";
                     OnStateChanged?.Invoke(this, EventArgs.Empty);
                     return;
                 }
@@ -273,7 +273,7 @@ public class ClientService : IDisposable, IAsyncDisposable
 
     private async void Relay_OnConnected(object? sender, EventArgs e)
     {
-        _connectionStatus = "Đã kết nối nội bộ. Đang ghép đôi...";
+        _connectionStatus = "Đã kết nối nội bộ. Đang gửi yêu cầu kết nối...";
         OnStateChanged?.Invoke(this, EventArgs.Empty);
 
         if (!string.IsNullOrWhiteSpace(_settings.PairingCode))
@@ -293,7 +293,7 @@ public class ClientService : IDisposable, IAsyncDisposable
     {
         if (!PacketSecurity.IsValidPairingCode(_settings.PairingCode))
         {
-            OnLog?.Invoke(this, "Không thể gửi yêu cầu: mã ghép đôi không hợp lệ.");
+            OnLog?.Invoke(this, "Không thể gửi yêu cầu: mã kết nối không đúng.");
             return false;
         }
         var device = new DeviceInfo
@@ -318,7 +318,7 @@ public class ClientService : IDisposable, IAsyncDisposable
             PayloadJson = JsonSerializer.Serialize(join)
         };
 
-        _connectionStatus = "Đã gửi yêu cầu ghép đôi, chờ duyệt...";
+        _connectionStatus = "Đang gửi yêu cầu kết nối...";
         OnStateChanged?.Invoke(this, EventArgs.Empty);
 
         bool sent = await _relayClient.SendPacketAsync(packet);
@@ -345,7 +345,7 @@ public class ClientService : IDisposable, IAsyncDisposable
                         if (res.Approved)
                         {
                             _isApproved = true;
-                            _connectionStatus = "Đã kết nối & Phê duyệt thành công";
+                            _connectionStatus = "Đã được chấp nhận";
                             _settings.EncryptionSecret = res.EncryptionSecret;
                             _remotePrinter = res.SharedPrinter;
 
@@ -372,12 +372,12 @@ public class ClientService : IDisposable, IAsyncDisposable
                                 _ippServer.PrinterName = $"{_remotePrinter.Name} (Remote)";
                             }
 
-                            OnLog?.Invoke(this, $"[Thành công] Đã được máy chủ phê duyệt! Nhận danh sách {AvailablePrinters.Count} máy in được cấp quyền.");
+                            OnLog?.Invoke(this, $"[Thành công] Đã được máy chủ chấp nhận. Nhận danh sách {AvailablePrinters.Count} máy in được phép sử dụng.");
                         }
                         else
                         {
                             _isApproved = false;
-                            _connectionStatus = res.IsPending ? "Đang chờ máy chủ duyệt..." : "Bị từ chối kết nối.";
+                            _connectionStatus = res.IsPending ? "Chờ máy chủ chấp nhận" : "Máy chủ đã từ chối";
                             OnLog?.Invoke(this, $"[Thông báo] {res.Message}");
                         }
                         OnStateChanged?.Invoke(this, EventArgs.Empty);
@@ -448,8 +448,8 @@ public class ClientService : IDisposable, IAsyncDisposable
                 case MessageType.DeviceRevoked:
                 {
                     _isApproved = false;
-                    _connectionStatus = "Quyền sử dụng máy in đã bị thu hồi bởi máy chủ.";
-                    OnLog?.Invoke(this, "[Cảnh báo] Máy chủ đã thu hồi quyền in của thiết bị này.");
+                    _connectionStatus = "Máy chủ đã thu hồi quyền kết nối";
+                    OnLog?.Invoke(this, "[Cảnh báo] Máy chủ đã thu hồi quyền kết nối của máy này.");
                     OnStateChanged?.Invoke(this, EventArgs.Empty);
                     break;
                 }
@@ -473,7 +473,7 @@ public class ClientService : IDisposable, IAsyncDisposable
     {
         if (!_isApproved)
         {
-            OnLog?.Invoke(this, "[Cảnh báo] Máy con chưa được phê duyệt, không thể gửi lệnh in!");
+            OnLog?.Invoke(this, "[Cảnh báo] Máy con chưa được chấp nhận, không thể gửi lệnh in.");
             return;
         }
 
@@ -483,7 +483,7 @@ public class ClientService : IDisposable, IAsyncDisposable
         job.ContentSha256 = RPMCrypto.ComputeSha256(e.Data);
         job.DocumentFormat = string.IsNullOrWhiteSpace(job.DocumentFormat) ? "application/octet-stream" : job.DocumentFormat;
         job.Status = PrintJobStatus.Pending;
-        job.StatusMessage = "Đang truyền tải qua mạng Internet...";
+        job.StatusMessage = "Đang nhận tài liệu...";
 
         Application.Current?.Dispatcher.Invoke(() =>
         {
@@ -536,7 +536,7 @@ public class ClientService : IDisposable, IAsyncDisposable
         if (!_cloud.IsOnline || _cloud.Client is null || string.IsNullOrWhiteSpace(_settings.CloudHostId) || string.IsNullOrWhiteSpace(_settings.CloudHostPublicKey))
         {
             job.Status = PrintJobStatus.Failed;
-            job.StatusMessage = "Máy chủ từ xa chưa sẵn sàng; không gửi bản sao qua kết nối nội bộ khi kết nối từ xa đã bật.";
+            job.StatusMessage = "Máy chủ chưa sẵn sàng. Vui lòng thử lại sau.";
             return;
         }
         var encrypted = CloudDocumentCrypto.EncryptForHost(data, _settings.CloudHostPublicKey);
@@ -556,7 +556,7 @@ public class ClientService : IDisposable, IAsyncDisposable
         var created = await _cloud.Client.CreateJobAsync(request, job.JobId);
         if (created is null) throw new InvalidOperationException("Máy chủ từ xa không tạo được lệnh in.");
         await _cloud.Client.UploadDocumentAsync(created.JobId, encrypted);
-        job.StatusMessage = "Đã gửi tài liệu mã hóa lên máy chủ từ xa, chờ máy chủ xử lý.";
+        job.StatusMessage = "Đã gửi đến máy chủ, đang chờ xử lý.";
     }
 
     public async Task<bool> SendTestPrintAsync()

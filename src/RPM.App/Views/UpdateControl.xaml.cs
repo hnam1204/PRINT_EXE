@@ -111,7 +111,7 @@ public partial class UpdateControl : UserControl
         if (_checkInProgress) return;
         _checkInProgress = true;
         BtnCheckUpdate.IsEnabled = false;
-        SetStatusState("Đang kiểm tra", PrimaryColor, LightPrimaryColor);
+        SetStatusState("Đang kiểm tra...", PrimaryColor, LightPrimaryColor);
 
         try
         {
@@ -124,7 +124,7 @@ public partial class UpdateControl : UserControl
             if (!string.IsNullOrEmpty(result.ErrorMessage))
             {
                 SetAvailableUpdate(false);
-                SetStatusState("Không kiểm tra được", DangerColor, LightRedColor);
+                SetStatusState("Không thể kiểm tra cập nhật", DangerColor, LightRedColor);
                 TxtLatestVersion.Text = "Không xác định";
                 return;
             }
@@ -140,9 +140,9 @@ public partial class UpdateControl : UserControl
 
             if (result.HasUpdate)
             {
-                string channelLabel = result.Channel == "Beta" ? " [Beta]" : "";
+                string channelLabel = result.Channel == "Beta" ? " (Bản thử nghiệm)" : "";
                 SetAvailableUpdate(true);
-                SetStatusState($"Có bản mới V{result.LatestVersion}{channelLabel}", WarningColor, LightYellowColor);
+                SetStatusState($"Đã có phiên bản mới V{result.LatestVersion}{channelLabel}", WarningColor, LightYellowColor);
                 BtnUpdateNow.Visibility = Visibility.Visible;
                 BtnToggleChangelog.Visibility = Visibility.Visible;
                 BorderChangelog.Visibility = Visibility.Visible;
@@ -150,7 +150,7 @@ public partial class UpdateControl : UserControl
             else
             {
                 SetAvailableUpdate(false);
-                SetStatusState("Đang dùng bản mới nhất", SuccessColor, LightGreenColor);
+                SetStatusState("Bạn đang dùng phiên bản mới nhất", SuccessColor, LightGreenColor);
                 BtnUpdateNow.Visibility = Visibility.Collapsed;
                 BtnToggleChangelog.Visibility = Visibility.Collapsed;
                 BorderChangelog.Visibility = Visibility.Collapsed;
@@ -159,7 +159,7 @@ public partial class UpdateControl : UserControl
         catch
         {
             SetAvailableUpdate(false);
-            SetStatusState("Không kiểm tra được", DangerColor, LightRedColor);
+            SetStatusState("Không thể kiểm tra cập nhật", DangerColor, LightRedColor);
         }
         finally
         {
@@ -197,7 +197,7 @@ public partial class UpdateControl : UserControl
         BtnCheckUpdate.IsEnabled = false;
         BtnRollback.IsEnabled = false;
         PanelProgress.Visibility = Visibility.Visible;
-        SetStatusState("Đang tải bản mới", PrimaryColor, LightPrimaryColor);
+        SetStatusState("Đang tải bản cập nhật...", PrimaryColor, LightPrimaryColor);
 
         var progress = new Progress<int>(percent =>
         {
@@ -214,13 +214,13 @@ public partial class UpdateControl : UserControl
             BtnUpdateNow.IsEnabled = true;
             BtnCheckUpdate.IsEnabled = true;
             BtnRollback.IsEnabled = true;
-            SetStatusState("Cập nhật lỗi", DangerColor, LightRedColor);
+            SetStatusState("Cập nhật thất bại", DangerColor, LightRedColor);
             MessageBox.Show($"Không tải được bản mới:\n{msg}", "Lỗi cập nhật", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
 
         // 3. Apply Update and Restart
-        SetStatusState("Đang cài đặt", SuccessColor, LightGreenColor);
+        SetStatusState("Đang cài đặt...", SuccessColor, LightGreenColor);
         TxtProgressStatus.Text = "Đang cài đặt và khởi động lại...";
 
         try
@@ -241,7 +241,7 @@ public partial class UpdateControl : UserControl
         bool restarted = UpdateService.ApplyUpdateAndRestart(targetFile, out string err);
         if (!restarted)
         {
-            SetStatusState("Cập nhật lỗi", DangerColor, LightRedColor);
+            SetStatusState("Cập nhật thất bại", DangerColor, LightRedColor);
             MessageBox.Show($"Không cài được bản mới: {err}", "Lỗi cập nhật", MessageBoxButton.OK, MessageBoxImage.Error);
             BtnUpdateNow.IsEnabled = true;
             BtnCheckUpdate.IsEnabled = true;
@@ -257,8 +257,8 @@ public partial class UpdateControl : UserControl
     private void BtnRollback_Click(object sender, RoutedEventArgs e)
     {
         var choice = MessageBox.Show(
-            "Khôi phục bản cũ?\n\nCài đặt và máy in vẫn được giữ nguyên.",
-            "Khôi phục bản cũ",
+            "Khôi phục phiên bản trước?\n\nCài đặt và máy in vẫn được giữ nguyên.",
+            "Khôi phục phiên bản trước",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question
         );
@@ -268,7 +268,7 @@ public partial class UpdateControl : UserControl
             bool ok = UpdateService.RollbackAndRestart(out string err);
             if (!ok)
             {
-                MessageBox.Show($"Không khôi phục được: {err}", "Lỗi khôi phục", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Không thể khôi phục phiên bản trước: {err}", "Khôi phục thất bại", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             else
             {

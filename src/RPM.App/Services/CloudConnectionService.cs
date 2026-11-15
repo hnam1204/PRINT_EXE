@@ -113,9 +113,9 @@ public sealed class CloudConnectionService : IAsyncDisposable
             InvalidateEnrollment("Mã kích hoạt đã bị thu hồi hoặc không còn quyền sử dụng.");
             return false;
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            SetOffline($"Máy chủ từ xa chưa kết nối: {ex.Message}");
+            SetOffline("Không thể kiểm tra dịch vụ từ xa. Vui lòng kiểm tra kết nối Internet rồi thử lại.");
             return false;
         }
     }
@@ -136,9 +136,9 @@ public sealed class CloudConnectionService : IAsyncDisposable
                 }
             }
             catch (OperationCanceledException) when (_stop.IsCancellationRequested) { break; }
-            catch (Exception ex)
+            catch (Exception)
             {
-                SetOffline($"Lỗi kiểm tra kết nối máy chủ từ xa: {ex.Message}");
+                SetOffline("Không thể kiểm tra dịch vụ từ xa. Vui lòng kiểm tra kết nối Internet rồi thử lại.");
                 try { await Task.Delay(TimeSpan.FromSeconds(15), _stop.Token); }
                 catch (OperationCanceledException) { break; }
             }
