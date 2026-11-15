@@ -21,6 +21,8 @@ public class AppSettings
     public string EncryptionSecret { get; set; } = string.Empty;
     public string CloudApiBaseUrl { get; set; } = "https://print-exe.vercel.app/";
     public bool CloudTransportEnabled { get; set; } = false;
+    // Only the first five characters are retained for a safe activation hint.
+    public string CloudEnrollmentKeyPrefix { get; set; } = string.Empty;
     public string CloudHostId { get; set; } = string.Empty;
     public string CloudHostPublicKey { get; set; } = string.Empty;
     public string CloudPairingCode { get; set; } = string.Empty;

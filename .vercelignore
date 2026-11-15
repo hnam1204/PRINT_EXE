@@ -5,6 +5,17 @@ installer/
 docs/
 tools/
 scripts/
+REMOTE_PRINT_SERVER/.env*
+REMOTE_PRINT_SERVER/.venv/
+REMOTE_PRINT_SERVER/.venv*/
+REMOTE_PRINT_SERVER/venv/
+REMOTE_PRINT_SERVER/__pycache__/
+REMOTE_PRINT_SERVER/.pytest_cache/
+REMOTE_PRINT_SERVER/*.db
+REMOTE_PRINT_SERVER/tests/
+REMOTE_PRINT_SERVER/requirements-dev.txt
+.env*
+secrets/
 REMOTE_PRINT_SERVER/.venv/
 REMOTE_PRINT_SERVER/.venv*/
 REMOTE_PRINT_SERVER/venv/

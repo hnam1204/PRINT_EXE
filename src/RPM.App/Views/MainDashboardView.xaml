@@ -378,10 +378,21 @@
                                             <TextBlock Text="Kết nối Cloud" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}"/>
                                             <TextBlock x:Name="TxtCloudStatus" Text="Đang tắt" FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,1,0,0"/>
                                         </StackPanel>
-                                        <PasswordBox x:Name="TxtCloudEnrollmentSecret" Grid.Column="1" Height="28" Padding="7,4" VerticalContentAlignment="Center" ToolTip="Mã kích hoạt do quản trị viên cấp"/>
-                                        <Button Grid.Column="2" Style="{StaticResource SecondaryBtn}" Click="BtnCloudEnroll_Click" Padding="10,5" Margin="8,0,0,0">
-                                            <TextBlock Text="Kích hoạt" FontSize="11"/>
-                                        </Button>
+                                        <Grid Grid.Column="1">
+                                            <PasswordBox x:Name="TxtCloudEnrollmentSecret" Height="28" Padding="7,4" VerticalContentAlignment="Center" ToolTip="Mã kích hoạt do quản trị viên cấp"/>
+                                            <TextBlock x:Name="TxtCloudEnrollmentMaskedKey" Visibility="Collapsed" VerticalAlignment="Center" Padding="7,0" FontSize="11" Foreground="{StaticResource TextMainBrush}"/>
+                                        </Grid>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button x:Name="BtnCloudEnroll" Style="{StaticResource SecondaryBtn}" Click="BtnCloudEnroll_Click" Padding="10,5" Margin="8,0,0,0" MinWidth="88">
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                    <ProgressBar x:Name="PbCloudEnroll" Width="14" Height="14" IsIndeterminate="True" Visibility="Collapsed" Margin="0,0,6,0"/>
+                                                    <TextBlock x:Name="TxtCloudEnrollButton" Text="Kích hoạt" FontSize="11"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button x:Name="BtnChangeCloudEnrollment" Style="{StaticResource SecondaryBtn}" Click="BtnChangeCloudEnrollment_Click" Padding="10,5" Margin="8,0,0,0" Visibility="Collapsed">
+                                                <TextBlock Text="Thay đổi mã" FontSize="11"/>
+                                            </Button>
+                                        </StackPanel>
                                     </Grid>
                                 </Border>
 

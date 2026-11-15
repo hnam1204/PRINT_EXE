@@ -37,6 +37,9 @@ class Settings:
     geofence_max_age_seconds: int
     blob_store_id: str
     blob_read_write_token: str
+    telegram_bot_token: str
+    telegram_admin_ids: tuple[int, ...]
+    telegram_webhook_secret: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -48,6 +51,12 @@ class Settings:
         cron_secret = _secret(os.getenv("CRON_SECRET", ""))
         blob_store_id = os.getenv("BLOB_STORE_ID", "")
         blob_read_write_token = os.getenv("BLOB_READ_WRITE_TOKEN", os.getenv("VERCEL_BLOB_READ_WRITE_TOKEN", ""))
+        telegram_bot_token = _secret(os.getenv("TELEGRAM_BOT_TOKEN", ""))
+        telegram_admin_ids = tuple(
+            int(item) for item in _csv(os.getenv("TELEGRAM_ADMIN_IDS", ""))
+            if item.isdigit()
+        )
+        telegram_webhook_secret = _secret(os.getenv("TELEGRAM_WEBHOOK_SECRET", ""))
 
         if environment in {"production", "preview"}:
             if not enrollment_secret or not admin_api_key or not cron_secret:
@@ -60,6 +69,9 @@ class Settings:
                 raise ConfigurationError("Production requires PostgreSQL persistence.")
             if not blob_store_id and not blob_read_write_token:
                 raise ConfigurationError("Production requires BLOB_STORE_ID or BLOB_READ_WRITE_TOKEN for document delivery.")
+            telegram_values = (telegram_bot_token, telegram_admin_ids, telegram_webhook_secret)
+            if any(telegram_values) and not all(telegram_values):
+                raise ConfigurationError("Telegram bot requires TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_IDS and TELEGRAM_WEBHOOK_SECRET together.")
 
         parsed = urlparse(database_url)
         if parsed.scheme not in {"sqlite", "postgresql", "postgres", "postgresql+psycopg"}:
@@ -85,4 +97,7 @@ class Settings:
             geofence_max_age_seconds=int(os.getenv("GEOFENCE_MAX_AGE_SECONDS", "300")),
             blob_store_id=blob_store_id,
             blob_read_write_token=blob_read_write_token,
+            telegram_bot_token=telegram_bot_token,
+            telegram_admin_ids=telegram_admin_ids,
+            telegram_webhook_secret=telegram_webhook_secret,
         )

@@ -12,7 +12,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from .config import ConfigurationError, Settings
-from .database import AuditEvent, Device, Pairing, PairingCode, PrintJob, PrintJobTombstone, Printer, as_utc, create_session_factory, utcnow
+from .database import ActivationCode, AuditEvent, Device, Pairing, PairingCode, PrintJob, PrintJobTombstone, Printer, as_utc, create_session_factory, utcnow
 from .schemas import (
     DeviceProfile,
     DeviceRegistration,
@@ -45,6 +45,7 @@ from .cleanup import run_cleanup
 from .geofence import verify_location
 from .storage import BlobStore, VercelBlobStore
 from .security import enforce_rate_limit, hash_token, new_device_token, require_device, require_role
+from .telegram_bot import create_activation_code, parse_command, revoke_activation_code, send_message
 
 
 def _revoke_pairings_for_code(session, host_id: str, code: str, revoked_at: datetime) -> int:
@@ -220,8 +221,8 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         enrollment_secret: str | None = Header(default=None, alias="X-Enrollment-Secret"),
     ):
         enrollment_secret = enrollment_secret.strip() if enrollment_secret else None
-        if not enrollment_secret or not settings.enrollment_secret or not secrets.compare_digest(enrollment_secret, settings.enrollment_secret):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid enrollment secret")
+        if not enrollment_secret:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Activation code is required")
 
         with session_factory() as session:
             enforce_rate_limit(
@@ -231,6 +232,27 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 settings.rate_limit_window_seconds,
             )
             device = session.scalar(select(Device).where(Device.id == payload.deviceId))
+            uses_admin_secret = bool(
+                settings.enrollment_secret
+                and secrets.compare_digest(enrollment_secret, settings.enrollment_secret)
+            )
+            activation_code = None
+            if not uses_admin_secret:
+                activation_code = session.scalar(
+                    select(ActivationCode)
+                    .where(ActivationCode.code_hash == hash_token(enrollment_secret.upper()))
+                    .with_for_update()
+                )
+                now = utcnow()
+                if activation_code is None or activation_code.revoked_at is not None or as_utc(activation_code.expires_at) <= now:
+                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired activation code")
+                if device is not None and device.activation_code_id not in (None, activation_code.id):
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device is already activated with another code")
+                if device is None or device.activation_code_id is None:
+                    if activation_code.used_devices >= activation_code.max_devices:
+                        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Activation code device limit reached")
+                    activation_code.used_devices += 1
+
             token = new_device_token()
             if device is None:
                 device = Device(
@@ -239,6 +261,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                     role=payload.role,
                     app_version=payload.appVersion,
                     token_hash=hash_token(token),
+                    activation_code_id=activation_code.id if activation_code is not None else None,
                     public_key=payload.publicKey,
                     key_algorithm=payload.keyAlgorithm,
                     last_seen_at=utcnow(),
@@ -251,6 +274,8 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 device.role = payload.role
                 device.app_version = payload.appVersion
                 device.token_hash = hash_token(token)
+                if activation_code is not None and device.activation_code_id is None:
+                    device.activation_code_id = activation_code.id
                 device.public_key = payload.publicKey
                 device.key_algorithm = payload.keyAlgorithm
                 device.last_seen_at = utcnow()
@@ -867,6 +892,78 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         if not secrets.compare_digest(authorization.removeprefix("Bearer ").strip(), settings.cron_secret):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid cron authorization")
         return run_cleanup(session_factory, engine, app.state.blob_store, dry_run=dry_run)
+
+    @app.post("/api/v1/internal/telegram/webhook", tags=["Internal"])
+    async def telegram_webhook(request: Request):
+        webhook_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if (
+            not settings.telegram_bot_token
+            or not settings.telegram_webhook_secret
+            or not secrets.compare_digest(webhook_secret, settings.telegram_webhook_secret)
+        ):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Telegram webhook authorization required")
+
+        update = await request.json()
+        message = update.get("message") or {}
+        sender = message.get("from") or {}
+        chat = message.get("chat") or {}
+        admin_id = int(sender.get("id", 0))
+        chat_id = int(chat.get("id", 0))
+        if admin_id not in settings.telegram_admin_ids or chat_id == 0:
+            return {"ok": True}
+
+        command = parse_command(str(message.get("text", "")))
+        if command is None:
+            return {"ok": True}
+
+        reply = ""
+        actor = str(admin_id)
+        if command.name in {"/start", "/help"}:
+            reply = (
+                "Remote Print Manager - Bot quản trị\n\n"
+                "Các lệnh sử dụng:\n"
+                "/create-code [ten_khach_hang] [so_ngay] [so_thiet_bi]\n"
+                "/list-codes - Xem danh sách mã\n"
+                "/revoke-code [ma] - Thu hồi mã\n\n"
+                "Ví dụ:\n"
+                "/create-code CongTyABC 30 1"
+            )
+        elif command.name == "/create-code":
+            label = command.args[0] if command.args else "customer"
+            days = int(command.args[1]) if len(command.args) > 1 and command.args[1].isdigit() else 30
+            max_devices = int(command.args[2]) if len(command.args) > 2 and command.args[2].isdigit() else 1
+            if not 1 <= days <= 365 or not 1 <= max_devices <= 15:
+                reply = "Số ngày phải từ 1 đến 365 và số thiết bị phải từ 1 đến 15."
+            else:
+                with session_factory() as session:
+                    code = create_activation_code(session, label=label, days=days, max_devices=max_devices, created_by=actor)
+                    session.commit()
+                reply = (
+                    f"Đã tạo mã kích hoạt khách hàng:\n{code}\n\n"
+                    f"Tên khách hàng: {label}\n"
+                    f"Thời hạn: {days} ngày\n"
+                    f"Số thiết bị tối đa: {max_devices}\n\n"
+                    "Lưu ý: Mã chỉ hiển thị một lần. Hãy gửi mã này cho khách hàng."
+                )
+        elif command.name == "/list-codes":
+            with session_factory() as session:
+                records = session.query(ActivationCode).order_by(ActivationCode.created_at.desc()).limit(20).all()
+                now = utcnow()
+                reply = "\n".join(
+                    f"{record.code_hint}... | {record.label} | {record.used_devices}/{record.max_devices} | "
+                    f"{'ĐÃ THU HỒI' if record.revoked_at else 'HẾT HẠN' if as_utc(record.expires_at) <= now else 'ĐANG HOẠT ĐỘNG'}"
+                    for record in records
+                ) or "Chưa có mã khách hàng."
+        elif command.name == "/revoke-code" and command.args:
+            with session_factory() as session:
+                revoked = revoke_activation_code(session, command.args[0], actor)
+                session.commit()
+            reply = "Đã thu hồi mã kích hoạt." if revoked else "Không tìm thấy mã hoặc mã đã được thu hồi."
+        else:
+            reply = "Lệnh không hợp lệ. Gửi /help để xem hướng dẫn bằng tiếng Việt."
+
+        await asyncio.to_thread(send_message, settings.telegram_bot_token, chat_id, reply)
+        return {"ok": True}
 
     return app
 

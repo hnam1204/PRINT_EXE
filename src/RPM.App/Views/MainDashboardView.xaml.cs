@@ -342,6 +342,7 @@ public partial class MainDashboardView : UserControl
         TxtCloudStatus.Text = _settings.CloudTransportEnabled
             ? (_serverService?.IsCloudOnline == true || _clientService?.IsCloudOnline == true ? "Đang hoạt động" : "Đã bật, đang chờ kết nối")
             : "Đang tắt";
+        UpdateCloudEnrollmentUI();
         ChkSettingsMinimizeTray.IsChecked = _settings.MinimizeToSystemTray;
         ChkSettingsNotifications.IsChecked = _settings.ShowDesktopNotifications;
 
@@ -415,8 +416,33 @@ public partial class MainDashboardView : UserControl
         MessageBox.Show("Đã lưu cài đặt.", "Đã lưu", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
+    private bool _cloudEnrollInProgress;
+
+    private void UpdateCloudEnrollmentUI()
+    {
+        bool isActivated = _settings.CloudTransportEnabled;
+        bool hasHint = !string.IsNullOrWhiteSpace(_settings.CloudEnrollmentKeyPrefix);
+        TxtCloudEnrollmentMaskedKey.Text = hasHint
+            ? $"{_settings.CloudEnrollmentKeyPrefix}{new string('*', 20)}"
+            : "Đã kích hoạt";
+        TxtCloudEnrollmentMaskedKey.Visibility = isActivated ? Visibility.Visible : Visibility.Collapsed;
+        TxtCloudEnrollmentSecret.Visibility = isActivated ? Visibility.Collapsed : Visibility.Visible;
+        BtnCloudEnroll.Visibility = isActivated ? Visibility.Collapsed : Visibility.Visible;
+        BtnChangeCloudEnrollment.Visibility = isActivated ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void SetCloudEnrollBusy(bool isBusy)
+    {
+        _cloudEnrollInProgress = isBusy;
+        BtnCloudEnroll.IsEnabled = !isBusy;
+        PbCloudEnroll.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
+        TxtCloudEnrollButton.Text = isBusy ? "Đang kích hoạt..." : "Kích hoạt";
+    }
+
     private async void BtnCloudEnroll_Click(object sender, RoutedEventArgs e)
     {
+        if (_cloudEnrollInProgress) return;
+
         string secret = TxtCloudEnrollmentSecret.Password.Trim();
         if (string.IsNullOrWhiteSpace(secret))
         {
@@ -424,12 +450,18 @@ public partial class MainDashboardView : UserControl
             return;
         }
 
+        SetCloudEnrollBusy(true);
         try
         {
             bool success = _settings.Role == AppRole.Server
                 ? _serverService is not null && await _serverService.EnrollCloudAsync(secret)
                 : _clientService is not null && await _clientService.EnrollCloudAsync(secret);
-            TxtCloudEnrollmentSecret.Clear();
+            if (success)
+            {
+                _settings.CloudEnrollmentKeyPrefix = secret[..Math.Min(5, secret.Length)];
+                ConfigManager.Save(_settings);
+                UpdateCloudEnrollmentUI();
+            }
             TxtCloudStatus.Text = success ? "Đang hoạt động" : "Chưa kết nối";
             MessageBox.Show(success ? "Đã kích hoạt kết nối Cloud." : "Không thể kích hoạt Cloud.", "Kết nối Cloud", MessageBoxButton.OK, success ? MessageBoxImage.Information : MessageBoxImage.Warning);
         }
@@ -439,6 +471,20 @@ public partial class MainDashboardView : UserControl
             TxtCloudStatus.Text = "Chưa kết nối";
             MessageBox.Show($"Kích hoạt thất bại: {ex.Message}", "Kết nối Cloud", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+        finally
+        {
+            TxtCloudEnrollmentSecret.Clear();
+            SetCloudEnrollBusy(false);
+        }
+    }
+
+    private void BtnChangeCloudEnrollment_Click(object sender, RoutedEventArgs e)
+    {
+        TxtCloudEnrollmentMaskedKey.Visibility = Visibility.Collapsed;
+        TxtCloudEnrollmentSecret.Visibility = Visibility.Visible;
+        BtnCloudEnroll.Visibility = Visibility.Visible;
+        BtnChangeCloudEnrollment.Visibility = Visibility.Collapsed;
+        TxtCloudEnrollmentSecret.Focus();
     }
 
     private void BtnSwitchRole_Click(object sender, RoutedEventArgs e)

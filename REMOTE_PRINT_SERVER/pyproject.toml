@@ -8,6 +8,8 @@ dependencies = [
   "pydantic==2.10.4",
   "SQLAlchemy==2.0.36",
   "cryptography==44.0.0",
+  "python-multipart==0.0.20",
+  "vercel-blob==0.5.0",
 ]
 
 [tool.vercel]
