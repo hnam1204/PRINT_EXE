@@ -119,7 +119,7 @@ TELEGRAM_ADMIN_IDS=<comma-separated numeric Telegram user IDs>
 TELEGRAM_WEBHOOK_SECRET=<random webhook secret>
 ```
 
-Apply `migrations/005_customer_activation_codes.sql` and `migrations/006_activation_code_device_binding.sql` before using `/create-code` or customer activation. Migration 006 binds each registered device to the code used for activation.
+Apply `migrations/005_customer_activation_codes.sql`, `migrations/006_activation_code_device_binding.sql`, `migrations/007_perpetual_activation_codes.sql` and `migrations/008_telegram_message_cleanup.sql` before using `/create-code`, customer activation or `/clear-chat`. Migration 006 binds each registered device to the code used for activation.
 The bot endpoint is `/api/v1/internal/telegram/webhook` and supports:
 
 ```text
@@ -127,7 +127,12 @@ The bot endpoint is `/api/v1/internal/telegram/webhook` and supports:
 /create-code [label] [days] [max_devices]
 /list-codes
 /revoke-code CODE
+/clear-chat
 ```
+
+`/revoke-code` vô hiệu hóa các thiết bị đã dùng mã, gỡ liên kết và xóa vĩnh viễn bản ghi mã kích hoạt. Audit event vẫn được giữ lại để truy vết bảo mật.
+
+`/clear-chat` xóa các tin nhắn bot đã ghi nhận trong chat. Telegram không cho bot đọc toàn bộ lịch sử; message quá 48 giờ hoặc message ngoài log có thể không xóa được.
 
 Use `forever` for a perpetual code and `unlimited` for unlimited devices:
 `/create-code Enterprise forever unlimited`. These codes remain revocable and should be reserved for trusted enterprise customers.

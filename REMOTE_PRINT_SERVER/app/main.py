@@ -45,7 +45,17 @@ from .cleanup import run_cleanup
 from .geofence import verify_location
 from .storage import BlobStore, VercelBlobStore
 from .security import enforce_rate_limit, hash_token, new_device_token, require_device, require_role
-from .telegram_bot import create_activation_code, parse_command, revoke_activation_code, send_message
+from .telegram_bot import (
+    create_activation_code,
+    delete_message,
+    parse_command,
+    record_message,
+    remove_tracked_message,
+    purge_revoked_activation_codes,
+    revoke_activation_code,
+    send_message,
+    tracked_message_ids,
+)
 
 
 def _revoke_pairings_for_code(session, host_id: str, code: str, revoked_at: datetime) -> int:
@@ -918,6 +928,27 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         if command is None:
             return {"ok": True}
 
+        incoming_message_id = int(message.get("message_id", 0))
+        with session_factory() as session:
+            record_message(session, chat_id, incoming_message_id, "IN")
+            session.commit()
+
+        if command.name == "/clear-chat":
+            with session_factory() as session:
+                message_ids = tracked_message_ids(session, chat_id)
+            results = await asyncio.gather(*(
+                asyncio.to_thread(delete_message, settings.telegram_bot_token, chat_id, message_id)
+                for message_id in message_ids
+            ))
+            deleted_ids = [message_id for message_id, deleted in zip(message_ids, results) if deleted]
+            if deleted_ids:
+                with session_factory() as session:
+                    for message_id in deleted_ids:
+                        remove_tracked_message(session, chat_id, message_id)
+                    session.commit()
+            cleared = len(deleted_ids)
+            return {"ok": True, "cleared": cleared, "failed": len(message_ids) - cleared}
+
         reply = ""
         actor = str(admin_id)
         if command.name in {"/start", "/help"}:
@@ -927,6 +958,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 "/create-code [ten_khach_hang] [so_ngay] [so_thiet_bi]\n"
                 "/list-codes - Xem danh sách mã\n"
                 "/revoke-code [ma] - Thu hồi mã\n\n"
+                "/clear-chat - Xóa các tin nhắn bot đã ghi nhận\n\n"
                 "Ví dụ:\n"
 
                 "/create-code CongTyABC 30 1\n"
@@ -953,6 +985,8 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 )
         elif command.name == "/list-codes":
             with session_factory() as session:
+                purge_revoked_activation_codes(session, actor)
+                session.commit()
                 records = session.query(ActivationCode).order_by(ActivationCode.created_at.desc()).limit(20).all()
                 now = utcnow()
                 reply = "\n".join(
@@ -968,7 +1002,10 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         else:
             reply = "Lệnh không hợp lệ. Gửi /help để xem hướng dẫn bằng tiếng Việt."
 
-        await asyncio.to_thread(send_message, settings.telegram_bot_token, chat_id, reply)
+        sent_message_id = await asyncio.to_thread(send_message, settings.telegram_bot_token, chat_id, reply)
+        with session_factory() as session:
+            record_message(session, chat_id, sent_message_id, "OUT")
+            session.commit()
         return {"ok": True}
 
     return app
