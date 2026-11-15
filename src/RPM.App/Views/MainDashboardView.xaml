@@ -225,7 +225,12 @@
                                     <Path Data="{StaticResource GeoQueue}" Fill="{StaticResource PrimaryBrush}" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
                                     <TextBlock Text="LỆNH IN" FontWeight="Bold" FontSize="12" Foreground="{StaticResource NavyMainBrush}"/>
                                 </StackPanel>
-                                <TextBlock x:Name="TxtQueueQuickStats" Text="0 chờ • 0 hoàn tất" HorizontalAlignment="Right" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                    <TextBlock x:Name="TxtQueueQuickStats" Text="0 chờ • 0 hoàn tất" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <Button Style="{StaticResource SecondaryBtn}" Click="BtnQueueRefresh_Click" Width="26" Height="24" Padding="0" ToolTip="Làm mới lệnh in" AutomationProperties.Name="Làm mới lệnh in">
+                                        <Path Data="{StaticResource GeoRefresh}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="13" Height="13" Stretch="Uniform"/>
+                                    </Button>
+                                </StackPanel>
                             </Grid>
                         </Border>
 
@@ -495,7 +500,7 @@
                         <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Margin="0,0,0,8" ClipToBounds="True">
                             <Grid>
                                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                                <Border Grid.Row="0" Background="{StaticResource BgBrush}" Padding="12,8"><Grid><StackPanel><TextBlock Text="LỆNH IN" FontSize="13" FontWeight="Bold" Foreground="{StaticResource NavyMainBrush}"/><TextBlock x:Name="TxtQueueSummary" Text="Tổng số: 0 lệnh in" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,1,0,0"/></StackPanel><Button Style="{StaticResource SecondaryBtn}" Click="BtnQueueRefresh_Click" HorizontalAlignment="Right" Padding="9,4"><TextBlock Text="Làm mới" FontSize="11"/></Button></Grid></Border>
+                                <Border Grid.Row="0" Background="{StaticResource BgBrush}" Padding="12,8"><Grid><StackPanel><TextBlock Text="LỆNH IN" FontSize="13" FontWeight="Bold" Foreground="{StaticResource NavyMainBrush}"/><TextBlock x:Name="TxtQueueSummary" Text="Tổng số: 0 lệnh in" FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,1,0,0"/></StackPanel><Button Style="{StaticResource SecondaryBtn}" Click="BtnQueueRefresh_Click" HorizontalAlignment="Right" Width="26" Height="24" Padding="0" ToolTip="Làm mới lệnh in" AutomationProperties.Name="Làm mới lệnh in"><Path Data="{StaticResource GeoRefresh}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="13" Height="13" Stretch="Uniform"/></Button></Grid></Border>
                                 <DataGrid x:Name="DgQueue" Grid.Row="1" SelectionMode="Single" AutoGenerateColumns="False">
                                      <DataGrid.Columns><DataGridTextColumn Header="TÊN TÀI LIỆU" Binding="{Binding DocumentName}" Width="2.2*" FontWeight="Bold"/><DataGridTextColumn Header="THIẾT BỊ GỬI" Binding="{Binding ClientDeviceName}" Width="1.5*"/><DataGridTextColumn Header="MÁY IN" Binding="{Binding TargetPrinter}" Width="1.8*"/><DataGridTextColumn Header="KÍCH THƯỚC" Binding="{Binding FormattedFileSize}" Width="1.1*"/><DataGridTextColumn Header="THỜI GIAN" Binding="{Binding CreatedAt, StringFormat={}{0:HH:mm:ss - dd/MM}}" Width="1.3*"/><DataGridTemplateColumn Header="TRẠNG THÁI" Width="1.2*"><DataGridTemplateColumn.CellTemplate><DataTemplate><Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" Background="{Binding Status, Converter={StaticResource LevelToBadgeBg}}"><TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="Bold" Foreground="{Binding Status, Converter={StaticResource LevelToBadgeFg}}"/></Border></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn></DataGrid.Columns>
                                 </DataGrid>
