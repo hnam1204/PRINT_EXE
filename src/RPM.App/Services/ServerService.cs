@@ -22,6 +22,7 @@ public class ServerService : IDisposable, IAsyncDisposable
     private readonly HashSet<string> _cloudJobsInProgress = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _cloudPairingIds = new(StringComparer.Ordinal);
     private readonly CloudJobStateStore _cloudJobStateStore = new();
+    private readonly SemaphoreSlim _cloudPairingRefreshLock = new(1, 1);
     private int _cloudWorkersStarted;
     private Task? _cloudWorkerTask;
     private Task? _cloudPairingWorkerTask;
@@ -278,43 +279,67 @@ public class ServerService : IDisposable, IAsyncDisposable
         {
             try
             {
-                if (_cloud.Client is not null)
-                {
-                    var pending = await _cloud.Client.ListPendingPairingsAsync(_cloudWorkerStop.Token);
-                    var summary = await _cloud.Client.GetPairingSummaryAsync(_cloudWorkerStop.Token);
-                    if (summary is not null)
-                    {
-                        CloudApprovedClientCount = summary.ApprovedCount;
-                        CloudOnlineClientCount = summary.OnlineCount;
-                        CloudMaxClientCount = summary.MaxClients;
-                        CloudCapacityLoaded = true;
-                    }
-                    var geofence = await _cloud.Client.GetGeofenceAsync(_cloudWorkerStop.Token);
-                    if (geofence is not null)
-                    {
-                        GeofenceStatusDisplay = geofence.Enabled
-                            ? $"Bán kính {geofence.RadiusMeters:0} m"
-                            : "Chưa bật";
-                    }
-                    OnStatusChanged?.Invoke(this, EventArgs.Empty);
-                    foreach (var item in pending ?? Array.Empty<CloudPendingPairing>())
-                    {
-                        bool isNewPairing = !_cloudPairingIds.TryGetValue(item.ClientId, out var existingPairingId) || existingPairingId != item.PairingId;
-                        _cloudPairingIds[item.ClientId] = item.PairingId;
-                        var client = ConnectedClients.FirstOrDefault(x => x.DeviceId == item.ClientId);
-                        if (client is null)
-                        {
-                            client = new DeviceInfo { DeviceId = item.ClientId, DeviceName = item.ClientName, IsOnline = true, LastSeen = DateTime.UtcNow };
-                            Application.Current?.Dispatcher.Invoke(() => ConnectedClients.Add(client));
-                            SaveClientList();
-                        }
-                        if (isNewPairing) OnClientRequestedApproval?.Invoke(this, client);
-                    }
-                }
-                await Task.Delay(TimeSpan.FromSeconds(5), _cloudWorkerStop.Token);
+                await RefreshPendingPairingsAsync(_cloudWorkerStop.Token);
+                await Task.Delay(TimeSpan.FromSeconds(2), _cloudWorkerStop.Token);
             }
             catch (OperationCanceledException) when (_cloudWorkerStop.IsCancellationRequested) { break; }
-            catch (Exception ex) { OnLog?.Invoke(this, $"[Cloud] Lỗi kiểm tra yêu cầu ghép đôi: {ex.Message}"); await Task.Delay(5000); }
+            catch (Exception ex) { OnLog?.Invoke(this, $"[Cloud] Lỗi kiểm tra yêu cầu ghép đôi: {ex.Message}"); await Task.Delay(2000); }
+        }
+    }
+
+    public async Task RefreshPendingPairingsAsync(CancellationToken cancellationToken = default)
+    {
+        if (_cloud.Client is null || !_cloud.IsOnline) return;
+
+        await _cloudPairingRefreshLock.WaitAsync(cancellationToken);
+        try
+        {
+            var client = _cloud.Client;
+            var pending = await client.ListPendingPairingsAsync(cancellationToken);
+            var summary = await client.GetPairingSummaryAsync(cancellationToken);
+            if (summary is not null)
+            {
+                CloudApprovedClientCount = summary.ApprovedCount;
+                CloudOnlineClientCount = summary.OnlineCount;
+                CloudMaxClientCount = summary.MaxClients;
+                CloudCapacityLoaded = true;
+            }
+
+            var geofence = await client.GetGeofenceAsync(cancellationToken);
+            if (geofence is not null)
+            {
+                GeofenceStatusDisplay = geofence.Enabled
+                    ? $"Bán kính {geofence.RadiusMeters:0} m"
+                    : "Chưa bật";
+            }
+
+            foreach (var item in pending ?? Array.Empty<CloudPendingPairing>())
+            {
+                bool isNewPairing = !_cloudPairingIds.TryGetValue(item.ClientId, out var existingPairingId)
+                    || existingPairingId != item.PairingId;
+                _cloudPairingIds[item.ClientId] = item.PairingId;
+                var device = ConnectedClients.FirstOrDefault(x => x.DeviceId == item.ClientId);
+                if (device is null)
+                {
+                    device = new DeviceInfo
+                    {
+                        DeviceId = item.ClientId,
+                        DeviceName = item.ClientName,
+                        IsOnline = true,
+                        LastSeen = DateTime.UtcNow
+                    };
+                    Application.Current?.Dispatcher.Invoke(() => ConnectedClients.Add(device));
+                    SaveClientList();
+                }
+
+                if (isNewPairing) OnClientRequestedApproval?.Invoke(this, device);
+            }
+
+            OnStatusChanged?.Invoke(this, EventArgs.Empty);
+        }
+        finally
+        {
+            _cloudPairingRefreshLock.Release();
         }
     }
 
@@ -1132,6 +1157,7 @@ public class ServerService : IDisposable, IAsyncDisposable
         _relayClient.Dispose();
         await _cloud.DisposeAsync();
         _queueLock.Dispose();
+        _cloudPairingRefreshLock.Dispose();
         _cloudWorkerStop.Dispose();
     }
 

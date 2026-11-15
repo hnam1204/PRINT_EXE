@@ -532,9 +532,14 @@
                                         <TextBox x:Name="TxtSearchClient" Style="{StaticResource ModernTextBox}" Height="34" Padding="30,0,10,0" VerticalContentAlignment="Center" TextChanged="TxtSearchClient_TextChanged" ToolTip="Tìm theo tên máy"/>
                                         <Path Data="M9 2a7 7 0 1 0 4.9 12L19 19.1 17.1 21l-5.9-5.9A7 7 0 0 0 9 2zm0 2a5 5 0 1 1 0 10A5 5 0 0 1 9 4z" Fill="{StaticResource TextMutedBrush}" Width="14" Height="14" Stretch="Uniform" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="10,0,0,0" IsHitTestVisible="False"/>
                                     </Grid>
-                                    <Button Grid.Column="4" Style="{StaticResource SecondaryBtn}" Click="BtnClearFilters_Click" Height="34" VerticalAlignment="Center" Padding="12,5" ToolTip="Xóa tìm kiếm và bộ lọc">
-                                        <TextBlock Text="Xóa lọc" FontSize="11"/>
-                                    </Button>
+                                    <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button x:Name="BtnRefreshDevices" Style="{StaticResource SecondaryBtn}" Click="BtnRefreshDevices_Click" Height="34" Padding="12,5" Margin="0,0,6,0" ToolTip="Đồng bộ yêu cầu ghép nối mới nhất">
+                                            <TextBlock Text="Làm mới" FontSize="11"/>
+                                        </Button>
+                                        <Button Style="{StaticResource SecondaryBtn}" Click="BtnClearFilters_Click" Height="34" Padding="12,5" ToolTip="Xóa tìm kiếm và bộ lọc">
+                                            <TextBlock Text="Xóa lọc" FontSize="11"/>
+                                        </Button>
+                                    </StackPanel>
                                 </Grid>
                             </Grid>
                         </Border>

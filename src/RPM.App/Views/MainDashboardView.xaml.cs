@@ -715,6 +715,28 @@ public partial class MainDashboardView : UserControl
         ApplyClientFilters();
     }
 
+    private async void BtnRefreshDevices_Click(object sender, RoutedEventArgs e)
+    {
+        if (_serverService == null || BtnRefreshDevices == null) return;
+
+        BtnRefreshDevices.IsEnabled = false;
+        if (BtnRefreshDevices.Content is TextBlock loadingText) loadingText.Text = "Đang tải...";
+        try
+        {
+            await _serverService.RefreshPendingPairingsAsync();
+            ApplyClientFilters();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Không thể làm mới danh sách thiết bị: {ex.Message}", "Lỗi đồng bộ Cloud", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            if (BtnRefreshDevices.Content is TextBlock resetText) resetText.Text = "Làm mới";
+            BtnRefreshDevices.IsEnabled = true;
+        }
+    }
+
     private void BtnManageClient_Click(object sender, RoutedEventArgs e)
     {
         if (_serverService == null || (sender as Button)?.DataContext is not DeviceInfo client) return;
