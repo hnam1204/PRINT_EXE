@@ -8,6 +8,8 @@ from .database import ActivationCode, AuditEvent, Device, TelegramMessage, utcno
 from .security import hash_token
 
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+MIN_GEOFENCE_RADIUS_METERS = 1
+MAX_GEOFENCE_RADIUS_METERS = 1000
 
 
 @dataclass(frozen=True)
@@ -27,13 +29,16 @@ def generate_activation_code(length: int = 12) -> str:
     return "".join(secrets.choice(CODE_ALPHABET) for _ in range(length))
 
 
-def create_activation_code(session, *, label: str, days: int | None, max_devices: int | None, created_by: str) -> str:
+def create_activation_code(session, *, label: str, days: int | None, max_devices: int | None, created_by: str, geofence_radius_meters: int = MAX_GEOFENCE_RADIUS_METERS) -> str:
+    if not MIN_GEOFENCE_RADIUS_METERS <= geofence_radius_meters <= MAX_GEOFENCE_RADIUS_METERS:
+        raise ValueError(f"Phạm vi phải từ {MIN_GEOFENCE_RADIUS_METERS} đến {MAX_GEOFENCE_RADIUS_METERS} mét.")
     code = generate_activation_code()
     session.add(ActivationCode(
         code_hash=hash_token(code),
         code_hint=code[:5],
         label=label[:160] or "customer",
         max_devices=max_devices,
+        geofence_radius_meters=geofence_radius_meters,
         expires_at=utcnow() + timedelta(days=days) if days is not None else None,
         created_by=created_by,
     ))
@@ -41,7 +46,7 @@ def create_activation_code(session, *, label: str, days: int | None, max_devices
         actor_id=created_by,
         action="CUSTOMER_ACTIVATION_CODE_CREATED",
         target_type="ACTIVATION_CODE",
-        details={"label": label[:160], "days": days, "maxDevices": max_devices, "codeHint": code[:5]},
+        details={"label": label[:160], "days": days, "maxDevices": max_devices, "geofenceRadiusMeters": geofence_radius_meters, "codeHint": code[:5]},
     ))
     return code
 

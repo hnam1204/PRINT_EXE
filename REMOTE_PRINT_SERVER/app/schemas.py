@@ -22,6 +22,7 @@ class DeviceRegistrationResponse(BaseModel):
     activationExpiresAt: datetime | None = None
     activationMaxDevices: int | None = None
     activationUsedDevices: int | None = None
+    activationGeofenceRadiusMeters: int | None = None
 
 
 class DeviceProfile(BaseModel):
@@ -37,6 +38,7 @@ class DeviceProfile(BaseModel):
     activationExpiresAt: datetime | None = None
     activationMaxDevices: int | None = None
     activationUsedDevices: int | None = None
+    activationGeofenceRadiusMeters: int | None = None
 
 
 class HeartbeatResponse(BaseModel):

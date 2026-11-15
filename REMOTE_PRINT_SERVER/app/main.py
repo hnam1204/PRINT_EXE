@@ -141,6 +141,8 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         )
 
     def verify_pairing_location(host: Device, payload: PairingRequest, now: datetime):
+        if host.activation_code_id and not host.geofence_enabled:
+            raise HTTPException(status_code=503, detail="Host geofence is not configured")
         if not host.geofence_enabled:
             return None
         if host.geofence_latitude is None or host.geofence_longitude is None:
@@ -278,6 +280,8 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                     key_algorithm=payload.keyAlgorithm,
                     last_seen_at=utcnow(),
                 )
+                if activation_code is not None and payload.role == "HOST":
+                    device.geofence_radius_meters = activation_code.geofence_radius_meters
                 session.add(device)
             else:
                 if device.is_revoked:
@@ -288,6 +292,8 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 device.token_hash = hash_token(token)
                 if activation_code is not None and device.activation_code_id is None:
                     device.activation_code_id = activation_code.id
+                if activation_code is not None and payload.role == "HOST":
+                    device.geofence_radius_meters = activation_code.geofence_radius_meters
                 device.public_key = payload.publicKey
                 device.key_algorithm = payload.keyAlgorithm
                 device.last_seen_at = utcnow()
@@ -303,6 +309,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 activationExpiresAt=activation.expires_at if activation else None,
                 activationMaxDevices=activation.max_devices if activation else None,
                 activationUsedDevices=activation.used_devices if activation else None,
+                activationGeofenceRadiusMeters=activation.geofence_radius_meters if activation else None,
             )
 
     @app.get("/api/v1/devices/me", response_model=DeviceProfile, tags=["Devices"])
@@ -322,6 +329,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             activationExpiresAt=activation.expires_at if activation else None,
             activationMaxDevices=activation.max_devices if activation else None,
             activationUsedDevices=activation.used_devices if activation else None,
+            activationGeofenceRadiusMeters=activation.geofence_radius_meters if activation else None,
         )
 
     @app.post("/api/v1/devices/heartbeat", response_model=HeartbeatResponse, tags=["Devices"])
@@ -497,6 +505,12 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             raise HTTPException(status_code=422, detail="Latitude and longitude are required when geofence is enabled")
         with session_factory() as session:
             host = session.get(Device, device.id)
+            activation = session.get(ActivationCode, host.activation_code_id) if host.activation_code_id else None
+            if activation is not None and payload.radiusMeters > activation.geofence_radius_meters:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Geofence radius cannot exceed the activation limit of {activation.geofence_radius_meters} meters",
+                )
             host.geofence_enabled = payload.enabled
             host.geofence_latitude = payload.latitude
             host.geofence_longitude = payload.longitude
@@ -970,32 +984,35 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             reply = (
                 "Remote Print Manager - Bot quản trị\n\n"
                 "Các lệnh sử dụng:\n"
-                "/create-code [ten_khach_hang] [so_ngay] [so_thiet_bi]\n"
+                "/create-code [ten_khach_hang] [so_ngay] [so_thiet_bi] [pham_vi_met]\n"
                 "/list-codes - Xem danh sách mã\n"
                 "/revoke-code [ma] - Thu hồi mã\n\n"
                 "/clear-chat - Xóa các tin nhắn bot đã ghi nhận\n\n"
                 "Ví dụ:\n"
 
-                "/create-code CongTyABC 30 1\n"
-                "/create-code CongTyABC forever unlimited"
+                "/create-code CongTyABC 30 1 500\n"
+                "/create-code CongTyABC forever unlimited 1000"
             )
         elif command.name == "/create-code":
             label = command.args[0] if command.args else "customer"
             days_arg = command.args[1].lower() if len(command.args) > 1 else "30"
             devices_arg = command.args[2].lower() if len(command.args) > 2 else "1"
+            radius_arg = command.args[3].lower() if len(command.args) > 3 else ""
             days = None if days_arg in {"forever", "permanent", "vĩnhviễn", "vinhvien"} else int(days_arg) if days_arg.isdigit() else -1
             max_devices = None if devices_arg in {"unlimited", "unlimited-devices", "vohan", "vôhạn"} else int(devices_arg) if devices_arg.isdigit() else -1
-            if (days is not None and not 1 <= days <= 365) or (max_devices is not None and not 1 <= max_devices <= 15):
-                reply = "Số ngày phải từ 1 đến 365 hoặc forever; số thiết bị phải từ 1 đến 15 hoặc unlimited."
+            radius = int(radius_arg) if radius_arg.isdigit() else -1
+            if (days is not None and not 1 <= days <= 365) or (max_devices is not None and not 1 <= max_devices <= 15) or not 1 <= radius <= 1000:
+                reply = "Cú pháp: /create-code [tên] [số_ngày|forever] [số_thiết_bị|unlimited] [phạm_vi_mét]. Phạm vi phải từ 1 đến 1000 mét."
             else:
                 with session_factory() as session:
-                    code = create_activation_code(session, label=label, days=days, max_devices=max_devices, created_by=actor)
+                    code = create_activation_code(session, label=label, days=days, max_devices=max_devices, geofence_radius_meters=radius, created_by=actor)
                     session.commit()
                 reply = (
                     f"Đã tạo mã kích hoạt khách hàng:\n{code}\n\n"
                     f"Tên khách hàng: {label}\n"
                     f"Thời hạn: {'Vĩnh viễn' if days is None else f'{days} ngày'}\n"
                     f"Số thiết bị tối đa: {'Không giới hạn' if max_devices is None else max_devices}\n\n"
+                    f"Phạm vi: {radius} mét từ máy chủ\n\n"
                     "Lưu ý: Mã chỉ hiển thị một lần. Hãy gửi mã này cho khách hàng."
                 )
         elif command.name == "/list-codes":
@@ -1006,6 +1023,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 now = utcnow()
                 reply = "\n".join(
                     f"{record.code_hint}... | {record.label} | {record.used_devices}/{record.max_devices if record.max_devices is not None else 'Không giới hạn'} | "
+                    f"Phạm vi {record.geofence_radius_meters}m | "
                     f"{'ĐÃ THU HỒI' if record.revoked_at else 'HẾT HẠN' if record.expires_at is not None and as_utc(record.expires_at) <= now else 'ĐANG HOẠT ĐỘNG'}"
                     for record in records
                 ) or "Chưa có mã khách hàng."

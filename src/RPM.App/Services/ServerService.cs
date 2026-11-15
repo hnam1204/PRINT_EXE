@@ -22,8 +22,11 @@ public class ServerService : IDisposable, IAsyncDisposable
     private readonly HashSet<string> _cloudJobsInProgress = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _cloudPairingIds = new(StringComparer.Ordinal);
     private readonly CloudJobStateStore _cloudJobStateStore = new();
+    private readonly WindowsLocationService _locationService = new();
     private readonly SemaphoreSlim _cloudPairingRefreshLock = new(1, 1);
+    private readonly SemaphoreSlim _cloudGeofenceLock = new(1, 1);
     private int _cloudWorkersStarted;
+    private int _cloudGeofenceConfigured;
     private Task? _cloudWorkerTask;
     private Task? _cloudPairingWorkerTask;
     private int _isDisposed;
@@ -66,7 +69,10 @@ public class ServerService : IDisposable, IAsyncDisposable
         _cloud.OnStateChanged += (s, e) =>
         {
             if (_settings.CloudTransportEnabled && _cloud.IsOnline)
+            {
                 _ = EnsureCloudWorkersAsync();
+                _ = EnsureCloudGeofenceAsync();
+            }
         };
 
         // Restore known approved clients
@@ -111,6 +117,7 @@ public class ServerService : IDisposable, IAsyncDisposable
             {
                 cloudReady = true;
                 await StartCloudWorkersIfNeededAsync(previousCloudSessionId);
+                await EnsureCloudGeofenceAsync();
             }
         }
 
@@ -194,7 +201,44 @@ public class ServerService : IDisposable, IAsyncDisposable
         ConfigManager.Save(_settings);
         await _cloud.StartAsync(cancellationToken);
         await StartCloudWorkersIfNeededAsync();
+        Interlocked.Exchange(ref _cloudGeofenceConfigured, 0);
+        await EnsureCloudGeofenceAsync(cancellationToken);
         return true;
+    }
+
+    private async Task EnsureCloudGeofenceAsync(CancellationToken cancellationToken = default)
+    {
+        await _cloudGeofenceLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_cloudGeofenceConfigured != 0 ||
+                _settings.CloudActivationGeofenceRadiusMeters is not int radius ||
+                _cloud.Client is null || !_cloud.IsOnline)
+                return;
+
+            var location = await _locationService.TryGetCurrentAsync(cancellationToken);
+            if (location is null)
+            {
+                GeofenceStatusDisplay = "Chưa cấp quyền vị trí";
+                OnStatusChanged?.Invoke(this, EventArgs.Empty);
+                OnLog?.Invoke(this, "[Cloud] Chưa thể bật phạm vi vì Windows Location Services chưa được cấp quyền.");
+                return;
+            }
+
+            var updated = await _cloud.Client.UpdateGeofenceAsync(new CloudGeofenceSettings(
+                _settings.CloudHostId,
+                true,
+                location.Latitude,
+                location.Longitude,
+                radius), cancellationToken);
+            Interlocked.Exchange(ref _cloudGeofenceConfigured, 1);
+            GeofenceStatusDisplay = updated?.Enabled == true ? $"Bán kính {updated.RadiusMeters:0} m" : "Chưa bật";
+            OnStatusChanged?.Invoke(this, EventArgs.Empty);
+        }
+        finally
+        {
+            _cloudGeofenceLock.Release();
+        }
     }
 
     private async Task EnsureCloudWorkersAsync()
@@ -1160,6 +1204,7 @@ public class ServerService : IDisposable, IAsyncDisposable
         await _cloud.DisposeAsync();
         _queueLock.Dispose();
         _cloudPairingRefreshLock.Dispose();
+        _cloudGeofenceLock.Dispose();
         _cloudWorkerStop.Dispose();
     }
 

@@ -1,5 +1,7 @@
 from datetime import timedelta
 
+import pytest
+
 from app.database import ActivationCode, AuditEvent, Device, as_utc, create_session_factory, utcnow
 from app.telegram_bot import create_activation_code, parse_command, purge_revoked_activation_codes, record_message, remove_tracked_message, revoke_activation_code, tracked_message_ids
 
@@ -10,6 +12,12 @@ def test_parse_telegram_command_with_bot_suffix():
     assert command is not None
     assert command.name == "/create-code"
     assert command.args == ("Acme", "30", "2")
+
+
+def test_parse_telegram_command_accepts_geofence_radius():
+    command = parse_command("/create-code Acme 30 2 500")
+    assert command is not None
+    assert command.args == ("Acme", "30", "2", "500")
 
 
 def test_create_and_revoke_customer_activation_code(tmp_path):
@@ -45,6 +53,16 @@ def test_create_perpetual_unlimited_activation_code(tmp_path):
 
         assert record.expires_at is None
         assert record.max_devices is None
+
+
+def test_activation_code_geofence_radius_is_bounded(tmp_path):
+    _, session_factory = create_session_factory(f"sqlite:///{tmp_path / 'radius.db'}")
+    with session_factory() as session:
+        create_activation_code(session, label="Customer", days=30, max_devices=1, geofence_radius_meters=500, created_by="admin")
+        session.flush()
+        assert session.query(ActivationCode).one().geofence_radius_meters == 500
+        with pytest.raises(ValueError):
+            create_activation_code(session, label="Invalid", days=30, max_devices=1, geofence_radius_meters=1001, created_by="admin")
 
 
 def test_telegram_message_tracking_supports_chat_cleanup(tmp_path):

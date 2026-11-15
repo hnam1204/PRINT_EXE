@@ -27,6 +27,7 @@ public class AppSettings
     public DateTime? CloudActivationExpiresAt { get; set; }
     public int? CloudActivationMaxDevices { get; set; }
     public int? CloudActivationUsedDevices { get; set; }
+    public int? CloudActivationGeofenceRadiusMeters { get; set; }
     public string CloudHostId { get; set; } = string.Empty;
     public string CloudHostPublicKey { get; set; } = string.Empty;
     public string CloudPairingCode { get; set; } = string.Empty;

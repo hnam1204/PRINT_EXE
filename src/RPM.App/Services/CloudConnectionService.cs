@@ -31,7 +31,8 @@ public sealed class CloudConnectionService : IAsyncDisposable
             string.IsNullOrWhiteSpace(settings.CloudActivationLabel) ? null : settings.CloudActivationLabel,
             settings.CloudActivationExpiresAt,
             settings.CloudActivationMaxDevices,
-            settings.CloudActivationUsedDevices);
+            settings.CloudActivationUsedDevices,
+            settings.CloudActivationGeofenceRadiusMeters);
     }
 
     public async Task<bool> EnrollAsync(string enrollmentSecret, CancellationToken cancellationToken = default)
@@ -39,7 +40,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(enrollmentSecret)) throw new ArgumentException("Enrollment secret is required.", nameof(enrollmentSecret));
         var client = GetOrCreateClient();
         var registration = await client.RegisterDeviceAsync(_settings, enrollmentSecret, cancellationToken);
-        ActivationInfo = new CloudActivationInfo(registration.ActivationLabel, registration.ActivationExpiresAt, registration.ActivationMaxDevices, registration.ActivationUsedDevices);
+        ActivationInfo = new CloudActivationInfo(registration.ActivationLabel, registration.ActivationExpiresAt, registration.ActivationMaxDevices, registration.ActivationUsedDevices, registration.ActivationGeofenceRadiusMeters);
         SaveActivationInfo();
         _settings.CloudHostId = _settings.Role == AppRole.Server ? registration.DeviceId : _settings.CloudHostId;
         ConfigManager.Save(_settings);
@@ -89,7 +90,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
                 SetOffline($"Mã xác thực máy chủ từ xa thuộc vai trò {profile.Role}; cần kích hoạt lại cho vai trò {expectedRole}.");
                 return false;
             }
-            ActivationInfo = new CloudActivationInfo(profile.ActivationLabel, profile.ActivationExpiresAt, profile.ActivationMaxDevices, profile.ActivationUsedDevices);
+            ActivationInfo = new CloudActivationInfo(profile.ActivationLabel, profile.ActivationExpiresAt, profile.ActivationMaxDevices, profile.ActivationUsedDevices, profile.ActivationGeofenceRadiusMeters);
             SaveActivationInfo();
             var heartbeat = await GetOrCreateClient().HeartbeatAsync(cancellationToken);
             if (heartbeat is null || !string.Equals(heartbeat.Status, "ONLINE", StringComparison.OrdinalIgnoreCase))
@@ -154,7 +155,8 @@ public sealed class CloudConnectionService : IAsyncDisposable
         if (string.Equals(_settings.CloudActivationLabel, label, StringComparison.Ordinal) &&
             _settings.CloudActivationExpiresAt == ActivationInfo.ExpiresAt &&
             _settings.CloudActivationMaxDevices == ActivationInfo.MaxDevices &&
-            _settings.CloudActivationUsedDevices == ActivationInfo.UsedDevices)
+            _settings.CloudActivationUsedDevices == ActivationInfo.UsedDevices &&
+            _settings.CloudActivationGeofenceRadiusMeters == ActivationInfo.GeofenceRadiusMeters)
         {
             return;
         }
@@ -163,6 +165,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
         _settings.CloudActivationExpiresAt = ActivationInfo.ExpiresAt;
         _settings.CloudActivationMaxDevices = ActivationInfo.MaxDevices;
         _settings.CloudActivationUsedDevices = ActivationInfo.UsedDevices;
+        _settings.CloudActivationGeofenceRadiusMeters = ActivationInfo.GeofenceRadiusMeters;
         ConfigManager.Save(_settings);
     }
 

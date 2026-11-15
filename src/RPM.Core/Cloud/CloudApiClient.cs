@@ -87,6 +87,9 @@ public sealed class CloudApiClient : IDisposable
     public Task<CloudGeofenceSettings?> GetGeofenceAsync(CancellationToken cancellationToken = default) =>
         GetAsync<CloudGeofenceSettings>("api/v1/devices/geofence", cancellationToken);
 
+    public Task<CloudGeofenceSettings?> UpdateGeofenceAsync(CloudGeofenceSettings payload, CancellationToken cancellationToken = default) =>
+        PutAsync<CloudGeofenceSettings>("api/v1/devices/geofence", payload, cancellationToken);
+
     public Task<IReadOnlyList<CloudPendingPairing>?> ListPendingPairingsAsync(CancellationToken cancellationToken = default) =>
         GetAsync<IReadOnlyList<CloudPendingPairing>>("api/v1/pairings/pending", cancellationToken);
 
@@ -175,6 +178,15 @@ public sealed class CloudApiClient : IDisposable
     private async Task<T?> PatchAsync<T>(string path, object payload, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Patch, path)
+        {
+            Content = JsonContent.Create(payload, options: _jsonOptions)
+        };
+        return await SendAsync<T>(request, cancellationToken);
+    }
+
+    private async Task<T?> PutAsync<T>(string path, object payload, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Put, path)
         {
             Content = JsonContent.Create(payload, options: _jsonOptions)
         };

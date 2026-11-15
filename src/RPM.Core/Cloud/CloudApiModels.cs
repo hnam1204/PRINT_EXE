@@ -17,7 +17,8 @@ public sealed record CloudDeviceRegistrationResponse(
     [property: JsonPropertyName("activationLabel")] string? ActivationLabel = null,
     [property: JsonPropertyName("activationExpiresAt")] DateTime? ActivationExpiresAt = null,
     [property: JsonPropertyName("activationMaxDevices")] int? ActivationMaxDevices = null,
-    [property: JsonPropertyName("activationUsedDevices")] int? ActivationUsedDevices = null);
+    [property: JsonPropertyName("activationUsedDevices")] int? ActivationUsedDevices = null,
+    [property: JsonPropertyName("activationGeofenceRadiusMeters")] int? ActivationGeofenceRadiusMeters = null);
 
 public sealed record CloudDeviceProfile(
     [property: JsonPropertyName("deviceId")] string DeviceId,
@@ -31,13 +32,15 @@ public sealed record CloudDeviceProfile(
     [property: JsonPropertyName("activationLabel")] string? ActivationLabel = null,
     [property: JsonPropertyName("activationExpiresAt")] DateTime? ActivationExpiresAt = null,
     [property: JsonPropertyName("activationMaxDevices")] int? ActivationMaxDevices = null,
-    [property: JsonPropertyName("activationUsedDevices")] int? ActivationUsedDevices = null);
+    [property: JsonPropertyName("activationUsedDevices")] int? ActivationUsedDevices = null,
+    [property: JsonPropertyName("activationGeofenceRadiusMeters")] int? ActivationGeofenceRadiusMeters = null);
 
 public sealed record CloudActivationInfo(
     string? Label,
     DateTime? ExpiresAt,
     int? MaxDevices,
-    int? UsedDevices);
+    int? UsedDevices,
+    int? GeofenceRadiusMeters);
 
 public sealed record CloudHeartbeatResponse(
     [property: JsonPropertyName("deviceId")] string DeviceId,

@@ -151,6 +151,7 @@ class ActivationCode(Base):
     label: Mapped[str] = mapped_column(String(160), default="customer")
     max_devices: Mapped[int | None] = mapped_column(Integer, default=None, nullable=True)
     used_devices: Mapped[int] = mapped_column(Integer, default=0)
+    geofence_radius_meters: Mapped[int] = mapped_column(Integer, default=1000)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str] = mapped_column(String(128))

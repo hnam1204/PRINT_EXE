@@ -454,7 +454,10 @@ public partial class MainDashboardView : UserControl
         string devices = _settings.CloudActivationMaxDevices is int max
             ? $"{_settings.CloudActivationUsedDevices ?? 0}/{max} thiết bị"
             : "Không giới hạn thiết bị";
-        return $"Thời hạn: {expiration} • Thiết bị: {devices}";
+        string radius = _settings.CloudActivationGeofenceRadiusMeters is int meters
+            ? $" • Phạm vi: {meters} m"
+            : string.Empty;
+        return $"Thời hạn: {expiration} • Thiết bị: {devices}{radius}";
     }
 
     private void SetCloudEnrollBusy(bool isBusy)

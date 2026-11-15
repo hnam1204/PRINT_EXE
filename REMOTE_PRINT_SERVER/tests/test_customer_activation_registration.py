@@ -21,7 +21,7 @@ def test_customer_code_binds_devices_and_reuses_same_device(tmp_path):
     app = create_app(database_url=f"sqlite:///{tmp_path / 'activation-registration.db'}")
     client = TestClient(app)
     with app.state.session_factory() as session:
-        code = create_activation_code(session, label="Customer", days=30, max_devices=1, created_by="admin")
+        code = create_activation_code(session, label="Customer", days=30, max_devices=1, geofence_radius_meters=500, created_by="admin")
         session.commit()
 
     headers = {"X-Enrollment-Secret": code}
@@ -31,11 +31,21 @@ def test_customer_code_binds_devices_and_reuses_same_device(tmp_path):
     assert first.json()["activationMaxDevices"] == 1
     assert first.json()["activationUsedDevices"] == 1
     assert first.json()["activationExpiresAt"] is not None
+    assert first.json()["activationGeofenceRadiusMeters"] == 500
     profile = client.get("/api/v1/devices/me", headers={"Authorization": f"Bearer {first.json()['deviceToken']}"})
     assert profile.status_code == 200
     assert profile.json()["activationLabel"] == "Customer"
     assert profile.json()["activationMaxDevices"] == 1
     assert profile.json()["activationUsedDevices"] == 1
+    assert profile.json()["activationGeofenceRadiusMeters"] == 500
+    with app.state.session_factory() as session:
+        host_code = create_activation_code(session, label="Host", days=30, max_devices=1, geofence_radius_meters=250, created_by="admin")
+        session.commit()
+    host = client.post("/api/v1/devices/register", headers={"X-Enrollment-Secret": host_code}, json={**registration_payload("host-01"), "role": "HOST"})
+    assert host.status_code == 201
+    with app.state.session_factory() as session:
+        from app.database import Device
+        assert session.get(Device, "host-01").geofence_radius_meters == 250
     second = client.post("/api/v1/devices/register", headers=headers, json=registration_payload("client-01"))
     assert second.status_code == 201
 
