@@ -50,6 +50,7 @@ public class ClientService : IDisposable, IAsyncDisposable
         _settings = settings;
         _cloud = new CloudConnectionService(settings);
         _cloud.OnLog += (s, msg) => OnLog?.Invoke(this, msg);
+        _cloud.OnStateChanged += (s, e) => OnStateChanged?.Invoke(this, EventArgs.Empty);
 
         // Restore history
         foreach (var job in _settings.PrintHistory.Take(50))
@@ -68,7 +69,7 @@ public class ClientService : IDisposable, IAsyncDisposable
 
     public async Task StartAsync()
     {
-        if (_settings.CloudTransportEnabled)
+        if (_settings.CloudTransportEnabled || _cloud.HasStoredToken)
         {
             _ippServer.Start(_settings.LocalIppPort);
             await _cloud.StartAsync();
@@ -96,7 +97,7 @@ public class ClientService : IDisposable, IAsyncDisposable
 
     public async Task ConnectToServerAsync(string pairingCode)
     {
-        if (_settings.CloudTransportEnabled)
+        if (_settings.CloudTransportEnabled || _cloud.HasStoredToken)
         {
             await ConnectToCloudAsync(pairingCode);
             return;
@@ -223,7 +224,7 @@ public class ClientService : IDisposable, IAsyncDisposable
 
     private async Task WaitForCloudApprovalAsync(string pairingId)
     {
-        for (var attempt = 0; attempt < 30 && _settings.CloudTransportEnabled; attempt++)
+        for (var attempt = 0; attempt < 30 && (_settings.CloudTransportEnabled || _cloud.HasStoredToken); attempt++)
         {
             try
             {

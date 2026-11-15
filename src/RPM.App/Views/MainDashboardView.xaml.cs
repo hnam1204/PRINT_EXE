@@ -81,7 +81,14 @@ public partial class MainDashboardView : UserControl
 
         if (_clientService != null)
         {
-            _clientService.OnStateChanged += (s, e) => Dispatcher.Invoke(UpdateClientUI);
+            _clientService.OnStateChanged += (s, e) => Dispatcher.Invoke(() =>
+            {
+                UpdateClientUI();
+                if (_isSettingsOpen && _currentSettingsTab == SettingsTab.Printers)
+                {
+                    LoadPrintersViewAsync();
+                }
+            });
             _clientService.PrintHistory.CollectionChanged += (s, e) => Dispatcher.Invoke(() =>
             {
                 RefreshRecentJobs();
@@ -524,8 +531,17 @@ public partial class MainDashboardView : UserControl
         else
         {
             var printerService = new PrinterService();
-            var list = await Task.Run(() => printerService.GetInstalledPrinters());
-            refreshed.AddRange(list);
+            if (_clientService != null)
+            {
+                // A client must only see printers granted by the Host, never
+                // the local Windows printer inventory.
+                refreshed.AddRange(_clientService.AvailablePrinters);
+            }
+            else
+            {
+                var list = await Task.Run(() => printerService.GetInstalledPrinters());
+                refreshed.AddRange(list);
+            }
         }
         if (requestVersion != _printerLoadVersion || !_isSettingsOpen || _currentSettingsTab != SettingsTab.Printers) return;
         selectedName = (CmbPrinterSelection.SelectedItem as SharedPrinterInfo)?.Name ?? selectedName;
@@ -540,9 +556,9 @@ public partial class MainDashboardView : UserControl
         string? selectedName = (CmbPrinterSelection.SelectedItem as SharedPrinterInfo)?.Name ?? _settings.SelectedPrinterName;
         if (btn != null) btn.IsEnabled = false;
 
-        var refreshed = _serverService == null
-            ? new List<SharedPrinterInfo>()
-            : await Task.Run(_serverService.ScanPrinters);
+        var refreshed = _serverService != null
+            ? await Task.Run(_serverService.ScanPrinters)
+            : _clientService?.AvailablePrinters.ToList() ?? new List<SharedPrinterInfo>();
         if (requestVersion != _printerLoadVersion)
         {
             if (btn != null) btn.IsEnabled = true;
@@ -551,7 +567,11 @@ public partial class MainDashboardView : UserControl
         _serverService?.ApplyPrinterScan(refreshed);
         ApplyPrinterList(refreshed, selectedName);
         if (btn != null) btn.IsEnabled = true;
-        MessageBox.Show($"Đã tìm thấy {_sharedPrinters.Count} máy in.", "Máy in", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageBox.Show(
+            _serverService != null
+                ? $"Đã tìm thấy {_sharedPrinters.Count} máy in trên máy chủ."
+                : $"Đã đồng bộ {_sharedPrinters.Count} máy in được cấp quyền từ Cloud.",
+            "Máy in", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void ApplyPrinterList(IEnumerable<SharedPrinterInfo> printers, string? selectedName)

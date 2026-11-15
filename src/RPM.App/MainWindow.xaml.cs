@@ -18,6 +18,9 @@ public partial class MainWindow : Window
     private bool _isExplicitExit;
     private bool _isExitDialogOpen;
     private bool _servicesDisposed;
+    private readonly SemaphoreSlim _roleNavigationLock = new(1, 1);
+    private Task? _serverStartTask;
+    private Task? _clientStartTask;
 
     public MainWindow()
     {
@@ -34,7 +37,7 @@ public partial class MainWindow : Window
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         _trayService = new TrayService(this);
-        NavigateToCurrentRole();
+        _ = NavigateToCurrentRoleAsync();
 
         // Check command-line flags after an update or rollback
         string[] args = Environment.GetCommandLineArgs();
@@ -56,25 +59,43 @@ public partial class MainWindow : Window
         }
     }
 
-    private void NavigateToCurrentRole()
+    private async Task NavigateToCurrentRoleAsync()
     {
-        // Cleanup old services safely
-        try { _serverService?.Dispose(); } catch { }
-        _serverService = null;
-        try { _clientService?.Dispose(); } catch { }
-        _clientService = null;
-
-        switch (_settings.Role)
+        await _roleNavigationLock.WaitAsync();
+        try
         {
-            case AppRole.Server:
-                LoadServerMode();
-                break;
-            case AppRole.Client:
-                LoadClientMode();
-                break;
-            default:
-                LoadModeSelection();
-                break;
+            // Wait off the UI thread while background workers and sockets stop.
+            if (_serverStartTask is not null)
+            {
+                try { await _serverStartTask; } catch { }
+                _serverStartTask = null;
+            }
+            if (_clientStartTask is not null)
+            {
+                try { await _clientStartTask; } catch { }
+                _clientStartTask = null;
+            }
+            try { if (_serverService is not null) await _serverService.DisposeAsync(); } catch { }
+            _serverService = null;
+            try { if (_clientService is not null) await _clientService.DisposeAsync(); } catch { }
+            _clientService = null;
+
+            switch (_settings.Role)
+            {
+                case AppRole.Server:
+                    LoadServerMode();
+                    break;
+                case AppRole.Client:
+                    LoadClientMode();
+                    break;
+                default:
+                    LoadModeSelection();
+                    break;
+            }
+        }
+        finally
+        {
+            _roleNavigationLock.Release();
         }
     }
 
@@ -86,7 +107,7 @@ public partial class MainWindow : Window
         {
             _settings.Role = role;
             ConfigManager.Save(_settings);
-            NavigateToCurrentRole();
+            _ = NavigateToCurrentRoleAsync();
         };
         MainContentArea.Content = selectionView;
     }
@@ -110,10 +131,10 @@ public partial class MainWindow : Window
 
         var dashboard = new MainDashboardView(_settings, _serverService, null);
         dashboard.OnMinimizeRequested += (s, e) => _trayService?.HideMainWindow();
-        dashboard.OnRoleChangeRequested += (s, e) => NavigateToCurrentRole();
+        dashboard.OnRoleChangeRequested += (s, e) => _ = NavigateToCurrentRoleAsync();
 
         MainContentArea.Content = dashboard;
-        _ = _serverService.StartAsync();
+        _serverStartTask = _serverService.StartAsync();
     }
 
     private void LoadClientMode()
@@ -123,10 +144,10 @@ public partial class MainWindow : Window
 
         var dashboard = new MainDashboardView(_settings, null, _clientService);
         dashboard.OnMinimizeRequested += (s, e) => _trayService?.HideMainWindow();
-        dashboard.OnRoleChangeRequested += (s, e) => NavigateToCurrentRole();
+        dashboard.OnRoleChangeRequested += (s, e) => _ = NavigateToCurrentRoleAsync();
 
         MainContentArea.Content = dashboard;
-        _ = _clientService.StartAsync();
+        _clientStartTask = _clientService.StartAsync();
     }
 
     public void ExitApplication()
@@ -209,5 +230,6 @@ public partial class MainWindow : Window
         try { _trayService?.Dispose(); } catch { }
         try { if (_serverService is not null) await _serverService.DisposeAsync(); } catch { }
         try { if (_clientService is not null) await _clientService.DisposeAsync(); } catch { }
+        _roleNavigationLock.Dispose();
     }
 }

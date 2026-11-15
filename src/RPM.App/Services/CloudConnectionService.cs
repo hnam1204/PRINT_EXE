@@ -18,6 +18,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
 
     public CloudApiClient? Client { get; private set; }
     public bool IsOnline { get; private set; }
+    public bool HasStoredToken => _tokenStore.HasToken;
     public event EventHandler<string>? OnLog;
     public event EventHandler? OnStateChanged;
 
@@ -35,7 +36,15 @@ public sealed class CloudConnectionService : IAsyncDisposable
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
-        if (!_settings.CloudTransportEnabled) return;
+        // A DPAPI-protected token is the durable enrollment proof. Restore the
+        // Cloud flag after restart so the app revalidates it automatically.
+        if (!_settings.CloudTransportEnabled && !_tokenStore.HasToken) return;
+        if (!_settings.CloudTransportEnabled)
+        {
+            _settings.CloudTransportEnabled = true;
+            ConfigManager.Save(_settings);
+            OnLog?.Invoke(this, "Đã khôi phục kích hoạt Cloud từ token đã lưu; đang kiểm tra lại máy chủ.");
+        }
         await _lifecycleLock.WaitAsync(cancellationToken);
         try
         {

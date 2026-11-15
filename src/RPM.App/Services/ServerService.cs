@@ -101,7 +101,7 @@ public class ServerService : IDisposable, IAsyncDisposable
         LoadPrinters();
 
         bool cloudReady = false;
-        if (_settings.CloudTransportEnabled)
+        if (_settings.CloudTransportEnabled || _cloud.HasStoredToken)
         {
             await _cloud.StartAsync();
             if (_cloud.IsOnline)
