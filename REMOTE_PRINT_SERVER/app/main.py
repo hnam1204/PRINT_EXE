@@ -294,10 +294,21 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
 
             session.add(AuditEvent(actor_id=payload.deviceId, action="DEVICE_REGISTERED", target_type="DEVICE", target_id=payload.deviceId))
             session.commit()
-            return DeviceRegistrationResponse(deviceId=device.id, deviceToken=token, role=device.role)
+            activation = activation_code or (session.get(ActivationCode, device.activation_code_id) if device.activation_code_id else None)
+            return DeviceRegistrationResponse(
+                deviceId=device.id,
+                deviceToken=token,
+                role=device.role,
+                activationLabel=activation.label if activation else "Quản trị viên",
+                activationExpiresAt=activation.expires_at if activation else None,
+                activationMaxDevices=activation.max_devices if activation else None,
+                activationUsedDevices=activation.used_devices if activation else None,
+            )
 
     @app.get("/api/v1/devices/me", response_model=DeviceProfile, tags=["Devices"])
     def get_device_profile(device: Device = Depends(require_device)):
+        with session_factory() as session:
+            activation = session.get(ActivationCode, device.activation_code_id) if device.activation_code_id else None
         return DeviceProfile(
             deviceId=device.id,
             name=device.name,
@@ -307,6 +318,10 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             lastSeenAt=device.last_seen_at,
             publicKey=device.public_key,
             keyAlgorithm=device.key_algorithm,
+            activationLabel=activation.label if activation else "Quản trị viên",
+            activationExpiresAt=activation.expires_at if activation else None,
+            activationMaxDevices=activation.max_devices if activation else None,
+            activationUsedDevices=activation.used_devices if activation else None,
         )
 
     @app.post("/api/v1/devices/heartbeat", response_model=HeartbeatResponse, tags=["Devices"])

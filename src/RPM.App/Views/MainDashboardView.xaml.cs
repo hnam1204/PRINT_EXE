@@ -246,6 +246,7 @@ public partial class MainDashboardView : UserControl
         TxtServerClientsSummary.Text = $"{approvedClients}/{maxClients} máy ({onlineClients} online • {pendingClients} chờ duyệt)";
         TxtServerGeofenceStatus.Text = _serverService.GeofenceStatusDisplay;
 
+        UpdateCloudEnrollmentUI();
         RefreshRecentJobs();
     }
 
@@ -313,6 +314,7 @@ public partial class MainDashboardView : UserControl
             TxtActivePrinterSummary.Text = "Đang chờ kết nối";
         }
 
+        UpdateCloudEnrollmentUI();
         RefreshRecentJobs();
     }
 
@@ -438,6 +440,21 @@ public partial class MainDashboardView : UserControl
         TxtCloudEnrollmentSecret.Visibility = isActivated ? Visibility.Collapsed : Visibility.Visible;
         BtnCloudEnroll.Visibility = isActivated ? Visibility.Collapsed : Visibility.Visible;
         BtnChangeCloudEnrollment.Visibility = isActivated ? Visibility.Visible : Visibility.Collapsed;
+        TxtCloudLicenseSummary.Text = isActivated ? BuildCloudLicenseSummary() : string.Empty;
+        TxtCloudLicenseSummary.Visibility = isActivated ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private string BuildCloudLicenseSummary()
+    {
+        if (string.IsNullOrWhiteSpace(_settings.CloudActivationLabel))
+            return "Đang kiểm tra thông tin bản quyền...";
+
+        DateTime? expiresAt = _settings.CloudActivationExpiresAt;
+        string expiration = expiresAt is null ? "Vĩnh viễn" : $"Đến {expiresAt.Value.ToLocalTime():dd/MM/yyyy}";
+        string devices = _settings.CloudActivationMaxDevices is int max
+            ? $"{_settings.CloudActivationUsedDevices ?? 0}/{max} thiết bị"
+            : "Không giới hạn thiết bị";
+        return $"Thời hạn: {expiration} • Thiết bị: {devices}";
     }
 
     private void SetCloudEnrollBusy(bool isBusy)

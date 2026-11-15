@@ -18,6 +18,10 @@ class DeviceRegistrationResponse(BaseModel):
     deviceToken: str
     role: str
     expiresAt: datetime | None = None
+    activationLabel: str | None = None
+    activationExpiresAt: datetime | None = None
+    activationMaxDevices: int | None = None
+    activationUsedDevices: int | None = None
 
 
 class DeviceProfile(BaseModel):
@@ -29,6 +33,10 @@ class DeviceProfile(BaseModel):
     lastSeenAt: datetime
     publicKey: str | None = None
     keyAlgorithm: str = "RSA-OAEP-SHA256"
+    activationLabel: str | None = None
+    activationExpiresAt: datetime | None = None
+    activationMaxDevices: int | None = None
+    activationUsedDevices: int | None = None
 
 
 class HeartbeatResponse(BaseModel):

@@ -17,6 +17,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
     private Task? _heartbeatTask;
 
     public CloudApiClient? Client { get; private set; }
+    public CloudActivationInfo? ActivationInfo { get; private set; }
     public bool IsOnline { get; private set; }
     public bool HasStoredToken => _tokenStore.HasToken;
     public event EventHandler<string>? OnLog;
@@ -26,6 +27,11 @@ public sealed class CloudConnectionService : IAsyncDisposable
     {
         _settings = settings;
         _tokenStore = new CloudDeviceTokenStore(scope: $"{settings.DeviceId}-{settings.Role}");
+        ActivationInfo = new CloudActivationInfo(
+            string.IsNullOrWhiteSpace(settings.CloudActivationLabel) ? null : settings.CloudActivationLabel,
+            settings.CloudActivationExpiresAt,
+            settings.CloudActivationMaxDevices,
+            settings.CloudActivationUsedDevices);
     }
 
     public async Task<bool> EnrollAsync(string enrollmentSecret, CancellationToken cancellationToken = default)
@@ -33,6 +39,8 @@ public sealed class CloudConnectionService : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(enrollmentSecret)) throw new ArgumentException("Enrollment secret is required.", nameof(enrollmentSecret));
         var client = GetOrCreateClient();
         var registration = await client.RegisterDeviceAsync(_settings, enrollmentSecret, cancellationToken);
+        ActivationInfo = new CloudActivationInfo(registration.ActivationLabel, registration.ActivationExpiresAt, registration.ActivationMaxDevices, registration.ActivationUsedDevices);
+        SaveActivationInfo();
         _settings.CloudHostId = _settings.Role == AppRole.Server ? registration.DeviceId : _settings.CloudHostId;
         ConfigManager.Save(_settings);
         return await ProbeAsync(cancellationToken);
@@ -81,6 +89,8 @@ public sealed class CloudConnectionService : IAsyncDisposable
                 SetOffline($"Mã xác thực máy chủ từ xa thuộc vai trò {profile.Role}; cần kích hoạt lại cho vai trò {expectedRole}.");
                 return false;
             }
+            ActivationInfo = new CloudActivationInfo(profile.ActivationLabel, profile.ActivationExpiresAt, profile.ActivationMaxDevices, profile.ActivationUsedDevices);
+            SaveActivationInfo();
             var heartbeat = await GetOrCreateClient().HeartbeatAsync(cancellationToken);
             if (heartbeat is null || !string.Equals(heartbeat.Status, "ONLINE", StringComparison.OrdinalIgnoreCase))
             {
@@ -135,6 +145,25 @@ public sealed class CloudConnectionService : IAsyncDisposable
         IsOnline = false;
         OnLog?.Invoke(this, message);
         OnStateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void SaveActivationInfo()
+    {
+        if (ActivationInfo is null) return;
+        string label = ActivationInfo.Label ?? string.Empty;
+        if (string.Equals(_settings.CloudActivationLabel, label, StringComparison.Ordinal) &&
+            _settings.CloudActivationExpiresAt == ActivationInfo.ExpiresAt &&
+            _settings.CloudActivationMaxDevices == ActivationInfo.MaxDevices &&
+            _settings.CloudActivationUsedDevices == ActivationInfo.UsedDevices)
+        {
+            return;
+        }
+
+        _settings.CloudActivationLabel = label;
+        _settings.CloudActivationExpiresAt = ActivationInfo.ExpiresAt;
+        _settings.CloudActivationMaxDevices = ActivationInfo.MaxDevices;
+        _settings.CloudActivationUsedDevices = ActivationInfo.UsedDevices;
+        ConfigManager.Save(_settings);
     }
 
     public async ValueTask DisposeAsync()

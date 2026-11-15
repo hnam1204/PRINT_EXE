@@ -13,7 +13,11 @@ public sealed record CloudDeviceRegistrationRequest(
 public sealed record CloudDeviceRegistrationResponse(
     [property: JsonPropertyName("deviceId")] string DeviceId,
     [property: JsonPropertyName("deviceToken")] string DeviceToken,
-    [property: JsonPropertyName("role")] string Role);
+    [property: JsonPropertyName("role")] string Role,
+    [property: JsonPropertyName("activationLabel")] string? ActivationLabel = null,
+    [property: JsonPropertyName("activationExpiresAt")] DateTime? ActivationExpiresAt = null,
+    [property: JsonPropertyName("activationMaxDevices")] int? ActivationMaxDevices = null,
+    [property: JsonPropertyName("activationUsedDevices")] int? ActivationUsedDevices = null);
 
 public sealed record CloudDeviceProfile(
     [property: JsonPropertyName("deviceId")] string DeviceId,
@@ -23,7 +27,17 @@ public sealed record CloudDeviceProfile(
     [property: JsonPropertyName("isRevoked")] bool IsRevoked,
     [property: JsonPropertyName("lastSeenAt")] DateTime LastSeenAt,
     [property: JsonPropertyName("publicKey")] string? PublicKey = null,
-    [property: JsonPropertyName("keyAlgorithm")] string KeyAlgorithm = "RSA-OAEP-SHA256");
+    [property: JsonPropertyName("keyAlgorithm")] string KeyAlgorithm = "RSA-OAEP-SHA256",
+    [property: JsonPropertyName("activationLabel")] string? ActivationLabel = null,
+    [property: JsonPropertyName("activationExpiresAt")] DateTime? ActivationExpiresAt = null,
+    [property: JsonPropertyName("activationMaxDevices")] int? ActivationMaxDevices = null,
+    [property: JsonPropertyName("activationUsedDevices")] int? ActivationUsedDevices = null);
+
+public sealed record CloudActivationInfo(
+    string? Label,
+    DateTime? ExpiresAt,
+    int? MaxDevices,
+    int? UsedDevices);
 
 public sealed record CloudHeartbeatResponse(
     [property: JsonPropertyName("deviceId")] string DeviceId,

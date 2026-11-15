@@ -384,8 +384,13 @@
                                             <TextBlock x:Name="TxtCloudStatus" Text="Đang tắt" FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,1,0,0"/>
                                         </StackPanel>
                                         <Grid Grid.Column="1">
-                                            <PasswordBox x:Name="TxtCloudEnrollmentSecret" Height="28" Padding="7,4" VerticalContentAlignment="Center" ToolTip="Mã kích hoạt do quản trị viên cấp"/>
-                                            <TextBlock x:Name="TxtCloudEnrollmentMaskedKey" Visibility="Collapsed" VerticalAlignment="Center" Padding="7,0" FontSize="11" Foreground="{StaticResource TextMainBrush}"/>
+                                            <StackPanel>
+                                                <Grid>
+                                                    <PasswordBox x:Name="TxtCloudEnrollmentSecret" Height="28" Padding="7,4" VerticalContentAlignment="Center" ToolTip="Mã kích hoạt do quản trị viên cấp"/>
+                                                    <TextBlock x:Name="TxtCloudEnrollmentMaskedKey" Visibility="Collapsed" VerticalAlignment="Center" Padding="7,0" FontSize="11" Foreground="{StaticResource TextMainBrush}"/>
+                                                </Grid>
+                                                <TextBlock x:Name="TxtCloudLicenseSummary" Visibility="Collapsed" Margin="7,2,0,0" FontSize="9" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap"/>
+                                            </StackPanel>
                                         </Grid>
                                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                                             <Button x:Name="BtnCloudEnroll" Style="{StaticResource SecondaryBtn}" Click="BtnCloudEnroll_Click" Padding="10,5" Margin="8,0,0,0" MinWidth="88">

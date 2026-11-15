@@ -43,6 +43,7 @@ public class ServerService : IDisposable, IAsyncDisposable
     public SharedPrinterInfo? ActiveSharedPrinter { get; private set; }
     public bool IsCloudOnline => _cloud.IsOnline;
     public bool HasStoredCloudToken => _cloud.HasStoredToken;
+    public CloudActivationInfo? CloudActivationInfo => _cloud.ActivationInfo;
     public bool IsOnline => _cloud.IsOnline || _relayClient.IsConnected;
     public string ConnectionStatus => _cloud.IsOnline
         ? "Đã kết nối máy chủ từ xa"

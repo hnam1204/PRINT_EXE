@@ -23,6 +23,10 @@ public class AppSettings
     public bool CloudTransportEnabled { get; set; } = false;
     // Only the first five characters are retained for a safe activation hint.
     public string CloudEnrollmentKeyPrefix { get; set; } = string.Empty;
+    public string CloudActivationLabel { get; set; } = string.Empty;
+    public DateTime? CloudActivationExpiresAt { get; set; }
+    public int? CloudActivationMaxDevices { get; set; }
+    public int? CloudActivationUsedDevices { get; set; }
     public string CloudHostId { get; set; } = string.Empty;
     public string CloudHostPublicKey { get; set; } = string.Empty;
     public string CloudPairingCode { get; set; } = string.Empty;

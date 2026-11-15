@@ -27,6 +27,15 @@ def test_customer_code_binds_devices_and_reuses_same_device(tmp_path):
     headers = {"X-Enrollment-Secret": code}
     first = client.post("/api/v1/devices/register", headers=headers, json=registration_payload("client-01"))
     assert first.status_code == 201
+    assert first.json()["activationLabel"] == "Customer"
+    assert first.json()["activationMaxDevices"] == 1
+    assert first.json()["activationUsedDevices"] == 1
+    assert first.json()["activationExpiresAt"] is not None
+    profile = client.get("/api/v1/devices/me", headers={"Authorization": f"Bearer {first.json()['deviceToken']}"})
+    assert profile.status_code == 200
+    assert profile.json()["activationLabel"] == "Customer"
+    assert profile.json()["activationMaxDevices"] == 1
+    assert profile.json()["activationUsedDevices"] == 1
     second = client.post("/api/v1/devices/register", headers=headers, json=registration_payload("client-01"))
     assert second.status_code == 201
 
