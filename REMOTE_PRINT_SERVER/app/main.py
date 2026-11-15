@@ -44,7 +44,7 @@ from .pairing_codes import decrypt_pairing_code, hash_pairing_code, issue_pairin
 from .cleanup import run_cleanup
 from .geofence import verify_location
 from .storage import BlobStore, VercelBlobStore
-from .security import enforce_rate_limit, hash_token, new_device_token, require_device, require_role
+from .security import enforce_rate_limit, hash_token, new_device_token, require_device, require_role, verify_device_reactivation_signature
 from .telegram_bot import (
     create_activation_code,
     delete_message,
@@ -184,7 +184,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         allow_origins=list(settings.allowed_origins),
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Enrollment-Secret", "X-Admin-Key"],
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Enrollment-Secret", "X-Admin-Key", "X-Device-Reactivation-Signature"],
     )
 
     @app.middleware("http")
@@ -231,6 +231,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         payload: DeviceRegistration,
         request: Request,
         enrollment_secret: str | None = Header(default=None, alias="X-Enrollment-Secret"),
+        reactivation_signature: str | None = Header(default=None, alias="X-Device-Reactivation-Signature"),
     ):
         enrollment_secret = enrollment_secret.strip() if enrollment_secret else None
         if not enrollment_secret:
@@ -249,6 +250,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 and secrets.compare_digest(enrollment_secret, settings.enrollment_secret)
             )
             activation_code = None
+            reactivating_revoked_device = False
             if not uses_admin_secret:
                 activation_code = session.scalar(
                     select(ActivationCode)
@@ -260,7 +262,25 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                     activation_code.expires_at is not None and as_utc(activation_code.expires_at) <= now
                 ):
                     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired activation code")
-                if device is not None and device.activation_code_id not in (None, activation_code.id):
+                if device is not None and device.is_revoked:
+                    canonical_message = f"RPM-REACTIVATE:{payload.deviceId}:{enrollment_secret.upper()}"
+                    if (
+                        not device.public_key
+                        or not payload.publicKey
+                        or payload.publicKey != device.public_key
+                        or not reactivation_signature
+                        or not verify_device_reactivation_signature(device.public_key, reactivation_signature, canonical_message)
+                    ):
+                        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device reactivation proof required")
+                    reactivating_revoked_device = True
+                    for pairing in session.scalars(select(Pairing).where(
+                        ((Pairing.host_id == device.id) | (Pairing.client_id == device.id)),
+                        Pairing.status.in_(["PENDING", "APPROVED"]),
+                    )).all():
+                        pairing.status = "REVOKED"
+                        pairing.decided_at = now
+                        session.add(pairing)
+                elif device is not None and device.activation_code_id not in (None, activation_code.id):
                     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device is already activated with another code")
                 if device is None or device.activation_code_id is None:
                     if activation_code.max_devices is not None and activation_code.used_devices >= activation_code.max_devices:
@@ -284,8 +304,11 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                     device.geofence_radius_meters = activation_code.geofence_radius_meters
                 session.add(device)
             else:
-                if device.is_revoked:
+                if device.is_revoked and not reactivating_revoked_device:
                     raise HTTPException(status_code=403, detail="Device is revoked")
+                if reactivating_revoked_device:
+                    device.is_revoked = False
+                    device.activation_code_id = activation_code.id
                 device.name = payload.name
                 device.role = payload.role
                 device.app_version = payload.appVersion

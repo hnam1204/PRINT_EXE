@@ -50,6 +50,9 @@ public sealed class CloudApiClient : IDisposable
                 _keyStore.GetOrCreatePublicKey()), options: _jsonOptions)
         };
         request.Headers.Add("X-Enrollment-Secret", enrollmentSecret);
+        request.Headers.Add(
+            "X-Device-Reactivation-Signature",
+            _keyStore.SignReactivationProof(settings.DeviceId, enrollmentSecret));
         var response = await SendAsync<CloudDeviceRegistrationResponse>(request, cancellationToken, authenticate: false)
             ?? throw new InvalidOperationException("Cloud registration returned an empty response.");
         _tokenStore.Save(response.DeviceToken);
@@ -299,6 +302,15 @@ public sealed class CloudDeviceKeyStore
     {
         using var rsa = LoadOrCreate();
         return Convert.ToBase64String(rsa.ExportSubjectPublicKeyInfo());
+    }
+
+    public string SignReactivationProof(string deviceId, string activationCode)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId)) throw new ArgumentException("Device ID is required.", nameof(deviceId));
+        if (string.IsNullOrWhiteSpace(activationCode)) throw new ArgumentException("Activation code is required.", nameof(activationCode));
+        using var rsa = LoadOrCreate();
+        var message = Encoding.UTF8.GetBytes($"RPM-REACTIVATE:{deviceId}:{activationCode.Trim().ToUpperInvariant()}");
+        return Convert.ToBase64String(rsa.SignData(message, HashAlgorithmName.SHA256, RSASignaturePadding.Pss));
     }
 
     public RSA LoadOrCreate() 

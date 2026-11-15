@@ -1,4 +1,5 @@
 import os
+import base64
 
 os.environ.setdefault("RPM_SERVER_ENV", "development")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:3000")
@@ -7,6 +8,8 @@ os.environ.setdefault("ENROLLMENT_SECRET", "test-enrollment-secret")
 from datetime import timedelta
 
 from fastapi.testclient import TestClient
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from app.database import ActivationCode, utcnow
 from app.main import create_app
@@ -156,3 +159,67 @@ def test_activation_host_requires_geofence_and_cannot_exceed_radius(tmp_path):
         json={"enabled": True, "latitude": 10, "longitude": 106, "radiusMeters": "NaN"},
     )
     assert invalid_radius.status_code == 422
+
+
+def test_revoked_device_can_reactivate_with_new_code_and_same_public_key(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'activation-reactivation.db'}")
+    client = TestClient(app)
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public_key = base64.b64encode(private_key.public_key().public_bytes(
+        serialization.Encoding.DER,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )).decode()
+    with app.state.session_factory() as session:
+        old_code = create_activation_code(session, label="Old", days=30, max_devices=1, created_by="admin")
+        new_code = create_activation_code(session, label="New", days=1, max_devices=1, created_by="admin")
+        session.commit()
+
+    payload = {**registration_payload("host-01"), "role": "HOST", "publicKey": public_key}
+    first = client.post("/api/v1/devices/register", headers={"X-Enrollment-Secret": old_code}, json=payload)
+    assert first.status_code == 201
+
+    with app.state.session_factory() as session:
+        from app.database import Device
+        device = session.get(Device, "host-01")
+        device.is_revoked = True
+        device.activation_code_id = None
+        session.commit()
+
+    message = f"RPM-REACTIVATE:host-01:{new_code.upper()}".encode()
+    signature = base64.b64encode(private_key.sign(
+        message,
+        padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH),
+        hashes.SHA256(),
+    )).decode()
+    reactivated = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Enrollment-Secret": new_code, "X-Device-Reactivation-Signature": signature},
+        json=payload,
+    )
+    assert reactivated.status_code == 201
+    assert reactivated.json()["activationLabel"] == "New"
+    assert reactivated.json()["deviceToken"] != first.json()["deviceToken"]
+
+    missing_proof = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Enrollment-Secret": old_code},
+        json=payload,
+    )
+    assert missing_proof.status_code == 403
+
+    invalid_proof = client.post(
+        "/api/v1/devices/register",
+        headers={
+            "X-Enrollment-Secret": old_code,
+            "X-Device-Reactivation-Signature": base64.b64encode(b"invalid-signature").decode(),
+        },
+        json=payload,
+    )
+    assert invalid_proof.status_code == 403
+
+    wrong_key = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Enrollment-Secret": old_code},
+        json={**payload, "publicKey": "different-key"},
+    )
+    assert wrong_key.status_code == 403
