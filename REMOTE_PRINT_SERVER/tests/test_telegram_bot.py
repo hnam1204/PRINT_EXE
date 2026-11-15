@@ -3,19 +3,19 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.database import ActivationCode, AuditEvent, Device, as_utc, create_session_factory, utcnow
-from app.telegram_bot import create_activation_code, format_remaining, format_vietnam_datetime, parse_command, purge_revoked_activation_codes, record_message, remove_tracked_message, revoke_activation_code, tracked_message_ids
+from app.telegram_bot import create_activation_code, format_remaining, format_vietnam_datetime, parse_command, purge_revoked_activation_codes, record_message, remove_tracked_message, reissue_activation_code, revoke_activation_code, tracked_message_ids
 
 
 def test_parse_telegram_command_with_bot_suffix():
-    command = parse_command("/create-code@rpm_bot Acme 30 2")
+    command = parse_command("/create@rpm_bot Acme 30 2 500")
 
     assert command is not None
-    assert command.name == "/create-code"
-    assert command.args == ("Acme", "30", "2")
+    assert command.name == "/create"
+    assert command.args == ("Acme", "30", "2", "500")
 
 
 def test_parse_telegram_command_accepts_geofence_radius():
-    command = parse_command("/create-code Acme 30 2 500")
+    command = parse_command("/create Acme 30 2 500")
     assert command is not None
     assert command.args == ("Acme", "30", "2", "500")
 
@@ -24,6 +24,7 @@ def test_parse_telegram_command_supports_short_management_names():
     assert parse_command("/create Acme forever unlimited 1000").name == "/create"
     assert parse_command("/list").name == "/list"
     assert parse_command("/revoke ABC123").name == "/revoke"
+    assert parse_command("/reissue ABC123").name == "/reissue"
 
 
 def test_create_and_revoke_customer_activation_code(tmp_path):
@@ -59,6 +60,34 @@ def test_create_perpetual_unlimited_activation_code(tmp_path):
 
         assert record.expires_at is None
         assert record.max_devices is None
+
+
+def test_reissue_replaces_code_and_revokes_old_devices(tmp_path):
+    _, session_factory = create_session_factory(f"sqlite:///{tmp_path / 'reissue.db'}")
+    with session_factory() as session:
+        old_code = create_activation_code(session, label="Acme", days=30, max_devices=3, geofence_radius_meters=500, created_by="admin")
+        session.flush()
+        old_record = session.query(ActivationCode).one()
+        session.add(Device(
+            id="device-01", name="Device", role="CLIENT", app_version="1.0.0",
+            token_hash="token-hash", activation_code_id=old_record.id,
+        ))
+        session.commit()
+        old_id = old_record.id
+
+        result = reissue_activation_code(session, old_id, "admin")
+        assert result is not None
+        new_code, new_record = result
+        session.commit()
+
+        assert new_code != old_code
+        assert new_record.label == "Acme"
+        assert new_record.max_devices == 3
+        assert new_record.geofence_radius_meters == 500
+        assert session.get(ActivationCode, old_id) is None
+        device = session.get(Device, "device-01")
+        assert device.is_revoked is True
+        assert device.activation_code_id is None
 
 
 def test_activation_expiry_formats_in_vietnam_time_and_counts_down():

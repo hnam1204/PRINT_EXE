@@ -96,11 +96,49 @@ def _delete_activation_code_record(session, record: ActivationCode, actor_id: st
 
 
 def revoke_activation_code(session, code: str, actor_id: str) -> bool:
-    record = session.query(ActivationCode).filter(ActivationCode.code_hash == hash_token(code.strip().upper())).one_or_none()
+    identifier = code.strip()
+    record = session.query(ActivationCode).filter(ActivationCode.id == identifier).one_or_none()
+    if record is None:
+        record = session.query(ActivationCode).filter(ActivationCode.code_hash == hash_token(identifier.upper())).one_or_none()
     if record is None:
         return False
     _delete_activation_code_record(session, record, actor_id, already_revoked=record.revoked_at is not None)
     return True
+
+
+def reissue_activation_code(session, identifier: str, actor_id: str) -> tuple[str, ActivationCode] | None:
+    """Replace a lost code without ever storing or recovering its plaintext."""
+    record = session.query(ActivationCode).filter(ActivationCode.id == identifier.strip()).one_or_none()
+    if record is None or (record.expires_at is not None and _as_utc(record.expires_at) <= utcnow()):
+        return None
+
+    old_id = record.id
+    code = generate_activation_code()
+    replacement = ActivationCode(
+        code_hash=hash_token(code),
+        code_hint=code[:5],
+        label=record.label,
+        max_devices=record.max_devices,
+        geofence_radius_meters=record.geofence_radius_meters,
+        expires_at=record.expires_at,
+        created_by=actor_id,
+    )
+    devices = session.query(Device).filter(Device.activation_code_id == old_id).all()
+    for device in devices:
+        device.is_revoked = True
+        device.activation_code_id = None
+
+    session.add(replacement)
+    session.flush()
+    session.add(AuditEvent(
+        actor_id=actor_id,
+        action="CUSTOMER_ACTIVATION_CODE_REISSUED",
+        target_type="ACTIVATION_CODE",
+        target_id=replacement.id,
+        details={"replacedId": old_id, "codeHint": replacement.code_hint, "devicesRevoked": len(devices)},
+    ))
+    session.delete(record)
+    return code, replacement
 
 
 def purge_revoked_activation_codes(session, actor_id: str) -> int:
@@ -145,6 +183,27 @@ def send_message(bot_token: str, chat_id: int, text: str) -> int:
             raise RuntimeError("Telegram API request failed")
         body = json.loads(response.read().decode("utf-8"))
         return int(((body.get("result") or {}).get("message_id")) or 0)
+
+
+def set_bot_commands(bot_token: str) -> bool:
+    payload = json.dumps({
+        "commands": [
+            {"command": "create", "description": "Tạo mã khách hàng"},
+            {"command": "list", "description": "Xem danh sách mã"},
+            {"command": "reissue", "description": "Cấp lại mã bị mất"},
+            {"command": "revoke", "description": "Thu hồi mã"},
+            {"command": "clear-chat", "description": "Xóa tin nhắn đoạn chat"},
+        ]
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{bot_token}/setMyCommands",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        body = json.loads(response.read().decode("utf-8"))
+        return response.status < 300 and bool(body.get("ok"))
 
 
 def delete_message(bot_token: str, chat_id: int, message_id: int) -> bool:

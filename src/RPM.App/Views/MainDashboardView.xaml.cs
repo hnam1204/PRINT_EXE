@@ -820,7 +820,7 @@ public partial class MainDashboardView : UserControl
             if (client.IsOnline) onlineCount++;
             else offlineCount++;
 
-            if (!client.IsApproved && !client.IsBlocked) pendingCount++;
+            if (!client.IsApproved && !client.IsBlocked && !client.ReconnectAllowed) pendingCount++;
 
             if (!string.IsNullOrEmpty(searchText) &&
                 !client.DeviceName.Contains(searchText, StringComparison.OrdinalIgnoreCase) &&
@@ -828,7 +828,8 @@ public partial class MainDashboardView : UserControl
 
             if (statusFilter == "Trực tuyến" && (!client.IsApproved || !client.IsOnline)) continue;
             if (statusFilter == "Ngoại tuyến" && (!client.IsApproved || client.IsOnline)) continue;
-            if (statusFilter == "Chờ phê duyệt" && (client.IsApproved || client.IsBlocked)) continue;
+            if (statusFilter == "Chờ phê duyệt" && (client.IsApproved || client.IsBlocked || client.ReconnectAllowed)) continue;
+            if (statusFilter == "Đã từ chối" && !client.IsBlocked) continue;
 
             _filteredClients.Add(client);
         }
@@ -893,6 +894,9 @@ public partial class MainDashboardView : UserControl
             case DeviceManageAction.Revoke:
                 _ = ManageRevokeAsync(client);
                 break;
+            case DeviceManageAction.AllowReconnect:
+                _ = ManageAllowReconnectAsync(client);
+                break;
             case DeviceManageAction.SavePrinters:
                 _serverService.SetClientAllowedPrinters(client.DeviceId, dialog.SelectedPrinters);
                 ApplyClientFilters();
@@ -912,6 +916,21 @@ public partial class MainDashboardView : UserControl
         await _serverService!.RevokeClientAsync(client);
         ApplyClientFilters();
         UpdateServerUI();
+    }
+
+    private Task ManageAllowReconnectAsync(DeviceInfo client)
+    {
+        if (_serverService!.AllowReconnectClient(client))
+        {
+            ApplyClientFilters();
+            UpdateServerUI();
+            MessageBox.Show(
+                $"Đã cho phép '{client.DeviceName}' gửi yêu cầu kết nối lại.\n\nThiết bị chưa được cấp quyền in; hãy chờ yêu cầu mới rồi phê duyệt.",
+                "Đã mở quyền kết nối lại",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        return Task.CompletedTask;
     }
 
     private async void BtnApproveClient_Click(object sender, RoutedEventArgs e)

@@ -52,8 +52,10 @@ from .telegram_bot import (
     record_message,
     remove_tracked_message,
     purge_revoked_activation_codes,
+    reissue_activation_code,
     revoke_activation_code,
     send_message,
+    set_bot_commands,
     format_remaining,
     format_vietnam_datetime,
     tracked_message_ids,
@@ -1008,20 +1010,25 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         reply = ""
         actor = str(admin_id)
         if command.name in {"/start", "/help"}:
+            try:
+                await asyncio.to_thread(set_bot_commands, settings.telegram_bot_token)
+            except Exception:
+                # The help response must still work if Telegram command-menu sync is unavailable.
+                pass
             reply = (
                 "Remote Print Manager - Bot quản trị\n\n"
                 "Lệnh quản lý:\n"
                 "/create [ten_khach_hang] [so_ngay|forever] [so_thiet_bi|unlimited] [pham_vi_met]\n"
                 "/list - Xem toàn bộ thông tin mã\n"
-                "/revoke [ma] - Thu hồi mã\n"
+                "/reissue [id] - Cấp lại mã khi khách hàng làm mất mã\n"
+                "/revoke [id|ma] - Thu hồi mã\n"
                 "/clear-chat - Xóa tin nhắn bot và người dùng đã ghi nhận\n\n"
-                "Lệnh cũ vẫn dùng được:\n"
-                "/create-code, /list-codes, /revoke-code\n\n"
                 "Ví dụ:\n"
                 "/create CongTyABC 30 1 500\n"
-                "/create CongTyABC forever unlimited 1000"
+                "/create CongTyABC forever unlimited 1000\n"
+                "/reissue 38dddc98-b95a-48c9-b1b2-571df9c0f4ab"
             )
-        elif command.name in {"/create", "/create-code"}:
+        elif command.name == "/create":
             label = command.args[0] if command.args else "customer"
             days_arg = command.args[1].lower() if len(command.args) > 1 else "30"
             devices_arg = command.args[2].lower() if len(command.args) > 2 else "1"
@@ -1056,7 +1063,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                     "Trạng thái: ĐANG HOẠT ĐỘNG\n\n"
                     "Lưu ý: Mã đầy đủ chỉ hiển thị một lần. Hãy gửi mã cho khách hàng ngay."
                 )
-        elif command.name in {"/list", "/list-codes"}:
+        elif command.name == "/list":
             with session_factory() as session:
                 purge_revoked_activation_codes(session, actor)
                 session.commit()
@@ -1066,7 +1073,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 for index, record in enumerate(records, 1):
                     expired = record.expires_at is not None and as_utc(record.expires_at) <= now
                     details.append(
-                        f"{index}. {record.code_hint}...\n"
+                        f"{index}. {record.code_hint}... (mã đầy đủ không lưu trên server)\n"
                         f"   ID: {record.id}\n"
                         f"   Khách hàng: {record.label}\n"
                         f"   Trạng thái: {'HẾT HẠN' if expired else 'ĐANG HOẠT ĐỘNG'}\n"
@@ -1077,7 +1084,27 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                         f"   Đếm ngược: {format_remaining(record.expires_at, now)}"
                     )
                 reply = "DANH SÁCH MÃ KÍCH HOẠT\n\n" + "\n\n".join(details) if details else "Chưa có mã khách hàng."
-        elif command.name in {"/revoke", "/revoke-code"} and command.args:
+        elif command.name == "/reissue" and command.args:
+            with session_factory() as session:
+                result = reissue_activation_code(session, command.args[0], actor)
+                if result is None:
+                    reply = "Không tìm thấy mã còn hiệu lực theo ID. Hãy dùng /list để lấy ID chính xác."
+                else:
+                    code, record = result
+                    session.commit()
+                    reply = (
+                        "ĐÃ CẤP LẠI MÃ KÍCH HOẠT\n\n"
+                        f"Mã mới: {code}\n"
+                        f"ID mới: {record.id}\n"
+                        f"Khách hàng: {record.label}\n"
+                        f"Thời hạn: {format_vietnam_datetime(record.expires_at)}\n"
+                        f"Thiết bị tối đa: {'Không giới hạn' if record.max_devices is None else record.max_devices}\n"
+                        f"Phạm vi: {record.geofence_radius_meters} mét từ máy chủ\n"
+                        f"Đếm ngược: {format_remaining(record.expires_at)}\n\n"
+                        "Mã cũ đã vô hiệu hóa và thiết bị cũ phải kích hoạt lại. "
+                        "Mã đầy đủ chỉ hiển thị trong tin nhắn này."
+                    )
+        elif command.name == "/revoke" and command.args:
             with session_factory() as session:
                 revoked = revoke_activation_code(session, command.args[0], actor)
                 session.commit()

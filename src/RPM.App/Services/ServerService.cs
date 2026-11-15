@@ -415,6 +415,7 @@ public class ServerService : IDisposable, IAsyncDisposable
                     // A new request is authoritative: allow a previously rejected device to be approved again.
                     device.IsApproved = false;
                     device.IsBlocked = false;
+                    device.ReconnectAllowed = false;
                     device.DeviceName = item.ClientName;
                     device.IsOnline = true;
                     device.LastSeen = DateTime.UtcNow;
@@ -432,30 +433,6 @@ public class ServerService : IDisposable, IAsyncDisposable
                 {
                     _cloudPairingIds.Remove(clientId, out _);
                 }
-            }
-
-            // Rejected requests are not active devices. Remove them from the visible
-            // list after refresh; a later request creates the device again as pending.
-            var staleRejected = ConnectedClients
-                .Where(device => device.IsBlocked && !pendingClientIds.Contains(device.DeviceId))
-                .ToList();
-            if (staleRejected.Count > 0)
-            {
-                Application.Current?.Dispatcher.Invoke(() =>
-                {
-                    foreach (var device in staleRejected)
-                    {
-                        ConnectedClients.Remove(device);
-                    }
-                });
-                if (Application.Current is null)
-                {
-                    foreach (var device in staleRejected)
-                    {
-                        ConnectedClients.Remove(device);
-                    }
-                }
-                SaveClientList();
             }
 
             OnStatusChanged?.Invoke(this, EventArgs.Empty);
@@ -611,6 +588,7 @@ public class ServerService : IDisposable, IAsyncDisposable
     {
         client.IsApproved = true;
         client.IsBlocked = false;
+        client.ReconnectAllowed = false;
         SaveClientList();
 
         var permittedPrinters = GetPrintersForClient(client);
@@ -646,6 +624,7 @@ public class ServerService : IDisposable, IAsyncDisposable
     {
         client.IsApproved = false;
         client.IsBlocked = true;
+        client.ReconnectAllowed = false;
 
         if (_settings.CloudTransportEnabled && _cloud.Client is not null && _cloudPairingIds.TryGetValue(client.DeviceId, out var cloudPairingId))
         {
@@ -668,16 +647,25 @@ public class ServerService : IDisposable, IAsyncDisposable
         }
 
         _cloudPairingIds.Remove(client.DeviceId);
-        if (Application.Current is not null)
-        {
-            Application.Current.Dispatcher.Invoke(() => ConnectedClients.Remove(client));
-        }
-        else
-        {
-            ConnectedClients.Remove(client);
-        }
         SaveClientList();
         OnStatusChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public bool AllowReconnectClient(DeviceInfo client)
+    {
+        if (!client.IsBlocked) return false;
+
+        // This only opens a new request path. It never approves the client or
+        // consumes a capacity slot; the next pairing must still be approved.
+        client.IsBlocked = false;
+        client.IsApproved = false;
+        client.ReconnectAllowed = true;
+        client.IsOnline = false;
+        _cloudPairingIds.Remove(client.DeviceId);
+        SaveClientList();
+        OnLog?.Invoke(this, $"[Kết nối lại] Đã cho phép '{client.DeviceName}' gửi yêu cầu ghép nối mới.");
+        OnStatusChanged?.Invoke(this, EventArgs.Empty);
+        return true;
     }
 
     public void SetClientDepartment(string deviceId, string department)
@@ -893,6 +881,7 @@ public class ServerService : IDisposable, IAsyncDisposable
                     // A fresh join request is allowed to start a new approval cycle.
                     existing.IsApproved = false;
                     existing.IsBlocked = false;
+                    existing.ReconnectAllowed = false;
                 }
             }
 

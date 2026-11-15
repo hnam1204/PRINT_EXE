@@ -66,3 +66,33 @@ def test_host_geofence_route_is_not_captured_by_device_id_route(tmp_path):
 
     assert response.status_code == 200
     assert response.json()["hostId"] == "host-geofence"
+
+
+def test_rejected_client_can_create_a_new_pending_pairing_without_approving_it(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'reconnect.db'}")
+    client = TestClient(app)
+    host_token = register(client, "host-reconnect", "HOST")
+    client_token = register(client, "client-reconnect", "CLIENT")
+    headers = {"Authorization": f"Bearer {client_token}"}
+    host_headers = {"Authorization": f"Bearer {host_token}"}
+
+    first = client.post("/api/v1/pairings", headers=headers, json={"hostId": "host-reconnect"}).json()
+    rejected = client.post(
+        f"/api/v1/pairings/{first['pairingId']}/decision",
+        headers=host_headers,
+        json={"approve": False},
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "REJECTED"
+
+    second = client.post("/api/v1/pairings", headers=headers, json={"hostId": "host-reconnect"})
+    assert second.status_code == 201
+    assert second.json()["status"] == "PENDING"
+    assert second.json()["pairingId"] != first["pairingId"]
+
+    old = client.get(
+        f"/api/v1/pairings/{first['pairingId']}",
+        headers=headers,
+    )
+    assert old.status_code == 200
+    assert old.json()["status"] == "REJECTED"

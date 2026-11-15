@@ -26,6 +26,7 @@ public class DeviceInfo
     public DateTime LastSeen { get; set; } = DateTime.UtcNow;
     public bool IsApproved { get; set; } = false;
     public bool IsBlocked { get; set; } = false;
+    public bool ReconnectAllowed { get; set; } = false;
     public bool IsOnline { get; set; } = false;
 
     // Extensibility & Enterprise fleet management
@@ -39,7 +40,7 @@ public class DeviceInfo
         : string.Join(", ", AllowedPrinters);
 
     [System.Text.Json.Serialization.JsonIgnore]
-    public string DeviceStatus => IsBlocked ? "Đã từ chối" : !IsApproved ? "Chờ phê duyệt" : IsOnline ? "Trực tuyến" : "Ngoại tuyến";
+    public string DeviceStatus => IsBlocked ? "Đã từ chối" : ReconnectAllowed ? "Được phép yêu cầu lại" : !IsApproved ? "Chờ phê duyệt" : IsOnline ? "Trực tuyến" : "Ngoại tuyến";
 }
 
 public class SharedPrinterInfo
