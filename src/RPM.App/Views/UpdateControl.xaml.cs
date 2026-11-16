@@ -236,11 +236,27 @@ public partial class UpdateControl : UserControl
             return;
         }
 
+        // Record the transaction before launching the updater. If the process
+        // exits between these two operations, startup can still reconcile it.
+        try
+        {
+            UpdateService.WritePendingUpdate(_settings.AppVersion, _availableManifest);
+        }
+        catch (Exception ex)
+        {
+            SetStatusState("Không thể ghi trạng thái cập nhật", DangerColor, LightRedColor);
+            MessageBox.Show($"Không thể ghi trạng thái cập nhật: {ex.Message}", "Lỗi cập nhật", MessageBoxButton.OK, MessageBoxImage.Error);
+            BtnUpdateNow.IsEnabled = true;
+            BtnCheckUpdate.IsEnabled = true;
+            return;
+        }
+
         await Task.Delay(800);
 
         bool restarted = UpdateService.ApplyUpdateAndRestart(targetFile, out string err);
         if (!restarted)
         {
+            UpdateService.ClearPendingUpdate();
             SetStatusState("Cập nhật thất bại", DangerColor, LightRedColor);
             MessageBox.Show($"Không cài được bản mới: {err}", "Lỗi cập nhật", MessageBoxButton.OK, MessageBoxImage.Error);
             BtnUpdateNow.IsEnabled = true;
@@ -249,7 +265,6 @@ public partial class UpdateControl : UserControl
         }
         else
         {
-            UpdateService.WritePendingUpdate(_settings.AppVersion, _availableManifest);
             Application.Current?.Shutdown();
         }
     }

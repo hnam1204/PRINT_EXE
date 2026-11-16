@@ -13,19 +13,30 @@ public sealed class RealtimeGatewayClient : IAsyncDisposable
 {
     private readonly Func<CancellationToken, Task<CloudRealtimeSession?>> _sessionFactory;
     private readonly string _deviceId;
+    private readonly RealtimeCursorState _cursorState;
+    private readonly Action<long, IReadOnlyCollection<long>>? _persistCursor;
     private readonly CancellationTokenSource _stop = new();
     private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
     private Task? _loop;
-    private long _cursor;
 
-    public RealtimeGatewayClient(string deviceId, Func<CancellationToken, Task<CloudRealtimeSession?>> sessionFactory)
+    public RealtimeGatewayClient(
+        string deviceId,
+        Func<CancellationToken, Task<CloudRealtimeSession?>> sessionFactory,
+        long initialCursor = 0,
+        IEnumerable<long>? processedEventIds = null,
+        Action<long, IReadOnlyCollection<long>>? persistCursor = null)
     {
         _deviceId = deviceId;
         _sessionFactory = sessionFactory;
+        _cursorState = new RealtimeCursorState(initialCursor, processedEventIds);
+        _persistCursor = persistCursor;
     }
+
+    public long Cursor => _cursorState.Cursor;
 
     public bool IsRunning => _loop is not null;
     public event EventHandler<CloudRealtimeEvent>? OnEvent;
+    public event Func<CloudRealtimeEvent, Task>? OnEventAsync;
     public event EventHandler<string>? OnLog;
 
     public Task StartAsync()
@@ -49,7 +60,7 @@ public sealed class RealtimeGatewayClient : IAsyncDisposable
                 socket.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
                 ValidateGatewayUri(session.GatewayUrl);
                 await socket.ConnectAsync(new Uri(session.GatewayUrl), _stop.Token);
-                await SendAsync(socket, new AuthMessage("AUTH", session.SessionToken, _cursor), _stop.Token);
+                await SendAsync(socket, new AuthMessage("AUTH", session.SessionToken, _cursorState.Cursor), _stop.Token);
                 OnLog?.Invoke(this, $"[Realtime] Đã kết nối Gateway cho thiết bị {_deviceId}.");
                 backoff = TimeSpan.FromSeconds(1);
                 await ReceiveLoopAsync(socket, _stop.Token);
@@ -88,9 +99,20 @@ public sealed class RealtimeGatewayClient : IAsyncDisposable
             catch (JsonException) { continue; }
             if (gatewayMessage?.Event is null || !string.Equals(gatewayMessage.Type, "EVENT", StringComparison.OrdinalIgnoreCase)) continue;
             var eventData = gatewayMessage.Event;
-            if (eventData.Cursor <= Interlocked.Read(ref _cursor)) continue;
-            Interlocked.Exchange(ref _cursor, eventData.Cursor);
+            if (!_cursorState.ShouldProcess(eventData))
+            {
+                if (_cursorState.AdvancePastDuplicate(eventData))
+                    _persistCursor?.Invoke(_cursorState.Cursor, _cursorState.EventIds);
+                continue;
+            }
             OnEvent?.Invoke(this, eventData);
+            if (OnEventAsync is not null)
+            {
+                foreach (Func<CloudRealtimeEvent, Task> handler in OnEventAsync.GetInvocationList())
+                    await handler(eventData);
+            }
+            _cursorState.Commit(eventData);
+            _persistCursor?.Invoke(_cursorState.Cursor, _cursorState.EventIds);
         }
     }
 

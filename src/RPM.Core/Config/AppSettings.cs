@@ -7,8 +7,18 @@ using RPM.Core.Update;
 
 namespace RPM.Core.Config;
 
+public enum PrintTransportMode
+{
+    DirectOnly,
+    Auto,
+    LegacyCloud
+}
+
 public class AppSettings
 {
+    public const int CurrentConfigSchemaVersion = 2;
+
+    public int ConfigSchemaVersion { get; set; } = CurrentConfigSchemaVersion;
     public string AppVersion { get; set; } = "1.0.1";
     public AppRole Role { get; set; } = AppRole.Unconfigured;
     public string DeviceId { get; set; } = Guid.NewGuid().ToString("N");
@@ -23,6 +33,8 @@ public class AppSettings
     public string CloudApiBaseUrl { get; set; } = "https://print-exe.vercel.app/";
     public string RealtimeGatewayUrl { get; set; } = string.Empty;
     public bool RealtimeEnabled { get; set; } = true;
+    public long RealtimeEventCursor { get; set; }
+    public List<long> RealtimeProcessedEventIds { get; set; } = new();
     public bool CloudTransportEnabled { get; set; } = false;
     // Kept separately from the customer-facing label so authorization cannot
     // be bypassed by choosing a label such as "Quản trị viên".
@@ -47,6 +59,9 @@ public class AppSettings
     public bool ShowDesktopNotifications { get; set; } = true;
     public int LocalIppPort { get; set; } = 9199;
     public bool DirectPrintStreamingEnabled { get; set; } = true;
+    // Nullable preserves the legacy boolean for existing config files while
+    // making the active transport policy explicit for new installations.
+    public PrintTransportMode? TransportMode { get; set; }
     public int DirectPrintChunkBytes { get; set; } = RPM.Core.Security.PacketSecurity.DirectPrintChunkBytes;
     public long DirectPrintMaxBytes { get; set; } = RPM.Core.Security.PacketSecurity.MaxDirectPrintJobBytes;
     public List<DeviceInfo> ApprovedClients { get; set; } = new();
@@ -62,6 +77,11 @@ public class AppSettings
     public bool AutoInstallUpdates { get; set; } = false; // Tự động cài đặt hoặc hiển thị nút cho người dùng bấm
     public int CheckIntervalMinutes { get; set; } = 60;   // Chu kỳ kiểm tra định kỳ (phút)
     public List<UpdateHistoryItem> UpdateHistory { get; set; } = new();
+
+    public PrintTransportMode EffectiveTransportMode => TransportMode ??
+        (DirectPrintStreamingEnabled ? PrintTransportMode.DirectOnly : PrintTransportMode.LegacyCloud);
+
+    public bool UsesDirectTransport => EffectiveTransportMode != PrintTransportMode.LegacyCloud;
 }
 
 public static class ConfigManager
@@ -80,25 +100,23 @@ public static class ConfigManager
 
     public static AppSettings Load()
     {
-        try
+        if (TryLoadFile(ConfigFilePath, out var settings, out bool changed))
         {
-            if (File.Exists(ConfigFilePath))
-            {
-                string json = File.ReadAllText(ConfigFilePath);
-                var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOpts);
-                if (settings != null)
-                {
-                    bool wasPlaintext = !string.IsNullOrWhiteSpace(settings.EncryptionSecret) &&
-                        !settings.EncryptionSecret.StartsWith("dpapi:", StringComparison.Ordinal);
-                    settings.EncryptionSecret = Unprotect(settings.EncryptionSecret);
-                    if (wasPlaintext) Save(settings);
-                    return settings;
-                }
-            }
+            if (changed) Save(settings);
+            return settings;
         }
-        catch
+
+        PreserveUnreadableConfig();
+        string backupFolder = Path.Combine(AppDataFolder, "Updates", "config-backups");
+        if (Directory.Exists(backupFolder))
         {
-            // Fallback to default
+            foreach (string backupPath in Directory.EnumerateFiles(backupFolder, "config-*.json")
+                         .OrderByDescending(File.GetLastWriteTimeUtc))
+            {
+                if (!TryLoadFile(backupPath, out settings, out _)) continue;
+                Save(settings);
+                return settings;
+            }
         }
 
         var newSettings = new AppSettings();
@@ -106,10 +124,38 @@ public static class ConfigManager
         return newSettings;
     }
 
+    public static AppSettings Migrate(AppSettings settings, int storedSchemaVersion)
+    {
+        // Migrations are additive and deliberately preserve all user-owned
+        // fields. Missing collections are repaired without resetting identity,
+        // activation, printer, geofence, or history data.
+        settings.SharedPrinterNames ??= new();
+        settings.Departments ??= new() { "Chung" };
+        settings.ApprovedClients ??= new();
+        settings.PrintHistory ??= new();
+        settings.UpdateHistory ??= new();
+        settings.RealtimeProcessedEventIds ??= new();
+
+        if (storedSchemaVersion < 2)
+        {
+            settings.RealtimeEventCursor = Math.Max(0, settings.RealtimeEventCursor);
+            settings.RealtimeProcessedEventIds = settings.RealtimeProcessedEventIds
+                .Where(id => id > 0)
+                .Distinct()
+                .TakeLast(256)
+                .ToList();
+        }
+
+        settings.ConfigSchemaVersion = AppSettings.CurrentConfigSchemaVersion;
+        return settings;
+    }
+
     public static void Save(AppSettings settings)
     {
+        string? tempPath = null;
         try
         {
+            settings.ConfigSchemaVersion = AppSettings.CurrentConfigSchemaVersion;
             if (!Directory.Exists(AppDataFolder))
             {
                 Directory.CreateDirectory(AppDataFolder);
@@ -119,11 +165,17 @@ public static class ConfigManager
                 ?? throw new InvalidOperationException("Unable to serialize application settings.");
             root["EncryptionSecret"] = Protect(settings.EncryptionSecret);
             string json = root.ToJsonString(JsonOpts);
-            File.WriteAllText(ConfigFilePath, json);
+            tempPath = ConfigFilePath + $".{Guid.NewGuid():N}.tmp";
+            File.WriteAllText(tempPath, json);
+            File.Move(tempPath, ConfigFilePath, true);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error saving config: {ex.Message}");
+            if (tempPath is not null)
+            {
+                try { File.Delete(tempPath); } catch { }
+            }
         }
     }
 
@@ -157,6 +209,45 @@ public static class ConfigManager
         string backupPath = Path.Combine(backupFolder, $"config-{DateTime.UtcNow:yyyyMMddHHmmssfff}.json");
         File.Copy(ConfigFilePath, backupPath, false);
         return backupPath;
+    }
+
+    private static bool TryLoadFile(string path, out AppSettings settings, out bool changed)
+    {
+        settings = new AppSettings();
+        changed = false;
+        try
+        {
+            if (!File.Exists(path)) return false;
+            string json = File.ReadAllText(path);
+            using var document = JsonDocument.Parse(json);
+            int storedVersion = document.RootElement.TryGetProperty("ConfigSchemaVersion", out var version)
+                && version.TryGetInt32(out int parsedVersion)
+                ? parsedVersion
+                : 1;
+            var loaded = JsonSerializer.Deserialize<AppSettings>(json, JsonOpts);
+            if (loaded is null) return false;
+            bool wasPlaintext = !string.IsNullOrWhiteSpace(loaded.EncryptionSecret) &&
+                !loaded.EncryptionSecret.StartsWith("dpapi:", StringComparison.Ordinal);
+            loaded.EncryptionSecret = Unprotect(loaded.EncryptionSecret);
+            settings = Migrate(loaded, storedVersion);
+            changed = wasPlaintext || storedVersion != AppSettings.CurrentConfigSchemaVersion;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void PreserveUnreadableConfig()
+    {
+        if (!File.Exists(ConfigFilePath)) return;
+        try
+        {
+            string preserved = ConfigFilePath + $".corrupt-{DateTime.UtcNow:yyyyMMddHHmmssfff}.json";
+            File.Copy(ConfigFilePath, preserved, false);
+        }
+        catch { }
     }
 
     private static string Protect(string value)

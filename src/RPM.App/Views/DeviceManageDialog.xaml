@@ -26,6 +26,7 @@
                 </Border>
                 <TextBlock Text="MÁY IN ĐƯỢC PHÉP SỬ DỤNG" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6"/>
                 <TextBlock x:Name="TxtAllPrintersHint" Text="Chọn máy in mà thiết bị được phép sử dụng." FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                <ComboBox x:Name="CmbAccessMode" Style="{StaticResource ModernComboBox}" Margin="0,0,0,8" ToolTip="Chọn chính sách quyền máy in"/>
                 <ListBox x:Name="LstPrinters" Height="150" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"/>
             </StackPanel>
             <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">

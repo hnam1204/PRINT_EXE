@@ -13,7 +13,70 @@ public enum PrintJobStatus
     Printing = 1,
     Completed = 2,
     Failed = 3,
-    Cancelled = 4
+    Cancelled = 4,
+    // Keep UNKNOWN separate from a confirmed failure. A restart or lost
+    // acknowledgement must never become an instruction to print again.
+    Unknown = 5
+}
+
+public enum PrinterAccessMode
+{
+    AllShared = 0,
+    SelectedOnly = 1,
+    None = 2
+}
+
+public static class PrinterAccessPolicy
+{
+    public static PrinterAccessMode Normalize(PrinterAccessMode mode, IReadOnlyCollection<string>? allowedPrinters)
+    {
+        // Older settings only stored a list: a non-empty legacy list means selected-only.
+        if (mode == PrinterAccessMode.AllShared && allowedPrinters is { Count: > 0 })
+            return PrinterAccessMode.SelectedOnly;
+        return mode;
+    }
+
+    public static IReadOnlyList<SharedPrinterInfo> Filter(
+        IEnumerable<SharedPrinterInfo> sharedPrinters,
+        PrinterAccessMode mode,
+        IReadOnlyCollection<string>? allowedPrinters)
+    {
+        var shared = sharedPrinters
+            .Where(printer => printer.IsShared)
+            .ToList();
+        return Normalize(mode, allowedPrinters) switch
+        {
+            PrinterAccessMode.None => Array.Empty<SharedPrinterInfo>(),
+            PrinterAccessMode.SelectedOnly => shared
+                .Where(printer => allowedPrinters?.Contains(printer.Name, StringComparer.OrdinalIgnoreCase) == true)
+                .ToList(),
+            _ => shared
+        };
+    }
+
+    public static bool Allows(PrinterAccessMode mode, IReadOnlyCollection<string>? allowedPrinters, string printerName)
+    {
+        return Normalize(mode, allowedPrinters) switch
+        {
+            PrinterAccessMode.None => false,
+            PrinterAccessMode.SelectedOnly => allowedPrinters?.Contains(printerName, StringComparer.OrdinalIgnoreCase) == true,
+            _ => true
+        };
+    }
+
+    public static string ToApiValue(PrinterAccessMode mode) => mode switch
+    {
+        PrinterAccessMode.SelectedOnly => "SELECTED_ONLY",
+        PrinterAccessMode.None => "NONE",
+        _ => "ALL_SHARED"
+    };
+
+    public static PrinterAccessMode FromApiValue(string? value) => value?.Trim().ToUpperInvariant() switch
+    {
+        "SELECTED_ONLY" => PrinterAccessMode.SelectedOnly,
+        "NONE" => PrinterAccessMode.None,
+        _ => PrinterAccessMode.AllShared
+    };
 }
 
 public class DeviceInfo
@@ -28,16 +91,21 @@ public class DeviceInfo
     public bool IsBlocked { get; set; } = false;
     public bool ReconnectAllowed { get; set; } = false;
     public bool IsOnline { get; set; } = false;
+    public string PairingId { get; set; } = string.Empty;
 
     // Extensibility & Enterprise fleet management
     public string Department { get; set; } = "Chung";
     public List<string> AllowedPrinters { get; set; } = new();
+    public PrinterAccessMode PrinterPermissionMode { get; set; } = PrinterAccessMode.AllShared;
     public int PrintJobsCount { get; set; } = 0;
 
     [System.Text.Json.Serialization.JsonIgnore]
     public string AllowedPrintersSummary => AllowedPrinters == null || AllowedPrinters.Count == 0
-        ? "Tất cả máy in chia sẻ"
+        ? (EffectivePrinterPermissionMode == PrinterAccessMode.AllShared ? "Tất cả máy in chia sẻ" : "Không được cấp máy in")
         : string.Join(", ", AllowedPrinters);
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public PrinterAccessMode EffectivePrinterPermissionMode => PrinterAccessPolicy.Normalize(PrinterPermissionMode, AllowedPrinters);
 
     [System.Text.Json.Serialization.JsonIgnore]
     public string ConnectionStatus => IsOnline ? "Máy đang trực tuyến" : "Máy đang ngoại tuyến";
@@ -108,6 +176,7 @@ public class PrintJob
             : "Đã xác nhận hoàn tất",
         PrintJobStatus.Failed => "Không thể in",
         PrintJobStatus.Cancelled => "Đã hủy",
+        PrintJobStatus.Unknown => "Chưa xác định",
         _ => Status.ToString()
     };
 

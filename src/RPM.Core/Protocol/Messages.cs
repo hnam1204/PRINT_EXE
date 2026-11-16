@@ -77,11 +77,13 @@ public class ClientJoinResponsePayload
     public string EncryptionSecret { get; set; } = string.Empty;
     public SharedPrinterInfo? SharedPrinter { get; set; }
     public List<SharedPrinterInfo> AvailablePrinters { get; set; } = new();
+    public string PrinterAccessMode { get; set; } = "ALL_SHARED";
 }
 
 public class PrintersListUpdatePayload
 {
     public List<SharedPrinterInfo> Printers { get; set; } = new();
+    public string PrinterAccessMode { get; set; } = "ALL_SHARED";
 }
 
 public class PrintJobPayload

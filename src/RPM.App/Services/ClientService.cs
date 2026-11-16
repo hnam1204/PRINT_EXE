@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Collections.Concurrent;
 using System.Windows;
 using RPM.Core.Config;
+using RPM.Core.Connection;
 using RPM.Core.Cloud;
 using RPM.Core.Models;
 using RPM.Core.Protocol;
@@ -39,16 +40,25 @@ public class ClientService : IDisposable, IAsyncDisposable
     public SharedPrinterInfo? RemotePrinter => _remotePrinter;
     public bool IsApproved => _isApproved;
     public bool IsCloudOnline => _cloud.IsOnline;
+    public ActivationStatus ActivationStatus => _cloud.ActivationStatus;
     public bool HasStoredCloudToken => _cloud.HasStoredToken;
     public CloudActivationInfo? CloudActivationInfo => _cloud.ActivationInfo;
     public bool IsOnline => _cloud.IsOnline || _relayClient.IsConnected;
+    public bool IsInternalConnectionReady => _relayClient.IsConnected;
     public bool IsConnecting { get; private set; }
     public string RelayEndpoint => _settings.RelayServerUrl;
     public bool IsRemotePrinterInstalled => _remotePrinterInstalled;
-    public string ConnectionStatus => _connectionStatus;
-    public string ConnectionStatusDisplay => _cloud.IsOnline
-        ? "Đã kết nối dịch vụ"
-        : _relayClient.IsConnected ? "Đã kết nối nội bộ" : "Mất kết nối dịch vụ";
+    public string ConnectionStatus => ConnectionStatusInfo.PrimaryText;
+    public string DetailedConnectionStatus => _connectionStatus;
+    public ConnectionStatusSnapshot ConnectionStatusInfo => ConnectionStatusResolver.Resolve(
+        _cloud.ActivationStatus,
+        _cloud.IsOnline,
+        _relayClient.IsConnected);
+    public ConnectionMode ConnectionMode => ConnectionStatusInfo.ConnectionMode;
+    public TransportStatus TransportStatus => ConnectionStatusInfo.TransportStatus;
+    public string ConnectionStatusDisplay => ConnectionStatusInfo.PrimaryText;
+    public string ConnectionStatusSecondaryDisplay => ConnectionStatusInfo.SecondaryText ?? string.Empty;
+    public string ActivationStatusDisplay => ConnectionStatusResolver.GetActivationText(_cloud.ActivationStatus);
     public string GeofenceStatusDisplay { get; private set; } = "Chưa xác minh vị trí";
     private bool RequiresBackendPrintAuthorization => _cloud.IsCustomerActivation;
 
@@ -67,7 +77,7 @@ public class ClientService : IDisposable, IAsyncDisposable
             if (!_cloud.IsOnline) _ = StartRelayFallbackAsync();
         };
         _cloud.OnEnrollmentRevoked += (s, e) => OnEnrollmentRevoked?.Invoke(this, EventArgs.Empty);
-        _cloud.OnRealtimeEvent += Cloud_OnRealtimeEvent;
+        _cloud.OnRealtimeEventAsync += Cloud_OnRealtimeEventAsync;
 
         // Restore history
         foreach (var job in _settings.PrintHistory.Take(50))
@@ -84,14 +94,16 @@ public class ClientService : IDisposable, IAsyncDisposable
         _ippServer.OnLog += (s, msg) => OnLog?.Invoke(this, msg);
     }
 
-    private void Cloud_OnRealtimeEvent(object? sender, CloudRealtimeEvent realtimeEvent)
+    private async Task Cloud_OnRealtimeEventAsync(CloudRealtimeEvent realtimeEvent)
     {
         if (!string.IsNullOrWhiteSpace(realtimeEvent.PairingId) &&
             (realtimeEvent.EventType.Equals("PAIRING_APPROVED", StringComparison.OrdinalIgnoreCase) ||
              realtimeEvent.EventType.Equals("PAIRING_REJECTED", StringComparison.OrdinalIgnoreCase) ||
-             realtimeEvent.EventType.Equals("PAIRING_REVOKED", StringComparison.OrdinalIgnoreCase)))
+              realtimeEvent.EventType.Equals("PAIRING_REVOKED", StringComparison.OrdinalIgnoreCase) ||
+              realtimeEvent.EventType.Equals("PAIRING_PRINTER_PERMISSIONS_UPDATED", StringComparison.OrdinalIgnoreCase) ||
+              realtimeEvent.EventType.Equals("PRINTER_CATALOG_UPDATED", StringComparison.OrdinalIgnoreCase)))
         {
-            _ = ApplyRealtimePairingDecisionAsync(realtimeEvent.PairingId);
+            await ApplyRealtimePairingDecisionAsync(realtimeEvent.PairingId);
             return;
         }
 
@@ -116,20 +128,8 @@ public class ClientService : IDisposable, IAsyncDisposable
         {
             var job = PrintHistory.FirstOrDefault(item => item.JobId == realtimeEvent.JobId);
             if (job is null) return;
-            job.Status = status.ToUpperInvariant() switch
-            {
-                "COMPLETED" or "SPOOLER_ACCEPTED" => PrintJobStatus.Completed,
-                "FAILED" or "UNKNOWN" or "CANCELED" => PrintJobStatus.Failed,
-                "DOWNLOADING" or "SPOOLING" => PrintJobStatus.Printing,
-                _ => job.Status
-            };
-            job.StatusMessage = status.ToUpperInvariant() switch
-            {
-                "SPOOLER_ACCEPTED" => "Đã gửi đến máy in. Chưa xác minh được việc in ra giấy.",
-                "UNKNOWN" => "Chưa xác định kết quả in; không tự động in lại.",
-                "COMPLETED" => "Đã gửi đến máy in.",
-                _ => $"Trạng thái máy chủ: {status}"
-            };
+            job.Status = PrintJobStatusMapper.FromCloud(status, job.Status);
+            job.StatusMessage = PrintJobStatusMapper.MessageFromCloud(status);
             OnStateChanged?.Invoke(this, EventArgs.Empty);
         });
     }
@@ -149,7 +149,7 @@ public class ClientService : IDisposable, IAsyncDisposable
 
         // Direct printing is the selected transport when enabled. Cloud remains
         // available as the legacy rollback path when direct streaming is disabled.
-        if (_settings.DirectPrintStreamingEnabled || !_cloud.IsOnline)
+        if (_settings.UsesDirectTransport || !_cloud.IsOnline)
             await StartRelayFallbackAsync();
     }
 
@@ -557,7 +557,7 @@ public class ClientService : IDisposable, IAsyncDisposable
                             _isApproved = true;
                             _connectionStatus = "Đã được chấp nhận";
                             _settings.EncryptionSecret = res.EncryptionSecret;
-                            _remotePrinter = res.SharedPrinter;
+                            _remotePrinter = res.AvailablePrinters.FirstOrDefault();
 
                             Application.Current?.Dispatcher.Invoke(() =>
                             {
@@ -569,10 +569,7 @@ public class ClientService : IDisposable, IAsyncDisposable
                                         AvailablePrinters.Add(p);
                                     }
                                 }
-                                else if (_remotePrinter != null)
-                                {
-                                    AvailablePrinters.Add(_remotePrinter);
-                                }
+                                else if (_remotePrinter != null) AvailablePrinters.Add(_remotePrinter);
                             });
 
                             ConfigManager.Save(_settings);
@@ -580,6 +577,10 @@ public class ClientService : IDisposable, IAsyncDisposable
                             if (_remotePrinter != null)
                             {
                                 _ippServer.PrinterName = $"{_remotePrinter.Name} (Remote)";
+                            }
+                            else
+                            {
+                                _ippServer.PrinterName = string.Empty;
                             }
 
                             OnLog?.Invoke(this, $"[Thành công] Đã được máy chủ chấp nhận. Nhận danh sách {AvailablePrinters.Count} máy in được phép sử dụng.");
@@ -607,14 +608,8 @@ public class ClientService : IDisposable, IAsyncDisposable
                             {
                                 AvailablePrinters.Add(p);
                             }
-                            if (_remotePrinter != null)
-                            {
-                                _remotePrinter = AvailablePrinters.FirstOrDefault(p => p.Name == _remotePrinter.Name) ?? AvailablePrinters.FirstOrDefault();
-                            }
-                            else
-                            {
-                                _remotePrinter = AvailablePrinters.FirstOrDefault();
-                            }
+                            _remotePrinter = AvailablePrinters.FirstOrDefault();
+                            _ippServer.PrinterName = _remotePrinter is null ? string.Empty : $"{_remotePrinter.Name} (Remote)";
                         });
                         OnStateChanged?.Invoke(this, EventArgs.Empty);
                     }
@@ -624,9 +619,17 @@ public class ClientService : IDisposable, IAsyncDisposable
                 case MessageType.PrinterStatusUpdate:
                 {
                     var updated = JsonSerializer.Deserialize<SharedPrinterInfo>(packet.PayloadJson);
-                    if (updated != null)
+                    if (updated != null && updated.IsShared)
                     {
-                        _remotePrinter = updated;
+                        Application.Current?.Dispatcher.Invoke(() =>
+                        {
+                            var permitted = AvailablePrinters.FirstOrDefault(p => string.Equals(p.Name, updated.Name, StringComparison.OrdinalIgnoreCase));
+                            if (permitted is null) return;
+                            permitted.Status = updated.Status;
+                            permitted.PortName = updated.PortName;
+                            permitted.IsShared = true;
+                            _remotePrinter = permitted;
+                        });
                         OnStateChanged?.Invoke(this, EventArgs.Empty);
                     }
                     break;
@@ -669,6 +672,9 @@ public class ClientService : IDisposable, IAsyncDisposable
                 case MessageType.DeviceRevoked:
                 {
                     _isApproved = false;
+                    AvailablePrinters.Clear();
+                    _remotePrinter = null;
+                    _ippServer.PrinterName = string.Empty;
                     _connectionStatus = "Máy chủ đã thu hồi quyền kết nối";
                     OnLog?.Invoke(this, "[Cảnh báo] Máy chủ đã thu hồi quyền kết nối của máy này.");
                     OnStateChanged?.Invoke(this, EventArgs.Empty);
@@ -747,7 +753,7 @@ public class ClientService : IDisposable, IAsyncDisposable
             return;
         }
 
-        if (!_settings.DirectPrintStreamingEnabled && _settings.CloudTransportEnabled && _cloud.IsOnline)
+        if (_settings.EffectiveTransportMode == PrintTransportMode.LegacyCloud && _settings.CloudTransportEnabled && _cloud.IsOnline)
         {
             try
             {
@@ -766,7 +772,7 @@ public class ClientService : IDisposable, IAsyncDisposable
 
         if (!await EnsureRelayConnectedAsync(TimeSpan.FromSeconds(10)))
         {
-            if (_settings.CloudTransportEnabled && _cloud.IsOnline)
+            if (_settings.EffectiveTransportMode == PrintTransportMode.LegacyCloud && _settings.CloudTransportEnabled && _cloud.IsOnline)
             {
                 try
                 {
@@ -792,7 +798,7 @@ public class ClientService : IDisposable, IAsyncDisposable
             return;
         }
 
-        bool sent = _settings.DirectPrintStreamingEnabled
+        bool sent = _settings.UsesDirectTransport
             ? e.TempFilePath is not null
                 ? await SendDirectPrintJobFromFileAsync(job, e.TempFilePath, e.DataOffset, e.DataLength, Path.GetExtension(job.DocumentName))
                 : await SendDirectPrintJobAsync(job, data, Path.GetExtension(job.DocumentName))
@@ -1108,7 +1114,7 @@ public class ClientService : IDisposable, IAsyncDisposable
             PrintHistory.Insert(0, job);
         });
 
-        if (_settings.CloudTransportEnabled && _cloud.IsOnline)
+        if (_settings.EffectiveTransportMode == PrintTransportMode.LegacyCloud && _settings.CloudTransportEnabled && _cloud.IsOnline)
         {
             try
             {

@@ -9,12 +9,14 @@ var builder = WebApplication.CreateBuilder(args);
 int port = ReadPositiveInt("PORT", 9191);
 string apiBaseUrl = (Environment.GetEnvironmentVariable("REALTIME_API_BASE_URL") ?? "http://127.0.0.1:8000").TrimEnd('/');
 string sharedSecret = Environment.GetEnvironmentVariable("REALTIME_GATEWAY_SHARED_SECRET")?.Trim() ?? string.Empty;
+string databaseConnectionString = Environment.GetEnvironmentVariable("REALTIME_DATABASE_CONNECTION_STRING")?.Trim() ?? string.Empty;
 if (string.IsNullOrWhiteSpace(sharedSecret))
     throw new InvalidOperationException("REALTIME_GATEWAY_SHARED_SECRET is required.");
 
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
-builder.Services.AddSingleton(new GatewayOptions(apiBaseUrl, sharedSecret));
+builder.Services.AddSingleton(new GatewayOptions(apiBaseUrl, sharedSecret, databaseConnectionString));
 builder.Services.AddSingleton<RealtimeConnectionRegistry>();
+builder.Services.AddSingleton<PostgresEventNotifier>(sp => new PostgresEventNotifier(sp.GetRequiredService<GatewayOptions>().DatabaseConnectionString));
 builder.Services.AddHttpClient<RealtimeEventPump>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RealtimeEventPump>());
 
@@ -64,6 +66,12 @@ app.Map("/ws", async (HttpContext context) =>
     var connection = new RealtimeConnection(claims.DeviceId, claims.Role, socket, Math.Max(0, auth.Cursor));
     using var registration = await registry.RegisterAsync(connection, context.RequestAborted);
     await connection.SendJsonAsync(new GatewayMessage("WELCOME", connection.Cursor, null), context.RequestAborted);
+    using var authorizationCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+    var authorizationMonitor = MonitorAuthorizationAsync(
+        connection,
+        registry.Options,
+        context.RequestServices.GetRequiredService<IHttpClientFactory>().CreateClient(),
+        authorizationCts.Token);
     try
     {
         await pump.ReplayAsync(connection, context.RequestAborted);
@@ -90,6 +98,8 @@ app.Map("/ws", async (HttpContext context) =>
     catch (WebSocketException) { }
     finally
     {
+        authorizationCts.Cancel();
+        try { await authorizationMonitor; } catch (OperationCanceledException) { }
         await registry.RemoveAsync(connection);
     }
 });
@@ -132,7 +142,40 @@ static async Task CloseAsync(WebSocket socket, WebSocketCloseStatus status, stri
     }
 }
 
-internal sealed record GatewayOptions(string ApiBaseUrl, string SharedSecret);
+static async Task MonitorAuthorizationAsync(
+    RealtimeConnection connection,
+    GatewayOptions options,
+    HttpClient http,
+    CancellationToken cancellationToken)
+{
+    try
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken);
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"{options.ApiBaseUrl}/api/v1/internal/realtime/authorize/{Uri.EscapeDataString(connection.DeviceId)}");
+            request.Headers.Add("X-Realtime-Gateway-Key", options.SharedSecret);
+            using var response = await http.SendAsync(request, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+            if (!document.RootElement.TryGetProperty("authorized", out var authorized) || !authorized.GetBoolean())
+            {
+                await CloseAsync(connection.Socket, WebSocketCloseStatus.PolicyViolation, "Device authorization revoked");
+                return;
+            }
+        }
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[Realtime] authorization monitor failed: {ex.Message}");
+        await CloseAsync(connection.Socket, WebSocketCloseStatus.PolicyViolation, "Authorization check unavailable");
+    }
+}
+
+internal sealed record GatewayOptions(string ApiBaseUrl, string SharedSecret, string DatabaseConnectionString);
 internal sealed record AuthRequest(string Token, long Cursor);
 internal sealed record GatewayMessage(string Type, long Cursor, RealtimeEventEnvelope? Event);
 
@@ -215,19 +258,59 @@ internal sealed class RealtimeEventPump : BackgroundService
     private readonly HttpClient _http;
     private readonly GatewayOptions _options;
     private readonly RealtimeConnectionRegistry _registry;
+    private readonly PostgresEventNotifier _notifier;
     private long _cursor;
-    public RealtimeEventPump(HttpClient http, GatewayOptions options, RealtimeConnectionRegistry registry)
-    { _http = http; _options = options; _registry = registry; }
+    public RealtimeEventPump(HttpClient http, GatewayOptions options, RealtimeConnectionRegistry registry, PostgresEventNotifier notifier)
+    { _http = http; _options = options; _registry = registry; _notifier = notifier; }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (!string.IsNullOrWhiteSpace(_options.DatabaseConnectionString))
+        {
+            await ExecuteWithPostgresNotificationsAsync(stoppingToken);
+            return;
+        }
+
         while (!stoppingToken.IsCancellationRequested)
         {
-            TimeSpan delay = TimeSpan.FromMilliseconds(200);
-            try { delay = await PumpOnceAsync(stoppingToken) ? TimeSpan.Zero : TimeSpan.FromMilliseconds(200); }
+            TimeSpan delay = TimeSpan.FromSeconds(5);
+            try { delay = await PumpOnceAsync(stoppingToken) ? TimeSpan.Zero : TimeSpan.FromSeconds(5); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex) { Console.Error.WriteLine($"[Realtime] event pump: {ex.Message}"); delay = TimeSpan.FromSeconds(2); }
             await Task.Delay(delay, stoppingToken);
+        }
+    }
+
+    private async Task ExecuteWithPostgresNotificationsAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await PumpOnceAsync(stoppingToken);
+                Task listenTask = _notifier.ListenAsync(stoppingToken);
+                while (!stoppingToken.IsCancellationRequested)
+                {
+                    Task notificationTask = _notifier.Notifications.WaitToReadAsync(stoppingToken).AsTask();
+                    Task heartbeatTask = Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+                    Task completed = await Task.WhenAny(listenTask, notificationTask, heartbeatTask);
+                    if (completed == listenTask)
+                    {
+                        await listenTask;
+                        throw new InvalidOperationException("PostgreSQL notification listener stopped.");
+                    }
+
+                    await PumpOnceAsync(stoppingToken);
+                    while (_notifier.Notifications.TryRead(out _)) { }
+                }
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[Realtime] PostgreSQL listener: {ex.Message}");
+                try { await PumpOnceAsync(stoppingToken); } catch (Exception pumpError) { Console.Error.WriteLine($"[Realtime] reconciliation: {pumpError.Message}"); }
+                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+            }
         }
     }
 

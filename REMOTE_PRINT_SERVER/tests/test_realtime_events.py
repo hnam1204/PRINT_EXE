@@ -9,6 +9,7 @@ os.environ.setdefault("REALTIME_GATEWAY_URL", "ws://127.0.0.1:9191/ws")
 os.environ.setdefault("REALTIME_GATEWAY_SHARED_SECRET", "realtime-test-secret")
 
 from app.main import create_app
+from app.database import Device
 
 
 def register(client: TestClient, device_id: str, role: str) -> str:
@@ -56,3 +57,25 @@ def test_internal_realtime_endpoint_rejects_wrong_gateway_key(tmp_path):
         headers={"X-Realtime-Gateway-Key": "wrong-key"},
     )
     assert response.status_code == 401
+
+
+def test_realtime_authorization_endpoint_tracks_device_revocation(tmp_path):
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'events-revocation.db'}"))
+    token = register(client, "client-revocation", "CLIENT")
+    headers = {"X-Realtime-Gateway-Key": "realtime-test-secret"}
+
+    allowed = client.get("/api/v1/internal/realtime/authorize/client-revocation", headers=headers)
+    assert allowed.status_code == 200
+    assert allowed.json() == {"authorized": True, "role": "CLIENT"}
+
+    profile = client.get("/api/v1/devices/me", headers={"Authorization": f"Bearer {token}"})
+    assert profile.status_code == 200
+    app = client.app
+    with app.state.session_factory() as session:
+        device = session.get(Device, "client-revocation")
+        device.is_revoked = True
+        session.commit()
+
+    revoked = client.get("/api/v1/internal/realtime/authorize/client-revocation", headers=headers)
+    assert revoked.status_code == 200
+    assert revoked.json() == {"authorized": False}

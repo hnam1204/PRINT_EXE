@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Security.Cryptography;
 using System.Windows;
 using RPM.Core.Cloud;
+using RPM.Core.Connection;
 using RPM.Core.Config;
 using RPM.Core.Models;
 using RPM.Core.Protocol;
@@ -44,6 +45,8 @@ public class ServerService : IDisposable, IAsyncDisposable
     private RelayServer? _embeddedRelay;
     private int _isProcessingQueue;
     private Task? _directStreamCleanupTask;
+    private readonly object _startupGate = new();
+    private Task? _startupTask;
 
     public RelayClient Relay => _relayClient;
     public PrinterService PrinterService => _printerService;
@@ -53,12 +56,20 @@ public class ServerService : IDisposable, IAsyncDisposable
     public ObservableCollection<SharedPrinterInfo> SharedPrinters { get; } = new();
     public SharedPrinterInfo? ActiveSharedPrinter { get; private set; }
     public bool IsCloudOnline => _cloud.IsOnline;
+    public ActivationStatus ActivationStatus => _cloud.ActivationStatus;
     public bool HasStoredCloudToken => _cloud.HasStoredToken;
     public CloudActivationInfo? CloudActivationInfo => _cloud.ActivationInfo;
     public bool IsOnline => _cloud.IsOnline || _relayClient.IsConnected;
-    public string ConnectionStatus => _cloud.IsOnline
-        ? "Đã kết nối dịch vụ"
-        : _relayClient.IsConnected ? "Đã kết nối nội bộ" : "Mất kết nối dịch vụ";
+    public bool IsInternalConnectionReady => _embeddedRelay?.IsLanAvailable == true || _relayClient.IsConnected;
+    public ConnectionStatusSnapshot ConnectionStatusInfo => ConnectionStatusResolver.Resolve(
+        _cloud.ActivationStatus,
+        _cloud.IsOnline,
+        IsInternalConnectionReady);
+    public ConnectionMode ConnectionMode => ConnectionStatusInfo.ConnectionMode;
+    public TransportStatus TransportStatus => ConnectionStatusInfo.TransportStatus;
+    public string ConnectionStatus => ConnectionStatusInfo.PrimaryText;
+    public string ConnectionStatusSecondaryDisplay => ConnectionStatusInfo.SecondaryText ?? string.Empty;
+    public string ActivationStatusDisplay => ConnectionStatusResolver.GetActivationText(_cloud.ActivationStatus);
     public bool IsLanRelayAvailable => _embeddedRelay?.IsLanAvailable == true;
     private bool RequiresBackendPrintAuthorization => _cloud.IsCustomerActivation;
     public string LanAccessStatus { get; private set; } = "Chưa kiểm tra quyền LAN";
@@ -80,7 +91,7 @@ public class ServerService : IDisposable, IAsyncDisposable
         _cloud = new CloudConnectionService(settings);
         _cloud.OnLog += (s, msg) => OnLog?.Invoke(this, msg);
         _cloud.OnEnrollmentRevoked += (s, e) => OnEnrollmentRevoked?.Invoke(this, EventArgs.Empty);
-        _cloud.OnRealtimeEvent += Cloud_OnRealtimeEvent;
+        _cloud.OnRealtimeEventAsync += Cloud_OnRealtimeEventAsync;
         _cloud.OnStateChanged += (s, e) =>
         {
             if (_settings.CloudTransportEnabled && _cloud.IsOnline)
@@ -115,16 +126,16 @@ public class ServerService : IDisposable, IAsyncDisposable
         _relayClient.OnLog += (s, msg) => OnLog?.Invoke(this, msg);
     }
 
-    private void Cloud_OnRealtimeEvent(object? sender, CloudRealtimeEvent realtimeEvent)
+    private async Task Cloud_OnRealtimeEventAsync(CloudRealtimeEvent realtimeEvent)
     {
         if (realtimeEvent.EventType.Equals("PAIRING_REQUESTED", StringComparison.OrdinalIgnoreCase))
         {
-            _ = RefreshPendingPairingsAsync();
+            await RefreshPendingPairingsAsync();
             return;
         }
 
         if (realtimeEvent.EventType.Equals("PRINT_JOB_CREATED", StringComparison.OrdinalIgnoreCase))
-            _ = ProcessCloudJobNotificationAsync(realtimeEvent.JobId);
+            await ProcessCloudJobNotificationAsync(realtimeEvent.JobId);
     }
 
     private async Task ProcessCloudJobNotificationAsync(string? jobId)
@@ -145,8 +156,18 @@ public class ServerService : IDisposable, IAsyncDisposable
         catch (Exception ex) { OnLog?.Invoke(this, $"[Realtime] Không xử lý ngay Job {jobId}: {ex.Message}"); }
     }
 
-    public async Task StartAsync()
+    public Task StartAsync(string startupReason = "normal")
     {
+        lock (_startupGate)
+        {
+            _startupTask ??= StartCoreAsync(NormalizeStartupReason(startupReason));
+            return _startupTask;
+        }
+    }
+
+    private async Task StartCoreAsync(string startupReason)
+    {
+        OnLog?.Invoke(this, $"[Startup] Host khởi động với lý do: {startupReason}; mã ghép nối nội bộ sẽ được tạo mới một lần.");
         string previousCloudSessionId = RotateLocalPairingCode();
 
         _relayClient.PairingCode = _settings.PairingCode;
@@ -206,6 +227,13 @@ public class ServerService : IDisposable, IAsyncDisposable
             OnLog?.Invoke(this, "[Cloud] Host worker đã khởi động; kết nối nội bộ LAN vẫn sẵn sàng dự phòng.");
         }
     }
+
+    public static string NormalizeStartupReason(string? startupReason) => startupReason?.Trim().ToLowerInvariant() switch
+    {
+        "updated" => "updated",
+        "rolled-back" => "rolled-back",
+        _ => "normal"
+    };
 
     public async Task<bool> RefreshLanAccessStatusAsync(CancellationToken cancellationToken = default)
     {
@@ -495,6 +523,8 @@ public class ServerService : IDisposable, IAsyncDisposable
                     SaveClientList();
                 }
 
+                device.PairingId = item.PairingId;
+
                 if (isNewPairing)
                 {
                     // A new request is authoritative: allow a previously rejected device to be approved again.
@@ -609,8 +639,7 @@ public class ServerService : IDisposable, IAsyncDisposable
         var installed = _printerService.GetInstalledPrinters();
         foreach (var p in installed)
         {
-            p.IsShared = _settings.SharedPrinterNames.Contains(p.Name, StringComparer.OrdinalIgnoreCase)
-                || (!string.IsNullOrEmpty(_settings.SelectedPrinterName) && string.Equals(p.Name, _settings.SelectedPrinterName, StringComparison.OrdinalIgnoreCase));
+            p.IsShared = _settings.SharedPrinterNames.Contains(p.Name, StringComparer.OrdinalIgnoreCase);
             p.IsDefault = !string.IsNullOrWhiteSpace(_settings.SelectedPrinterName)
                 && string.Equals(p.Name, _settings.SelectedPrinterName, StringComparison.OrdinalIgnoreCase);
         }
@@ -621,19 +650,13 @@ public class ServerService : IDisposable, IAsyncDisposable
     {
         ActiveSharedPrinter = null;
         SharedPrinters.Clear();
-        foreach (var p in printers)
-        {
-            if (p.IsShared && ActiveSharedPrinter == null)
-            {
-                ActiveSharedPrinter = p;
-            }
-            SharedPrinters.Add(p);
-        }
-
-        if (ActiveSharedPrinter == null && SharedPrinters.Any(p => p.IsShared))
-        {
-            ActiveSharedPrinter = SharedPrinters.First(p => p.IsShared);
-        }
+        foreach (var printer in printers)
+            SharedPrinters.Add(printer);
+        ActiveSharedPrinter = SharedPrinters.FirstOrDefault(p =>
+            !string.IsNullOrWhiteSpace(_settings.SelectedPrinterName) &&
+            string.Equals(p.Name, _settings.SelectedPrinterName, StringComparison.OrdinalIgnoreCase));
+        foreach (var item in SharedPrinters)
+            item.IsDefault = ActiveSharedPrinter != null && string.Equals(item.Name, ActiveSharedPrinter.Name, StringComparison.OrdinalIgnoreCase);
     }
 
     public void TogglePrinterSharing(string printerName, bool? forceState = null)
@@ -665,11 +688,6 @@ public class ServerService : IDisposable, IAsyncDisposable
             else
             {
                 _settings.SharedPrinterNames.RemoveAll(n => string.Equals(n, printer.Name, StringComparison.OrdinalIgnoreCase));
-                if (ActiveSharedPrinter?.Name == printer.Name)
-                {
-                    ActiveSharedPrinter = SharedPrinters.FirstOrDefault(p => p.IsShared);
-                    _settings.SelectedPrinterName = ActiveSharedPrinter?.Name ?? string.Empty;
-                }
                 foreach (var item in SharedPrinters)
                 {
                     item.IsDefault = ActiveSharedPrinter != null && string.Equals(item.Name, ActiveSharedPrinter.Name, StringComparison.OrdinalIgnoreCase);
@@ -678,6 +696,7 @@ public class ServerService : IDisposable, IAsyncDisposable
             }
             ConfigManager.Save(_settings);
             BroadcastPrinterStatus();
+            _ = RegisterCloudPrintersAsync();
             OnStatusChanged?.Invoke(this, EventArgs.Empty);
         }
     }
@@ -687,11 +706,6 @@ public class ServerService : IDisposable, IAsyncDisposable
         var target = SharedPrinters.FirstOrDefault(p => p.Name == printerName);
         if (target != null)
         {
-            target.IsShared = true;
-            if (!_settings.SharedPrinterNames.Contains(printerName, StringComparer.OrdinalIgnoreCase))
-            {
-                _settings.SharedPrinterNames.Add(printerName);
-            }
             ActiveSharedPrinter = target;
             _settings.SelectedPrinterName = printerName;
             foreach (var item in SharedPrinters)
@@ -726,18 +740,10 @@ public class ServerService : IDisposable, IAsyncDisposable
 
     public List<SharedPrinterInfo> GetPrintersForClient(DeviceInfo client)
     {
-        var shared = SharedPrinters.Where(p => p.IsShared).ToList();
-        if (shared.Count == 0 && ActiveSharedPrinter != null && ActiveSharedPrinter.IsShared)
-        {
-            shared.Add(ActiveSharedPrinter);
-        }
-
-        if (client.AllowedPrinters == null || client.AllowedPrinters.Count == 0)
-        {
-            return shared;
-        }
-
-        return shared.Where(p => client.AllowedPrinters.Contains(p.Name, StringComparer.OrdinalIgnoreCase)).ToList();
+        return PrinterAccessPolicy.Filter(
+            SharedPrinters,
+            client.PrinterPermissionMode,
+            client.AllowedPrinters).ToList();
     }
 
     public async Task ApproveClientAsync(DeviceInfo client)
@@ -746,6 +752,7 @@ public class ServerService : IDisposable, IAsyncDisposable
         bool previousBlocked = client.IsBlocked;
         bool previousReconnectAllowed = client.ReconnectAllowed;
         var permittedPrinters = GetPrintersForClient(client);
+        var accessMode = client.EffectivePrinterPermissionMode;
         try
         {
             if (_settings.CloudTransportEnabled && _cloud.Client is not null && _cloudPairingIds.TryGetValue(client.DeviceId, out var cloudPairingId))
@@ -753,7 +760,8 @@ public class ServerService : IDisposable, IAsyncDisposable
                 var result = await _cloud.Client.DecidePairingAsync(
                     cloudPairingId,
                     true,
-                    permittedPrinters.Select(p => CloudPrinterId(p.Name)).ToList());
+                    permittedPrinters.Select(p => CloudPrinterId(p.Name)).ToList(),
+                    PrinterAccessPolicy.ToApiValue(accessMode));
                 if (result is null || !string.Equals(result.Status, "APPROVED", StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("Máy chủ từ xa chưa xác nhận phê duyệt thiết bị.");
                 OnLog?.Invoke(this, $"[Cloud] Đã duyệt thiết bị: {client.DeviceName}");
@@ -766,8 +774,9 @@ public class ServerService : IDisposable, IAsyncDisposable
                     IsPending = false,
                     Message = "Máy chủ đã chấp thuận thiết bị của bạn.",
                     EncryptionSecret = _settings.EncryptionSecret,
-                    SharedPrinter = permittedPrinters.FirstOrDefault() ?? ActiveSharedPrinter,
-                    AvailablePrinters = permittedPrinters
+                    SharedPrinter = permittedPrinters.FirstOrDefault(),
+                    AvailablePrinters = permittedPrinters,
+                    PrinterAccessMode = PrinterAccessPolicy.ToApiValue(accessMode)
                 };
 
                 bool sent = await _relayClient.SendEncryptedPayloadAsync(
@@ -873,19 +882,93 @@ public class ServerService : IDisposable, IAsyncDisposable
         }
     }
 
+    public async Task SetClientAllowedPrintersAsync(string deviceId, List<string> allowedPrinters, PrinterAccessMode accessMode)
+    {
+        var client = ConnectedClients.FirstOrDefault(c => c.DeviceId == deviceId);
+        if (client == null) return;
+
+        var normalizedPrinters = allowedPrinters
+            .Where(name => SharedPrinters.Any(printer => printer.IsShared && string.Equals(printer.Name, name, StringComparison.OrdinalIgnoreCase)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (accessMode == PrinterAccessMode.AllShared || accessMode == PrinterAccessMode.None)
+            normalizedPrinters.Clear();
+
+        if (client.IsApproved && _settings.CloudTransportEnabled && _cloud.IsOnline && _cloud.Client is not null)
+        {
+            string pairingId = await ResolveCloudPairingIdAsync(client);
+            if (string.IsNullOrWhiteSpace(pairingId))
+                throw new InvalidOperationException("Không xác định được Pairing đã phê duyệt để cập nhật quyền máy in.");
+
+            var result = await _cloud.Client.UpdatePairingPrinterPermissionsAsync(
+                pairingId,
+                PrinterAccessPolicy.ToApiValue(accessMode),
+                normalizedPrinters.Select(CloudPrinterId).ToList());
+            if (result is null || !string.Equals(result.Status, "APPROVED", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Máy chủ từ xa không xác nhận quyền máy in mới.");
+        }
+
+        client.AllowedPrinters = normalizedPrinters;
+        client.PrinterPermissionMode = accessMode;
+        SaveClientList();
+        OnLog?.Invoke(this, $"[Phân quyền] Cập nhật máy in cho '{client.DeviceName}': {client.AllowedPrintersSummary}");
+        if (client.IsApproved)
+        {
+            await SendPrinterListToClientAsync(client);
+        }
+        OnStatusChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private async Task<string> ResolveCloudPairingIdAsync(DeviceInfo client, CancellationToken cancellationToken = default)
+    {
+        if (!string.IsNullOrWhiteSpace(client.PairingId)) return client.PairingId;
+        if (_cloudPairingIds.TryGetValue(client.DeviceId, out var mappedPairingId) && !string.IsNullOrWhiteSpace(mappedPairingId))
+        {
+            client.PairingId = mappedPairingId;
+            return mappedPairingId;
+        }
+        if (_cloud.Client is null || !_cloud.IsOnline) return string.Empty;
+
+        var pairing = await _cloud.Client.GetApprovedPairingForClientAsync(client.DeviceId, cancellationToken);
+        if (pairing is null || !string.Equals(pairing.Status, "APPROVED", StringComparison.OrdinalIgnoreCase)) return string.Empty;
+        client.PairingId = pairing.PairingId;
+        _cloudPairingIds[client.DeviceId] = pairing.PairingId;
+        SaveClientList();
+        return pairing.PairingId;
+    }
+
     public void SetClientAllowedPrinters(string deviceId, List<string> allowedPrinters)
     {
         var client = ConnectedClients.FirstOrDefault(c => c.DeviceId == deviceId);
-        if (client != null)
+        if (client == null) return;
+        var mode = allowedPrinters.Count == 0 ? PrinterAccessMode.AllShared : PrinterAccessMode.SelectedOnly;
+        _ = SetClientAllowedPrintersAsync(deviceId, allowedPrinters, mode);
+    }
+
+    private async Task SendPrinterListToClientAsync(DeviceInfo client)
+    {
+        if (!_relayClient.IsConnected || string.IsNullOrWhiteSpace(client.DeviceId)) return;
+        var payload = new PrintersListUpdatePayload
         {
-            client.AllowedPrinters = allowedPrinters;
-            SaveClientList();
-            OnLog?.Invoke(this, $"[Phân quyền] Cập nhật máy in cho '{client.DeviceName}': {client.AllowedPrintersSummary}");
-            if (client.IsApproved && client.IsOnline)
-            {
-                _ = ApproveClientAsync(client);
-            }
-            OnStatusChanged?.Invoke(this, EventArgs.Empty);
+            Printers = GetPrintersForClient(client),
+            PrinterAccessMode = PrinterAccessPolicy.ToApiValue(client.EffectivePrinterPermissionMode)
+        };
+        await _relayClient.SendPacketAsync(new NetworkPacket
+        {
+            Type = MessageType.PrintersListUpdate,
+            SenderId = _settings.DeviceId,
+            TargetId = client.DeviceId,
+            PairingCode = _settings.PairingCode,
+            PayloadJson = JsonSerializer.Serialize(payload)
+        });
+    }
+
+    private async Task SendPrinterListsToApprovedClientsAsync()
+    {
+        foreach (var client in ConnectedClients.Where(item => item.IsApproved && !item.IsBlocked).ToList())
+        {
+            try { await SendPrinterListToClientAsync(client); }
+            catch (Exception ex) { OnLog?.Invoke(this, $"[Lỗi phân quyền máy in] {client.DeviceName}: {ex.Message}"); }
         }
     }
 
@@ -936,32 +1019,8 @@ public class ServerService : IDisposable, IAsyncDisposable
     {
         try
         {
-            var sharedList = SharedPrinters.Where(p => p.IsShared).ToList();
-            var payload = new PrintersListUpdatePayload
-            {
-                Printers = sharedList
-            };
-
-            var packet = new NetworkPacket
-            {
-                Type = MessageType.PrintersListUpdate,
-                SenderId = _settings.DeviceId,
-                PairingCode = _settings.PairingCode,
-                PayloadJson = JsonSerializer.Serialize(payload)
-            };
-
-            _ = _relayClient.SendPacketAsync(packet);
-
-            if (ActiveSharedPrinter != null)
-            {
-                _ = _relayClient.SendPacketAsync(new NetworkPacket
-                {
-                    Type = MessageType.PrinterStatusUpdate,
-                    SenderId = _settings.DeviceId,
-                    PairingCode = _settings.PairingCode,
-                    PayloadJson = JsonSerializer.Serialize(ActiveSharedPrinter)
-                });
-            }
+            _ = SendPrinterListsToApprovedClientsAsync();
+            _ = RegisterCloudPrintersAsync();
         }
         catch (Exception ex)
         {
@@ -979,7 +1038,7 @@ public class ServerService : IDisposable, IAsyncDisposable
             ServerDeviceId = _settings.DeviceId,
             ServerDeviceName = _settings.DeviceName,
             PairingCode = _settings.PairingCode,
-            SharedPrinter = ActiveSharedPrinter,
+            SharedPrinter = ActiveSharedPrinter?.IsShared == true ? ActiveSharedPrinter : null,
             SharedPrinters = SharedPrinters.Where(p => p.IsShared).ToList()
         };
 
@@ -992,6 +1051,7 @@ public class ServerService : IDisposable, IAsyncDisposable
         };
 
         await _relayClient.SendPacketAsync(packet);
+        await SendPrinterListsToApprovedClientsAsync();
         OnStatusChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -1522,16 +1582,13 @@ public class ServerService : IDisposable, IAsyncDisposable
         }
 
         // Granular access control check per device
-        if (senderDevice.AllowedPrinters != null && senderDevice.AllowedPrinters.Count > 0)
+        if (!PrinterAccessPolicy.Allows(senderDevice.PrinterPermissionMode, senderDevice.AllowedPrinters, targetPrinterName))
         {
-            if (!senderDevice.AllowedPrinters.Contains(targetPrinterName, StringComparer.OrdinalIgnoreCase))
-            {
-                OnLog?.Invoke(this, $"[Từ chối] Máy con '{senderDevice.DeviceName}' ({senderDevice.Department}) không có quyền in trên '{targetPrinterName}'.");
-                job.Status = PrintJobStatus.Failed;
-                job.StatusMessage = $"Thiết bị của bạn không có quyền in trên máy in '{targetPrinterName}'.";
-                await NotifyJobProgressAsync(job);
-                return;
-            }
+            OnLog?.Invoke(this, $"[Từ chối] Máy con '{senderDevice.DeviceName}' ({senderDevice.Department}) không có quyền in trên '{targetPrinterName}'.");
+            job.Status = PrintJobStatus.Failed;
+            job.StatusMessage = $"Thiết bị của bạn không có quyền in trên máy in '{targetPrinterName}'.";
+            await NotifyJobProgressAsync(job);
+            return;
         }
 
         // Anti-duplicate protection: check content hash within last 10 minutes

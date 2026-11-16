@@ -32,8 +32,7 @@ public static class DirectPrintAuthorization
             return false;
         }
 
-        if (sender.AllowedPrinters is { Count: > 0 } &&
-            !sender.AllowedPrinters.Contains(selected.Name, StringComparer.OrdinalIgnoreCase))
+        if (!PrinterAccessPolicy.Allows(sender.PrinterPermissionMode, sender.AllowedPrinters, selected.Name))
         {
             error = $"Thiết bị không có quyền in trên máy in '{selected.Name}'.";
             return false;

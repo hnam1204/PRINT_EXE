@@ -19,6 +19,7 @@ public partial class DeviceManageDialog : Window
     private readonly DeviceInfo _device;
     public DeviceManageAction Action { get; private set; }
     public List<string> SelectedPrinters { get; } = new();
+    public PrinterAccessMode PrinterAccessMode { get; private set; } = PrinterAccessMode.AllShared;
 
     public DeviceManageDialog(DeviceInfo device, IEnumerable<string> sharedPrinters)
     {
@@ -38,9 +39,25 @@ public partial class DeviceManageDialog : Window
             TxtReconnectStatus.Text = "Đã cho phép máy gửi yêu cầu kết nối mới. Máy con cần nhập mã kết nối hiện tại và chờ bạn chấp nhận.";
         }
 
-        foreach (string printer in sharedPrinters.OrderBy(x => x))
+        var availablePrinters = sharedPrinters.OrderBy(x => x).ToList();
+        CmbAccessMode.Items.Add("Tất cả máy in được chia sẻ");
+        CmbAccessMode.Items.Add("Chỉ những máy in đã chọn");
+        CmbAccessMode.Items.Add("Không cho phép in");
+        CmbAccessMode.SelectedIndex = device.EffectivePrinterPermissionMode switch
         {
-            LstPrinters.Items.Add(new WpfCheckBox { Content = printer, IsChecked = device.AllowedPrinters.Contains(printer, StringComparer.OrdinalIgnoreCase), Padding = new Thickness(6, 4, 4, 4) });
+            PrinterAccessMode.SelectedOnly => 1,
+            PrinterAccessMode.None => 2,
+            _ => 0
+        };
+        TxtAllPrintersHint.Text = availablePrinters.Count == 0
+            ? "Chưa có máy in nào được chia sẻ. Vui lòng bật chia sẻ trong Cài đặt → Máy in."
+            : "Chọn máy in mà thiết bị được phép sử dụng. Bỏ chọn tất cả để chặn quyền in.";
+        LstPrinters.Visibility = availablePrinters.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        foreach (string printer in availablePrinters)
+        {
+            bool isChecked = device.EffectivePrinterPermissionMode == PrinterAccessMode.AllShared
+                || device.AllowedPrinters.Contains(printer, StringComparer.OrdinalIgnoreCase);
+            LstPrinters.Items.Add(new WpfCheckBox { Content = printer, IsChecked = isChecked, Padding = new Thickness(6, 4, 4, 4) });
         }
     }
 
@@ -71,6 +88,12 @@ public partial class DeviceManageDialog : Window
     private void BtnSave_Click(object sender, RoutedEventArgs e)
     {
         SelectedPrinters.AddRange(LstPrinters.Items.OfType<WpfCheckBox>().Where(x => x.IsChecked == true).Select(x => x.Content?.ToString()).OfType<string>());
+        PrinterAccessMode = CmbAccessMode.SelectedIndex switch
+        {
+            1 when SelectedPrinters.Count > 0 => PrinterAccessMode.SelectedOnly,
+            0 => PrinterAccessMode.AllShared,
+            _ => PrinterAccessMode.None
+        };
         Action = DeviceManageAction.SavePrinters; DialogResult = true;
     }
 

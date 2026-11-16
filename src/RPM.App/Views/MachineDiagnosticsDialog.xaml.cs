@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Media;
 using RPM.App.Services;
 using RPM.Core.Config;
+using RPM.Core.Connection;
 using RPM.Core.Diagnostics;
 using RPM.Core.Models;
 using RPM.Printing;
@@ -57,8 +58,18 @@ public partial class MachineDiagnosticsDialog : Window
         bool internet = NetworkInterface.GetIsNetworkAvailable();
         rows.Add(new DiagnosticRow("Internet", internet ? "Windows báo có kết nối mạng." : "Không phát hiện kết nối mạng.", internet ? DiagnosticState.Success : DiagnosticState.Warning));
 
-        bool relayConnected = _serverService?.Relay.IsConnected ?? _clientService?.Relay.IsConnected ?? false;
-        rows.Add(new DiagnosticRow("Kênh kết nối ứng dụng", relayConnected ? "Kết nối nội bộ đang hoạt động." : "Kết nối nội bộ chưa hoạt động; chưa xác nhận được máy ở xa.", relayConnected ? DiagnosticState.Success : DiagnosticState.Warning));
+        var connectionStatus = _serverService?.ConnectionStatusInfo
+            ?? _clientService?.ConnectionStatusInfo
+            ?? ConnectionStatusResolver.Resolve(ActivationStatus.NotActivated, cloudOnline: false, relayOnline: false);
+        rows.Add(new DiagnosticRow(
+            "Trạng thái kết nối ứng dụng",
+            connectionStatus.SecondaryText is null
+                ? connectionStatus.PrimaryText
+                : $"{connectionStatus.PrimaryText} • {connectionStatus.SecondaryText}",
+            connectionStatus.IsPrimaryConnected ? DiagnosticState.Success : DiagnosticState.Warning));
+
+        bool relayConnected = _serverService?.IsInternalConnectionReady ?? _clientService?.IsInternalConnectionReady ?? false;
+        rows.Add(new DiagnosticRow("Kênh nội bộ", relayConnected ? "Kết nối nội bộ đang hoạt động." : "Kết nối nội bộ chưa hoạt động; chưa xác nhận được máy ở xa.", relayConnected ? DiagnosticState.Success : DiagnosticState.Warning));
 
         bool endpointValid = RPM.Core.Networking.RelayEndpointPolicy.TryValidateForRole(_settings.Role, _settings.RelayServerUrl, out var endpointReason);
         string endpointType = _settings.Role == AppRole.Server ? "Kết nối nội bộ của máy chủ" : "Kết nối nội bộ của máy con";

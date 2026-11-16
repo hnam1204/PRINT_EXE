@@ -88,11 +88,18 @@ class PairingResponse(BaseModel):
     status: str
     expiresAt: datetime
     locationStatus: str = "UNVERIFIED"
+    printerAccessMode: Literal["ALL_SHARED", "SELECTED_ONLY", "NONE"] = "ALL_SHARED"
 
 
 class PairingDecision(BaseModel):
     approve: bool
     allowedPrinters: list[str] = Field(default_factory=list, max_length=100)
+    printerAccessMode: Literal["ALL_SHARED", "SELECTED_ONLY", "NONE"] | None = None
+
+
+class PairingPrinterPermissionUpdate(BaseModel):
+    allowedPrinters: list[str] = Field(default_factory=list, max_length=100)
+    printerAccessMode: Literal["ALL_SHARED", "SELECTED_ONLY", "NONE"]
 
 
 class PendingPairing(BaseModel):

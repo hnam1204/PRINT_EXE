@@ -1,4 +1,5 @@
 using RPM.Core.Cloud;
+using RPM.Core.Connection;
 using RPM.Core.Config;
 using RPM.Core.Models;
 using System.Net;
@@ -29,16 +30,19 @@ public sealed class CloudConnectionService : IAsyncDisposable
     private Task? _heartbeatTask;
     private RealtimeGatewayClient? _realtimeGateway;
     private bool _disabledByServer;
+    private ActivationStatus _activationStatus;
 
     public CloudApiClient? Client { get; private set; }
     public CloudActivationInfo? ActivationInfo { get; private set; }
     public bool IsOnline { get; private set; }
+    public ActivationStatus ActivationStatus => _activationStatus;
     public bool IsCustomerActivation => _settings.CloudUsesCustomerActivation || _activationSecretStore.HasSecret;
     public bool HasStoredToken => _tokenStore.HasToken;
     public event EventHandler<string>? OnLog;
     public event EventHandler? OnStateChanged;
     public event EventHandler? OnEnrollmentRevoked;
     public event EventHandler<CloudRealtimeEvent>? OnRealtimeEvent;
+    public event Func<CloudRealtimeEvent, Task>? OnRealtimeEventAsync;
 
     public CloudConnectionService(AppSettings settings)
     {
@@ -53,12 +57,17 @@ public sealed class CloudConnectionService : IAsyncDisposable
             settings.CloudActivationUsedDevices,
             settings.CloudActivationGeofenceRadiusMeters,
             string.IsNullOrWhiteSpace(settings.CloudActivationGeofencePolicy) ? "LIMITED" : settings.CloudActivationGeofencePolicy);
+        _activationStatus = _tokenStore.HasToken
+            ? ActivationStatus.VerificationPending
+            : ActivationStatus.NotActivated;
     }
 
     public async Task<bool> EnrollAsync(string enrollmentSecret, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(enrollmentSecret)) throw new ArgumentException("Enrollment secret is required.", nameof(enrollmentSecret));
         _disabledByServer = false;
+        _activationStatus = ActivationStatus.VerificationPending;
+        OnStateChanged?.Invoke(this, EventArgs.Empty);
         var client = GetOrCreateClient();
         var registration = await client.RegisterDeviceAsync(_settings, enrollmentSecret, cancellationToken);
         bool isCustomerActivation = registration.IsActivationCode ||
@@ -97,6 +106,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
             if (_heartbeatTask is not null) return;
             if (!_tokenStore.HasToken)
             {
+                _activationStatus = ActivationStatus.NotActivated;
                 SetOffline("Kết nối máy chủ từ xa chưa được kích hoạt; tiếp tục dùng kết nối nội bộ.");
                 return;
             }
@@ -122,7 +132,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
                 AsUtc(expiresAt) <= DateTime.UtcNow;
             if (profile.IsRevoked || activationExpired)
             {
-                InvalidateEnrollment(profile.IsRevoked
+                InvalidateEnrollment(profile.IsRevoked ? ActivationStatus.Revoked : ActivationStatus.Expired, profile.IsRevoked
                     ? "Mã kích hoạt đã bị thu hồi; kết nối máy chủ từ xa đã bị vô hiệu hóa."
                     : activationExpired
                         ? "Mã kích hoạt đã hết hạn; kết nối máy chủ từ xa đã bị vô hiệu hóa."
@@ -132,6 +142,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
             string expectedRole = _settings.Role == AppRole.Server ? "HOST" : "CLIENT";
             if (!string.Equals(profile.Role, expectedRole, StringComparison.OrdinalIgnoreCase))
             {
+                _activationStatus = ActivationStatus.VerificationPending;
                 var reenrollment = await TryReenrollForRoleAsync(cancellationToken);
                 if (reenrollment != RoleReenrollmentResult.Succeeded)
                 {
@@ -163,17 +174,20 @@ public sealed class CloudConnectionService : IAsyncDisposable
                 return false;
             }
             IsOnline = true;
+            _activationStatus = ActivationStatus.Valid;
             await EnsureRealtimeGatewayAsync(cancellationToken);
             OnStateChanged?.Invoke(this, EventArgs.Empty);
             return true;
         }
         catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
-            InvalidateEnrollment("Mã kích hoạt đã bị thu hồi hoặc không còn quyền sử dụng.");
+            InvalidateEnrollment(ActivationStatus.Invalid, "Mã kích hoạt đã bị thu hồi hoặc không còn quyền sử dụng.");
             return false;
         }
         catch (Exception)
         {
+            if (_activationStatus == ActivationStatus.NotActivated && _tokenStore.HasToken)
+                _activationStatus = ActivationStatus.VerificationPending;
             SetOffline("Không thể kiểm tra dịch vụ từ xa. Vui lòng kiểm tra kết nối Internet rồi thử lại.");
             return false;
         }
@@ -218,9 +232,10 @@ public sealed class CloudConnectionService : IAsyncDisposable
         OnStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private void InvalidateEnrollment(string reason)
+    private void InvalidateEnrollment(ActivationStatus status, string reason)
     {
         _disabledByServer = true;
+        _activationStatus = status;
         CloudDeviceTokenStore.ClearAllForDevice(_settings.DeviceId);
         _activationSecretStore.Clear();
         ActivationInfo = null;
@@ -254,8 +269,11 @@ public sealed class CloudConnectionService : IAsyncDisposable
         {
             _realtimeGateway = new RealtimeGatewayClient(
                 _settings.DeviceId,
-                token => Client.CreateRealtimeSessionAsync(token));
-            _realtimeGateway.OnEvent += (sender, realtimeEvent) => OnRealtimeEvent?.Invoke(this, realtimeEvent);
+                token => Client.CreateRealtimeSessionAsync(token),
+                _settings.RealtimeEventCursor,
+                _settings.RealtimeProcessedEventIds,
+                CommitRealtimeCursor);
+            _realtimeGateway.OnEventAsync += HandleRealtimeEventAsync;
             _realtimeGateway.OnLog += (sender, message) => OnLog?.Invoke(this, message);
             await _realtimeGateway.StartAsync();
         }
@@ -264,6 +282,21 @@ public sealed class CloudConnectionService : IAsyncDisposable
             _realtimeGateway = null;
             OnLog?.Invoke(this, $"[Realtime] Chưa khởi động được Gateway; dùng đối soát dự phòng: {ex.Message}");
         }
+    }
+
+    private void CommitRealtimeCursor(long cursor, IReadOnlyCollection<long> eventIds)
+    {
+        _settings.RealtimeEventCursor = Math.Max(_settings.RealtimeEventCursor, cursor);
+        _settings.RealtimeProcessedEventIds = eventIds.TakeLast(256).ToList();
+        ConfigManager.Save(_settings);
+    }
+
+    private async Task HandleRealtimeEventAsync(CloudRealtimeEvent realtimeEvent)
+    {
+        OnRealtimeEvent?.Invoke(this, realtimeEvent);
+        if (OnRealtimeEventAsync is null) return;
+        foreach (Func<CloudRealtimeEvent, Task> handler in OnRealtimeEventAsync.GetInvocationList())
+            await handler(realtimeEvent);
     }
 
     private void SaveActivationInfo()
@@ -322,7 +355,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
             }
             catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
-                InvalidateEnrollment("Mã kích hoạt không còn quyền đăng ký lại thiết bị.");
+                InvalidateEnrollment(ActivationStatus.Invalid, "Mã kích hoạt không còn quyền đăng ký lại thiết bị.");
                 return RoleReenrollmentResult.Rejected;
             }
             catch (HttpRequestException)

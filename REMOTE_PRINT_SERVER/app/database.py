@@ -58,6 +58,7 @@ class Pairing(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     allowed_printers: Mapped[list] = mapped_column(JSON, default=list)
+    printer_access_mode: Mapped[str] = mapped_column(String(16), default="ALL_SHARED")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     location_status: Mapped[str] = mapped_column(String(16), default="UNVERIFIED")

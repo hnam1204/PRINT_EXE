@@ -165,7 +165,7 @@ public partial class MainWindow : Window
         dashboard.OnRoleChangeRequested += (s, role) => _ = ChangeRoleAsync(role);
 
         MainContentArea.Content = dashboard;
-        _serverStartTask = _serverService.StartAsync();
+        _serverStartTask = _serverService.StartAsync(GetStartupReason());
     }
 
     private void LoadClientMode()
@@ -179,6 +179,14 @@ public partial class MainWindow : Window
 
         MainContentArea.Content = dashboard;
         _clientStartTask = _clientService.StartAsync();
+    }
+
+    private static string GetStartupReason()
+    {
+        string[] args = Environment.GetCommandLineArgs();
+        if (args.Contains("--updated", StringComparer.OrdinalIgnoreCase)) return "updated";
+        if (args.Contains("--rolled-back", StringComparer.OrdinalIgnoreCase)) return "rolled-back";
+        return "normal";
     }
 
     public void ExitApplication()

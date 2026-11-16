@@ -111,10 +111,19 @@ public sealed class CloudApiClient : IDisposable
         GetAsync<CloudPairingSummary>("api/v1/pairings/summary", cancellationToken);
 
     public Task<CloudPairingResult?> DecidePairingAsync(string pairingId, bool approve, IReadOnlyList<string> allowedPrinters, CancellationToken cancellationToken = default) =>
-        PostAsync<CloudPairingResult>($"api/v1/pairings/{Uri.EscapeDataString(pairingId)}/decision", new CloudPairingDecision(approve, allowedPrinters), cancellationToken);
+        DecidePairingAsync(pairingId, approve, allowedPrinters, "ALL_SHARED", cancellationToken);
+
+    public Task<CloudPairingResult?> DecidePairingAsync(string pairingId, bool approve, IReadOnlyList<string> allowedPrinters, string printerAccessMode, CancellationToken cancellationToken = default) =>
+        PostAsync<CloudPairingResult>($"api/v1/pairings/{Uri.EscapeDataString(pairingId)}/decision", new CloudPairingDecision(approve, allowedPrinters, printerAccessMode), cancellationToken);
+
+    public Task<CloudPairingResult?> UpdatePairingPrinterPermissionsAsync(string pairingId, string printerAccessMode, IReadOnlyList<string> allowedPrinters, CancellationToken cancellationToken = default) =>
+        PutAsync<CloudPairingResult>($"api/v1/pairings/{Uri.EscapeDataString(pairingId)}/printer-permissions", new CloudPairingDecision(true, allowedPrinters, printerAccessMode), cancellationToken);
 
     public Task<CloudPairingResult?> GetPairingAsync(string pairingId, CancellationToken cancellationToken = default) =>
         GetAsync<CloudPairingResult>($"api/v1/pairings/{Uri.EscapeDataString(pairingId)}", cancellationToken);
+
+    public Task<CloudPairingResult?> GetApprovedPairingForClientAsync(string clientId, CancellationToken cancellationToken = default) =>
+        GetAsync<CloudPairingResult>($"api/v1/pairings/approved/{Uri.EscapeDataString(clientId)}", cancellationToken);
 
     public Task<IReadOnlyList<CloudPrinter>?> ListPrintersAsync(string hostId, CancellationToken cancellationToken = default) =>
         GetAsync<IReadOnlyList<CloudPrinter>>($"api/v1/printers?hostId={Uri.EscapeDataString(hostId)}", cancellationToken);

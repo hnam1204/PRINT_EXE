@@ -20,6 +20,7 @@ from .schemas import (
     DeviceRegistrationResponse,
     HeartbeatResponse,
     PairingDecision,
+    PairingPrinterPermissionUpdate,
     PairingRequest,
     PairingResponse,
     PendingPairing,
@@ -135,6 +136,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         payload: dict | None = None,
         correlation_id: str | None = None,
     ) -> None:
+        event_correlation_id = correlation_id or str(uuid.uuid4())
         session.add(RealtimeEvent(
             event_type=event_type,
             recipient_device_id=recipient_device_id,
@@ -142,9 +144,21 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             client_id=client_id,
             pairing_id=pairing_id,
             job_id=job_id,
-            correlation_id=correlation_id or str(uuid.uuid4()),
+            correlation_id=event_correlation_id,
             payload_json=payload or {},
         ))
+        # LISTEN/NOTIFY is only a wake-up signal. The durable row above remains
+        # the source of truth and is replayed by cursor after reconnect.
+        try:
+            with session.begin_nested():
+                session.execute(
+                    text("SELECT pg_notify('rpm_realtime_events', :payload)"),
+                    {"payload": json.dumps({"correlationId": event_correlation_id})},
+                )
+        except SQLAlchemyError:
+            # SQLite and deployments without PostgreSQL notification support
+            # continue using the gateway reconciliation path.
+            pass
 
     def event_envelope(event: RealtimeEvent) -> RealtimeEventEnvelope:
         return RealtimeEventEnvelope(
@@ -204,7 +218,20 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             pairingId=pairing.id, hostId=pairing.host_id, clientId=pairing.client_id,
             code=pairing.code, status=pairing.status, expiresAt=pairing.expires_at,
             locationStatus=pairing.location_status,
+            printerAccessMode=pairing.printer_access_mode or "ALL_SHARED",
         )
+
+    def pairing_allows_printer(pairing: Pairing, printer_id: str) -> bool:
+        mode = (pairing.printer_access_mode or "ALL_SHARED").upper()
+        if mode == "NONE":
+            return False
+        if mode == "SELECTED_ONLY":
+            return printer_id in (pairing.allowed_printers or [])
+        # Legacy rows with a non-empty list were selected-only before the
+        # explicit mode column existed.
+        if pairing.allowed_printers:
+            return printer_id in pairing.allowed_printers
+        return True
 
     def verify_pairing_location(host: Device, activation: ActivationCode | None, payload: PairingRequest, now: datetime):
         if activation is not None and activation.geofence_policy == GEOFENCE_POLICY_UNLIMITED:
@@ -581,11 +608,28 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             if client is None or client.is_revoked or client.role != "CLIENT":
                 raise HTTPException(status_code=409, detail="Client is no longer active")
             if payload.approve:
+                access_mode = payload.printerAccessMode or ("SELECTED_ONLY" if payload.allowedPrinters else "ALL_SHARED")
+                if access_mode == "SELECTED_ONLY" and not payload.allowedPrinters:
+                    access_mode = "NONE"
                 approved_client_ids = set(session.scalars(select(Pairing.client_id).where(Pairing.host_id == device.id, Pairing.status == "APPROVED")).all())
                 if pairing.client_id not in approved_client_ids and len(approved_client_ids) >= settings.max_clients_per_host:
                     raise HTTPException(status_code=409, detail=f"Host đã đủ {settings.max_clients_per_host} Client được phê duyệt")
+                if access_mode == "SELECTED_ONLY" and payload.allowedPrinters:
+                    selected_ids = set(payload.allowedPrinters)
+                    owned_shared = set(session.scalars(select(Printer.id).where(
+                        Printer.host_id == device.id,
+                        Printer.is_shared.is_(True),
+                        Printer.id.in_(selected_ids),
+                    )).all())
+                    if owned_shared != selected_ids:
+                        raise HTTPException(status_code=409, detail="Selected printers must belong to this Host and be shared")
+                elif access_mode != "SELECTED_ONLY" and payload.allowedPrinters:
+                    raise HTTPException(status_code=422, detail="Only SELECTED_ONLY may contain selected printer IDs")
+            else:
+                access_mode = "NONE"
             pairing.status = "APPROVED" if payload.approve else "REJECTED"
-            pairing.allowed_printers = payload.allowedPrinters
+            pairing.allowed_printers = payload.allowedPrinters if payload.approve and access_mode == "SELECTED_ONLY" else []
+            pairing.printer_access_mode = access_mode
             pairing.decided_at = now
             session.add(AuditEvent(actor_id=device.id, action="PAIRING_APPROVED" if payload.approve else "PAIRING_REJECTED", target_type="PAIRING", target_id=pairing.id))
             enqueue_realtime_event(
@@ -595,7 +639,55 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 host_id=pairing.host_id,
                 client_id=pairing.client_id,
                 pairing_id=pairing.id,
-                payload={"pairingId": pairing.id, "status": pairing.status, "allowedPrinters": pairing.allowed_printers or []},
+                payload={"pairingId": pairing.id, "status": pairing.status, "printerAccessMode": pairing.printer_access_mode, "allowedPrinters": pairing.allowed_printers or []},
+            )
+            session.commit()
+            return pairing_response(pairing)
+
+    @app.put("/api/v1/pairings/{pairing_id}/printer-permissions", response_model=PairingResponse, tags=["Pairing"])
+    def update_pairing_printer_permissions(
+        pairing_id: str,
+        payload: PairingPrinterPermissionUpdate,
+        device: Device = Depends(require_device),
+    ):
+        require_role(device, "HOST")
+        now = utcnow()
+        with session_factory() as session:
+            pairing = session.scalar(select(Pairing).where(Pairing.id == pairing_id).with_for_update())
+            if pairing is None or pairing.host_id != device.id:
+                raise HTTPException(status_code=404, detail="Pairing not found")
+            if pairing.status != "APPROVED":
+                raise HTTPException(status_code=409, detail="Only an approved pairing can change printer permissions")
+
+            access_mode = payload.printerAccessMode
+            printer_ids = set(payload.allowedPrinters)
+            if access_mode == "SELECTED_ONLY" and not printer_ids:
+                access_mode = "NONE"
+            if access_mode == "SELECTED_ONLY" and printer_ids:
+                owned_shared = set(session.scalars(select(Printer.id).where(
+                    Printer.host_id == device.id,
+                    Printer.is_shared.is_(True),
+                    Printer.id.in_(printer_ids),
+                )).all())
+                if owned_shared != printer_ids:
+                    raise HTTPException(status_code=409, detail="Selected printers must belong to this Host and be shared")
+            elif access_mode != "SELECTED_ONLY" and printer_ids:
+                raise HTTPException(status_code=422, detail="Only SELECTED_ONLY may contain selected printer IDs")
+
+            pairing.allowed_printers = sorted(printer_ids)
+            pairing.printer_access_mode = access_mode
+            session.add(AuditEvent(actor_id=device.id, action="PAIRING_PRINTER_PERMISSIONS_UPDATED", target_type="PAIRING", target_id=pairing.id, details={
+                "printerAccessMode": pairing.printer_access_mode,
+                "allowedPrinters": pairing.allowed_printers,
+            }))
+            enqueue_realtime_event(
+                session,
+                "PAIRING_PRINTER_PERMISSIONS_UPDATED",
+                pairing.client_id,
+                host_id=pairing.host_id,
+                client_id=pairing.client_id,
+                pairing_id=pairing.id,
+                payload={"pairingId": pairing.id, "printerAccessMode": pairing.printer_access_mode, "allowedPrinters": pairing.allowed_printers},
             )
             session.commit()
             return pairing_response(pairing)
@@ -606,6 +698,19 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             pairing = session.get(Pairing, pairing_id)
             if pairing is None or device.id not in {pairing.host_id, pairing.client_id}:
                 raise HTTPException(status_code=404, detail="Pairing not found")
+            return pairing_response(pairing)
+
+    @app.get("/api/v1/pairings/approved/{client_id}", response_model=PairingResponse, tags=["Pairing"])
+    def get_approved_pairing_for_client(client_id: str, device: Device = Depends(require_device)):
+        require_role(device, "HOST")
+        with session_factory() as session:
+            pairing = session.scalar(select(Pairing).where(
+                Pairing.host_id == device.id,
+                Pairing.client_id == client_id,
+                Pairing.status == "APPROVED",
+            ))
+            if pairing is None:
+                raise HTTPException(status_code=404, detail="Approved pairing not found")
             return pairing_response(pairing)
 
     @app.post("/api/v1/pairings/{pairing_id}/revoke", response_model=PairingResponse, tags=["Pairing"])
@@ -927,6 +1032,20 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             printer.reported_status = payload.reportedStatus
             printer.is_shared = payload.isShared
             printer.metadata_json = payload.metadata
+            approved_pairings = session.scalars(select(Pairing).where(
+                Pairing.host_id == device.id,
+                Pairing.status == "APPROVED",
+            )).all()
+            for pairing in approved_pairings:
+                enqueue_realtime_event(
+                    session,
+                    "PRINTER_CATALOG_UPDATED",
+                    pairing.client_id,
+                    host_id=pairing.host_id,
+                    client_id=pairing.client_id,
+                    pairing_id=pairing.id,
+                    payload={"printerId": printer.id, "isShared": printer.is_shared},
+                )
             session.commit()
             return PrinterResponse(
                 printerId=printer.id, hostId=printer.host_id, displayName=printer.display_name,
@@ -950,8 +1069,10 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 if pairing is None:
                     raise HTTPException(status_code=403, detail="Approved pairing required")
                 printers = session.scalars(select(Printer).where(Printer.host_id == hostId, Printer.is_shared.is_(True))).all()
-                if pairing.allowed_printers:
-                    printers = [item for item in printers if item.id in pairing.allowed_printers]
+                if pairing.printer_access_mode == "NONE":
+                    printers = []
+                elif pairing.printer_access_mode == "SELECTED_ONLY" or pairing.allowed_printers:
+                    printers = [item for item in printers if item.id in (pairing.allowed_printers or [])]
             else:
                 require_role(device, "HOST")
                 printers = session.scalars(select(Printer).where(Printer.host_id == hostId)).all()
@@ -1025,7 +1146,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             client = session.get(Device, authorization.client_id)
             if pairing is None or printer is None or client is None or client.is_revoked or not printer.is_shared:
                 raise HTTPException(status_code=403, detail="Print permission is no longer valid")
-            if pairing.allowed_printers and printer.id not in pairing.allowed_printers:
+            if not pairing_allows_printer(pairing, printer.id):
                 raise HTTPException(status_code=403, detail="Printer is not allowed for this pairing")
             authorization.used_at = now
             session.add(AuditEvent(actor_id=device.id, action="PRINT_AUTHORIZATION_CONSUMED", target_type="PRINT_AUTHORIZATION", target_id=authorization.id, details={"jobId": authorization.job_id}))
@@ -1066,7 +1187,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             printer = session.get(Printer, payload.printerId)
             if pairing is None or printer is None or printer.host_id != payload.hostId or not printer.is_shared:
                 raise HTTPException(status_code=403, detail="Approved shared printer access required")
-            if pairing.allowed_printers and printer.id not in pairing.allowed_printers:
+            if not pairing_allows_printer(pairing, printer.id):
                 raise HTTPException(status_code=403, detail="Printer is not allowed for this pairing")
             host = session.get(Device, payload.hostId)
             if host is None:
@@ -1341,6 +1462,25 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         with session_factory() as session:
             events = session.scalars(select(RealtimeEvent).where(RealtimeEvent.id > after).order_by(RealtimeEvent.id).limit(limit)).all()
             return [event_envelope(event) for event in events]
+
+    @app.get("/api/v1/internal/realtime/authorize/{device_id}", tags=["Internal"])
+    def authorize_realtime_device(
+        device_id: str,
+        gateway_key: str | None = Header(default=None, alias="X-Realtime-Gateway-Key"),
+    ):
+        if not settings.realtime_gateway_shared_secret or not gateway_key or not secrets.compare_digest(gateway_key, settings.realtime_gateway_shared_secret):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Realtime gateway authorization required")
+        with session_factory() as session:
+            device = session.get(Device, device_id)
+            if device is None or device.is_revoked:
+                return {"authorized": False}
+            if device.activation_code_id:
+                activation = session.get(ActivationCode, device.activation_code_id)
+                if activation is None or activation.revoked_at is not None or (
+                    activation.expires_at is not None and as_utc(activation.expires_at) <= utcnow()
+                ):
+                    return {"authorized": False}
+            return {"authorized": True, "role": device.role}
 
     @app.post("/api/v1/internal/telegram/webhook", tags=["Internal"])
     async def telegram_webhook(request: Request):

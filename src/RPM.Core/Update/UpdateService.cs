@@ -145,7 +145,15 @@ public static class UpdateService
     public static void WritePendingUpdate(string fromVersion, UpdateManifest manifest)
     {
         var pending = new { FromVersion = fromVersion, ToVersion = manifest.Version, Channel = manifest.Channel, InstalledAt = DateTime.UtcNow };
-        File.WriteAllText(Path.Combine(ConfigManager.GetUpdatesFolder(), "pending-update.json"), JsonSerializer.Serialize(pending));
+        string path = Path.Combine(ConfigManager.GetUpdatesFolder(), "pending-update.json");
+        string tempPath = path + $".{Guid.NewGuid():N}.tmp";
+        File.WriteAllText(tempPath, JsonSerializer.Serialize(pending));
+        File.Move(tempPath, path, true);
+    }
+
+    public static void ClearPendingUpdate()
+    {
+        try { File.Delete(Path.Combine(ConfigManager.GetUpdatesFolder(), "pending-update.json")); } catch { }
     }
 
     public static void CompletePendingUpdate(AppSettings settings)

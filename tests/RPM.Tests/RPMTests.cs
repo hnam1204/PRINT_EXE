@@ -13,11 +13,75 @@ using RPM.Core.Cloud;
 using RPM.Networking;
 using RPM.Printing;
 using RPM.Core.Printing;
+using RPM.Core.Connection;
 
 namespace RPM.Tests;
 
 public class RPMTests
 {
+    [Theory]
+    [InlineData(ActivationStatus.NotActivated, false, true, "Đã kết nối nội bộ", ConnectionMode.Lan, TransportStatus.Online)]
+    [InlineData(ActivationStatus.VerificationPending, false, true, "Đã kết nối nội bộ", ConnectionMode.Lan, TransportStatus.Online)]
+    [InlineData(ActivationStatus.NotActivated, false, false, "Chưa kết nối nội bộ", ConnectionMode.None, TransportStatus.Offline)]
+    [InlineData(ActivationStatus.Valid, true, true, "Đã kết nối dịch vụ", ConnectionMode.Cloud, TransportStatus.Online)]
+    [InlineData(ActivationStatus.Valid, true, false, "Đã kết nối dịch vụ", ConnectionMode.Cloud, TransportStatus.Online)]
+    [InlineData(ActivationStatus.Valid, false, true, "Mất kết nối dịch vụ", ConnectionMode.Lan, TransportStatus.Degraded)]
+    [InlineData(ActivationStatus.Valid, false, false, "Mất kết nối dịch vụ", ConnectionMode.None, TransportStatus.Offline)]
+    [InlineData(ActivationStatus.Revoked, false, true, "Mã kích hoạt đã bị thu hồi", ConnectionMode.Lan, TransportStatus.Degraded)]
+    [InlineData(ActivationStatus.Expired, false, false, "Mã kích hoạt đã hết hạn", ConnectionMode.None, TransportStatus.Offline)]
+    public void ConnectionStatusResolver_UsesActivationProofAndTransportState(
+        ActivationStatus activationStatus,
+        bool cloudOnline,
+        bool relayOnline,
+        string expectedText,
+        ConnectionMode expectedMode,
+        TransportStatus expectedTransport)
+    {
+        var result = ConnectionStatusResolver.Resolve(activationStatus, cloudOnline, relayOnline);
+
+        Assert.Equal(expectedText, result.PrimaryText);
+        Assert.Equal(expectedMode, result.ConnectionMode);
+        Assert.Equal(expectedTransport, result.TransportStatus);
+    }
+
+    [Fact]
+    public void ConnectionStatusResolver_DoesNotClaimCloudFromStoredActivationMetadata()
+    {
+        var result = ConnectionStatusResolver.Resolve(ActivationStatus.VerificationPending, cloudOnline: true, relayOnline: false);
+
+        Assert.NotEqual("Đã kết nối dịch vụ", result.PrimaryText);
+        Assert.Equal(ConnectionMode.None, result.ConnectionMode);
+    }
+
+    [Fact]
+    public void ConnectionStatusResolver_ExposesLanAsSecondaryWhenVerifiedCloudIsOffline()
+    {
+        var result = ConnectionStatusResolver.Resolve(ActivationStatus.Valid, cloudOnline: false, relayOnline: true);
+
+        Assert.Equal("Mất kết nối dịch vụ", result.PrimaryText);
+        Assert.Equal("Kết nối nội bộ vẫn sẵn sàng", result.SecondaryText);
+    }
+
+    [Fact]
+    public void TransportPolicy_DefaultsToDirectOnlyAndPreservesLegacyConfig()
+    {
+        var fresh = new AppSettings();
+        Assert.Equal(PrintTransportMode.DirectOnly, fresh.EffectiveTransportMode);
+
+        var legacyCloud = new AppSettings { DirectPrintStreamingEnabled = false };
+        Assert.Equal(PrintTransportMode.LegacyCloud, legacyCloud.EffectiveTransportMode);
+
+        var explicitDirect = new AppSettings
+        {
+            DirectPrintStreamingEnabled = false,
+            TransportMode = PrintTransportMode.DirectOnly
+        };
+        Assert.Equal(PrintTransportMode.DirectOnly, explicitDirect.EffectiveTransportMode);
+
+        var automatic = new AppSettings { TransportMode = PrintTransportMode.Auto };
+        Assert.True(automatic.UsesDirectTransport);
+    }
+
     [Fact]
     public void DeviceStatus_SeparatesPermissionFromConnection()
     {
@@ -40,6 +104,68 @@ public class RPMTests
         };
 
         Assert.Equal("Đã gửi đến máy in", job.StatusText);
+    }
+
+    [Fact]
+    public void PrintJobStatus_UnknownRemainsDistinctFromFailure()
+    {
+        var job = new PrintJob
+        {
+            Status = PrintJobStatus.Unknown,
+            StatusMessage = "Chưa xác định kết quả in; không tự động in lại."
+        };
+
+        Assert.NotEqual(PrintJobStatus.Failed, job.Status);
+        Assert.Equal("Chưa xác định", job.StatusText);
+    }
+
+    [Fact]
+    public void CloudUnknownStatus_IsMappedWithoutConvertingToFailure()
+    {
+        Assert.Equal(PrintJobStatus.Unknown, PrintJobStatusMapper.FromCloud("UNKNOWN", PrintJobStatus.Printing));
+        Assert.Equal("Chưa xác định kết quả in; không tự động in lại.", PrintJobStatusMapper.MessageFromCloud("UNKNOWN"));
+    }
+
+    [Fact]
+    public void RealtimeCursorState_DeduplicatesEventsAndCommitsAfterProcessing()
+    {
+        var state = new RealtimeCursorState(4, new[] { 10L });
+        var duplicate = new CloudRealtimeEvent(10, "PAIRING_REQUESTED", "device", 1, null, null, null, null, DateTime.UtcNow, 5, 5, "corr", new());
+        var next = duplicate with { EventId = 11, Cursor = 6 };
+
+        Assert.False(state.ShouldProcess(duplicate));
+        Assert.True(state.ShouldProcess(next));
+        state.Commit(next);
+        Assert.Equal(6, state.Cursor);
+        Assert.False(state.ShouldProcess(next));
+
+        var duplicateAtLaterCursor = next with { Cursor = 7 };
+        Assert.False(state.ShouldProcess(duplicateAtLaterCursor));
+        Assert.True(state.AdvancePastDuplicate(duplicateAtLaterCursor));
+        Assert.Equal(7, state.Cursor);
+    }
+
+    [Fact]
+    public void ConfigMigration_PreservesIdentityAndAddsRealtimeState()
+    {
+        var settings = new AppSettings
+        {
+            ConfigSchemaVersion = 1,
+            DeviceId = "device-preserved",
+            PairingCode = "PAIRING-PRESERVED",
+            SelectedPrinterName = "Printer-preserved",
+            RealtimeEventCursor = -10,
+            RealtimeProcessedEventIds = new() { 2, 2, 0 }
+        };
+
+        var migrated = ConfigManager.Migrate(settings, 1);
+
+        Assert.Equal(AppSettings.CurrentConfigSchemaVersion, migrated.ConfigSchemaVersion);
+        Assert.Equal("device-preserved", migrated.DeviceId);
+        Assert.Equal("PAIRING-PRESERVED", migrated.PairingCode);
+        Assert.Equal("Printer-preserved", migrated.SelectedPrinterName);
+        Assert.Equal(0, migrated.RealtimeEventCursor);
+        Assert.Equal(new[] { 2L }, migrated.RealtimeProcessedEventIds);
     }
 
     [Fact]
@@ -248,6 +374,43 @@ public class RPMTests
 
         Assert.False(DirectPrintAuthorization.TryResolveTargetPrinter(sender, printers, "Epson", out _, out var error));
         Assert.Contains("quyền", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void DirectPrintAuthorization_RejectsClientWithExplicitNoPrinterPermission()
+    {
+        var sender = new DeviceInfo { PrinterPermissionMode = PrinterAccessMode.None };
+        var printers = new[] { new SharedPrinterInfo { Name = "Canon", IsShared = true } };
+
+        Assert.False(DirectPrintAuthorization.TryResolveTargetPrinter(sender, printers, "Canon", out _, out var error));
+        Assert.Contains("quyền", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void PrinterAccessPolicy_DistinguishesAllSelectedAndNone()
+    {
+        var printers = new[]
+        {
+            new SharedPrinterInfo { Name = "Canon", IsShared = true },
+            new SharedPrinterInfo { Name = "Epson", IsShared = true },
+            new SharedPrinterInfo { Name = "Private", IsShared = false }
+        };
+
+        Assert.Equal(2, PrinterAccessPolicy.Filter(printers, PrinterAccessMode.AllShared, Array.Empty<string>()).Count);
+        Assert.Single(PrinterAccessPolicy.Filter(printers, PrinterAccessMode.SelectedOnly, new[] { "Epson" }));
+        Assert.Empty(PrinterAccessPolicy.Filter(printers, PrinterAccessMode.None, Array.Empty<string>()));
+        Assert.True(PrinterAccessPolicy.Allows(PrinterAccessMode.AllShared, Array.Empty<string>(), "Canon"));
+        Assert.False(PrinterAccessPolicy.Allows(PrinterAccessMode.None, Array.Empty<string>(), "Canon"));
+    }
+
+    [Fact]
+    public void PrinterAccessPolicy_PreservesLegacyNonEmptyListAsSelectedOnly()
+    {
+        var device = new DeviceInfo { AllowedPrinters = new List<string> { "Canon" } };
+
+        Assert.Equal(PrinterAccessMode.SelectedOnly, device.EffectivePrinterPermissionMode);
+        Assert.Equal("Canon", device.AllowedPrintersSummary);
+        Assert.False(PrinterAccessPolicy.Allows(device.PrinterPermissionMode, device.AllowedPrinters, "Epson"));
     }
 
     [Fact]

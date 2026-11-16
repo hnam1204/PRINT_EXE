@@ -157,3 +157,146 @@ def test_expired_pending_pairing_is_closed_before_new_request(tmp_path):
 
     assert second.status_code == 201
     assert second.json()["pairingId"] != first.json()["pairingId"]
+
+
+def test_approved_pairing_printer_permissions_are_explicit_and_update_in_place(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'printer-permissions.db'}")
+    client = TestClient(app)
+    host_token = register(client, "host-printer-permissions", "HOST")
+    client_token = register(client, "client-printer-permissions", "CLIENT")
+    other_host_token = register(client, "other-host-printer-permissions", "HOST")
+    host_headers = {"Authorization": f"Bearer {host_token}"}
+    client_headers = {"Authorization": f"Bearer {client_token}"}
+    other_host_headers = {"Authorization": f"Bearer {other_host_token}"}
+
+    for printer_id, name in (("printer-a", "A"), ("printer-b", "B")):
+        response = client.post(
+            "/api/v1/printers",
+            headers=host_headers,
+            json={"printerId": printer_id, "displayName": name, "isShared": True},
+        )
+        assert response.status_code == 200
+
+    pairing = client.post("/api/v1/pairings", headers=client_headers, json={"hostId": "host-printer-permissions"}).json()
+    approved = client.post(
+        f"/api/v1/pairings/{pairing['pairingId']}/decision",
+        headers=host_headers,
+        json={"approve": True, "printerAccessMode": "SELECTED_ONLY", "allowedPrinters": ["printer-a"]},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["printerAccessMode"] == "SELECTED_ONLY"
+
+    visible = client.get("/api/v1/printers?hostId=host-printer-permissions", headers=client_headers)
+    assert [item["printerId"] for item in visible.json()] == ["printer-a"]
+
+    updated = client.put(
+        f"/api/v1/pairings/{pairing['pairingId']}/printer-permissions",
+        headers=host_headers,
+        json={"printerAccessMode": "NONE", "allowedPrinters": []},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["printerAccessMode"] == "NONE"
+    assert client.get("/api/v1/printers?hostId=host-printer-permissions", headers=client_headers).json() == []
+
+    forbidden_client = client.put(
+        f"/api/v1/pairings/{pairing['pairingId']}/printer-permissions",
+        headers=client_headers,
+        json={"printerAccessMode": "ALL_SHARED", "allowedPrinters": []},
+    )
+    assert forbidden_client.status_code == 403
+    forbidden_host = client.put(
+        f"/api/v1/pairings/{pairing['pairingId']}/printer-permissions",
+        headers=other_host_headers,
+        json={"printerAccessMode": "ALL_SHARED", "allowedPrinters": []},
+    )
+    assert forbidden_host.status_code == 404
+
+
+def test_unshared_printer_is_not_granted_by_selected_permission(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'unshared-permissions.db'}")
+    client = TestClient(app)
+    host_token = register(client, "host-unshared", "HOST")
+    client_token = register(client, "client-unshared", "CLIENT")
+    host_headers = {"Authorization": f"Bearer {host_token}"}
+    client_headers = {"Authorization": f"Bearer {client_token}"}
+
+    created = client.post(
+        "/api/v1/printers",
+        headers=host_headers,
+        json={"printerId": "private-printer", "displayName": "Private", "isShared": False},
+    )
+    assert created.status_code == 200
+    pairing = client.post("/api/v1/pairings", headers=client_headers, json={"hostId": "host-unshared"}).json()
+    rejected = client.post(
+        f"/api/v1/pairings/{pairing['pairingId']}/decision",
+        headers=host_headers,
+        json={"approve": True, "printerAccessMode": "SELECTED_ONLY", "allowedPrinters": ["private-printer"]},
+    )
+    assert rejected.status_code == 409
+
+
+def test_two_clients_receive_only_their_own_selected_printers(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'isolated-printers.db'}")
+    client = TestClient(app)
+    host_token = register(client, "host-isolated", "HOST")
+    client_a_token = register(client, "client-a-isolated", "CLIENT")
+    client_b_token = register(client, "client-b-isolated", "CLIENT")
+    host_headers = {"Authorization": f"Bearer {host_token}"}
+
+    for printer_id in ("printer-a-isolated", "printer-b-isolated"):
+        assert client.post(
+            "/api/v1/printers",
+            headers=host_headers,
+            json={"printerId": printer_id, "displayName": printer_id, "isShared": True},
+        ).status_code == 200
+
+    pairings = []
+    for token in (client_a_token, client_b_token):
+        pairing = client.post(
+            "/api/v1/pairings",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"hostId": "host-isolated"},
+        ).json()
+        pairings.append(pairing["pairingId"])
+
+    for pairing_id, printer_id in zip(pairings, ("printer-a-isolated", "printer-b-isolated")):
+        approved = client.post(
+            f"/api/v1/pairings/{pairing_id}/decision",
+            headers=host_headers,
+            json={"approve": True, "printerAccessMode": "SELECTED_ONLY", "allowedPrinters": [printer_id]},
+        )
+        assert approved.status_code == 200
+
+    visible_a = client.get(
+        "/api/v1/printers?hostId=host-isolated",
+        headers={"Authorization": f"Bearer {client_a_token}"},
+    )
+    visible_b = client.get(
+        "/api/v1/printers?hostId=host-isolated",
+        headers={"Authorization": f"Bearer {client_b_token}"},
+    )
+    assert [item["printerId"] for item in visible_a.json()] == ["printer-a-isolated"]
+    assert [item["printerId"] for item in visible_b.json()] == ["printer-b-isolated"]
+
+
+def test_host_can_resolve_an_existing_approved_pairing_after_restart(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'approved-lookup.db'}")
+    client = TestClient(app)
+    host_token = register(client, "host-approved-lookup", "HOST")
+    client_token = register(client, "client-approved-lookup", "CLIENT")
+    host_headers = {"Authorization": f"Bearer {host_token}"}
+    client_headers = {"Authorization": f"Bearer {client_token}"}
+    pairing = client.post("/api/v1/pairings", headers=client_headers, json={"hostId": "host-approved-lookup"}).json()
+    approved = client.post(
+        f"/api/v1/pairings/{pairing['pairingId']}/decision",
+        headers=host_headers,
+        json={"approve": True},
+    )
+    assert approved.status_code == 200
+
+    resolved = client.get(
+        "/api/v1/pairings/approved/client-approved-lookup",
+        headers=host_headers,
+    )
+    assert resolved.status_code == 200
+    assert resolved.json()["pairingId"] == pairing["pairingId"]

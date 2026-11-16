@@ -96,7 +96,8 @@ public sealed record CloudPairingSummary(
 
 public sealed record CloudPairingDecision(
     [property: JsonPropertyName("approve")] bool Approve,
-    [property: JsonPropertyName("allowedPrinters")] IReadOnlyList<string> AllowedPrinters);
+    [property: JsonPropertyName("allowedPrinters")] IReadOnlyList<string> AllowedPrinters,
+    [property: JsonPropertyName("printerAccessMode")] string PrinterAccessMode = "ALL_SHARED");
 
 public sealed record CloudPairingResult(
     [property: JsonPropertyName("pairingId")] string PairingId,
@@ -104,7 +105,9 @@ public sealed record CloudPairingResult(
     [property: JsonPropertyName("clientId")] string ClientId,
     [property: JsonPropertyName("code")] string Code,
     [property: JsonPropertyName("status")] string Status,
-    [property: JsonPropertyName("expiresAt")] DateTime ExpiresAt);
+    [property: JsonPropertyName("expiresAt")] DateTime ExpiresAt,
+    [property: JsonPropertyName("printerAccessMode")] string PrinterAccessMode = "ALL_SHARED",
+    [property: JsonPropertyName("allowedPrinters")] IReadOnlyList<string>? AllowedPrinters = null);
 
 public sealed record CloudPrinter(
     [property: JsonPropertyName("printerId")] string PrinterId,
