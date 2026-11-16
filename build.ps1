@@ -85,6 +85,7 @@ Write-Host "`n[5/5] Dang tinh toan SHA-256 va ky so version.json..." -Foreground
 
 $signingKeyPem = [Environment]::GetEnvironmentVariable("RPM_UPDATE_PRIVATE_KEY_PEM")
 $signingKeyPath = Join-Path $scriptDir "secrets/update-private-key.pem"
+$temporarySigningKeyPath = $null
 if ([string]::IsNullOrWhiteSpace($signingKeyPem) -and (Test-Path -LiteralPath $signingKeyPath)) {
     $signingKeyPem = Get-Content -Raw -LiteralPath $signingKeyPath
 }
@@ -95,6 +96,18 @@ if ([string]::IsNullOrWhiteSpace($signingKeyPem)) {
 if (-not $DownloadBaseUrl.StartsWith("https://", [StringComparison]::OrdinalIgnoreCase)) {
     Write-Host "[ERROR] DownloadBaseUrl must use HTTPS." -ForegroundColor Red
     Exit 1
+}
+
+# CI injects the key through an environment variable; the signer needs a file path.
+# Keep that material outside the repository and remove it immediately after signing.
+if (-not (Test-Path -LiteralPath $signingKeyPath)) {
+    $temporarySigningKeyPath = Join-Path ([System.IO.Path]::GetTempPath()) ("rpm-update-signing-{0}.pem" -f ([guid]::NewGuid().ToString("N")))
+    [System.IO.File]::WriteAllText(
+        $temporarySigningKeyPath,
+        $signingKeyPem,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $signingKeyPath = $temporarySigningKeyPath
 }
 
 $fileHash = (Get-FileHash -Path "publish/RemotePrintManager.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -115,8 +128,14 @@ $manifestJson | Set-Content -Path "publish/version.json" -Encoding UTF8
 $manifestJson | Set-Content -Path "publish/version_beta.json" -Encoding UTF8
 
 # Use the .NET 9 signer so PowerShell 5.1 cannot silently produce an unsigned release.
-dotnet run --project tools/RPM.ReleaseSigner/RPM.ReleaseSigner.csproj -- "publish/version.json" $signingKeyPath
-if ($LASTEXITCODE -ne 0) { Write-Host "[ERROR] Ky manifest version.json that bai!" -ForegroundColor Red; Exit 1 }
+try {
+    dotnet run --project tools/RPM.ReleaseSigner/RPM.ReleaseSigner.csproj -- "publish/version.json" $signingKeyPath
+    if ($LASTEXITCODE -ne 0) { Write-Host "[ERROR] Ky manifest version.json that bai!" -ForegroundColor Red; Exit 1 }
+} finally {
+    if ($temporarySigningKeyPath -and (Test-Path -LiteralPath $temporarySigningKeyPath)) {
+        Remove-Item -LiteralPath $temporarySigningKeyPath -Force -ErrorAction SilentlyContinue
+    }
+}
 Copy-Item "publish/version.json" "publish/version_beta.json" -Force
 
 # Prepare relay server staging for immediate local/network update hosting
