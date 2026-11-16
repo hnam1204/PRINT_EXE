@@ -55,8 +55,10 @@ jobs:
 
       - name: Execute Build Script
         shell: pwsh
+        env:
+          RPM_UPDATE_PRIVATE_KEY_PEM: ${{ secrets.RPM_UPDATE_PRIVATE_KEY_PEM }}
         run: |
-          .\build.ps1 -Version "$env:VERSION"
+          .\build.ps1 -Version "$env:VERSION" -Channel "Stable"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
