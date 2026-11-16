@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Net;
+using System.Net.Http;
 using System.Net.NetworkInformation;
 using System.Text.Json;
 using System.Security.Cryptography;
@@ -604,29 +605,76 @@ public class ServerService : IDisposable, IAsyncDisposable
         DateTime cutoff = DateTime.UtcNow - TimeSpan.FromSeconds(120);
         var updates = await Task.WhenAll(approvedClients.Select(async item =>
         {
+            CloudDeviceProfile? profile = null;
+            CloudPairingResult? approvedPairing = null;
+            bool pairingMissing = false;
+
             try
             {
-                return (item, profile: await client.GetDeviceProfileAsync(item.DeviceId, cancellationToken));
+                profile = await client.GetDeviceProfileAsync(item.DeviceId, cancellationToken);
             }
             catch
             {
-                return (item, profile: null);
+                // A transient profile failure must not revoke local state.
             }
+
+            try
+            {
+                approvedPairing = await client.GetApprovedPairingForClientAsync(item.DeviceId, cancellationToken);
+                pairingMissing = approvedPairing is null;
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+            {
+                pairingMissing = true;
+            }
+            catch
+            {
+                // Only an authoritative 404 means the pairing is gone.
+            }
+
+            return (item, profile, approvedPairing, pairingMissing);
         }));
 
+        bool localStateChanged = false;
         void ApplyUpdates()
         {
             foreach (var update in updates)
             {
-                if (update.profile is null)
+                if (update.profile is not null)
                 {
-                    update.item.IsOnline = false;
-                    continue;
+                    update.item.DeviceName = update.profile.Name;
+                    update.item.LastSeen = NormalizeUtc(update.profile.LastSeenAt);
+                    update.item.IsOnline = update.item.LastSeen >= cutoff;
                 }
 
-                update.item.DeviceName = update.profile.Name;
-                update.item.LastSeen = NormalizeUtc(update.profile.LastSeenAt);
-                update.item.IsOnline = update.item.LastSeen >= cutoff;
+                if (update.approvedPairing is not null &&
+                    string.Equals(update.approvedPairing.Status, "APPROVED", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!update.item.IsApproved || update.item.IsBlocked || update.item.ReconnectAllowed)
+                    {
+                        update.item.IsApproved = true;
+                        update.item.IsBlocked = false;
+                        update.item.ReconnectAllowed = false;
+                        localStateChanged = true;
+                    }
+
+                    if (!string.Equals(update.item.PairingId, update.approvedPairing.PairingId, StringComparison.Ordinal))
+                    {
+                        update.item.PairingId = update.approvedPairing.PairingId;
+                        localStateChanged = true;
+                    }
+
+                    _cloudPairingIds[update.item.DeviceId] = update.approvedPairing.PairingId;
+                }
+                else if (update.pairingMissing)
+                {
+                    if (DeviceInfoPolicy.MarkCloudApprovalMissing(update.item))
+                    {
+                        _cloudPairingIds.Remove(update.item.DeviceId);
+                        localStateChanged = true;
+                        OnLog?.Invoke(this, $"[Cloud] Đã xóa quyền cũ của máy con '{update.item.DeviceName}'; pairing không còn hiệu lực.");
+                    }
+                }
             }
         }
 
@@ -634,6 +682,9 @@ public class ServerService : IDisposable, IAsyncDisposable
             dispatcher.Invoke(ApplyUpdates);
         else
             ApplyUpdates();
+
+        if (localStateChanged)
+            SaveClientList();
     }
 
     private static DateTime NormalizeUtc(DateTime value) => value.Kind switch
@@ -779,6 +830,8 @@ public class ServerService : IDisposable, IAsyncDisposable
                     PrinterAccessPolicy.ToApiValue(accessMode));
                 if (result is null || !string.Equals(result.Status, "APPROVED", StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("Máy chủ từ xa chưa xác nhận phê duyệt thiết bị.");
+                client.PairingId = result.PairingId;
+                _cloudPairingIds[client.DeviceId] = result.PairingId;
                 OnLog?.Invoke(this, $"[Cloud] Đã duyệt thiết bị: {client.DeviceName}");
             }
             else
@@ -829,12 +882,19 @@ public class ServerService : IDisposable, IAsyncDisposable
         bool previousReconnectAllowed = client.ReconnectAllowed;
         try
         {
-            if (_settings.CloudTransportEnabled && _cloud.Client is not null && _cloudPairingIds.TryGetValue(client.DeviceId, out var cloudPairingId))
+            string? cloudPairingId = client.PairingId;
+            if (string.IsNullOrWhiteSpace(cloudPairingId) &&
+                _cloudPairingIds.TryGetValue(client.DeviceId, out var mappedPairingId))
             {
-                var result = await _cloud.Client.DecidePairingAsync(cloudPairingId, false, Array.Empty<string>());
-                if (result is null || !string.Equals(result.Status, "REJECTED", StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException("Máy chủ từ xa chưa xác nhận từ chối thiết bị.");
-                OnLog?.Invoke(this, $"[Cloud] Đã từ chối thiết bị: {client.DeviceName}");
+                cloudPairingId = mappedPairingId;
+            }
+
+            if (_settings.CloudTransportEnabled && _cloud.Client is not null && !string.IsNullOrWhiteSpace(cloudPairingId))
+            {
+                var result = await _cloud.Client.RevokePairingAsync(cloudPairingId);
+                if (result is null || !string.Equals(result.Status, "REVOKED", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Máy chủ từ xa chưa xác nhận thu hồi thiết bị.");
+                OnLog?.Invoke(this, $"[Cloud] Đã thu hồi thiết bị: {client.DeviceName}");
             }
             else
             {
@@ -985,7 +1045,10 @@ public class ServerService : IDisposable, IAsyncDisposable
 
     private async Task SendPrinterListsToApprovedClientsAsync()
     {
-        foreach (var client in ConnectedClients.Where(item => item.IsApproved && !item.IsBlocked).ToList())
+        foreach (var client in ConnectedClients
+            .Where(item => DeviceInfoPolicy.IsRemoteDevice(item, _settings.DeviceId))
+            .Where(item => item.IsApproved && !item.IsBlocked)
+            .ToList())
         {
             try { await SendPrinterListToClientAsync(client); }
             catch (Exception ex) { OnLog?.Invoke(this, $"[Lỗi phân quyền máy in] {client.DeviceName}: {ex.Message}"); }

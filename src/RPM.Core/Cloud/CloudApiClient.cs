@@ -121,6 +121,9 @@ public sealed class CloudApiClient : IDisposable
     public Task<CloudPairingResult?> DecidePairingAsync(string pairingId, bool approve, IReadOnlyList<string> allowedPrinters, string printerAccessMode, CancellationToken cancellationToken = default) =>
         PostAsync<CloudPairingResult>($"api/v1/pairings/{Uri.EscapeDataString(pairingId)}/decision", new CloudPairingDecision(approve, allowedPrinters, printerAccessMode), cancellationToken);
 
+    public Task<CloudPairingResult?> RevokePairingAsync(string pairingId, CancellationToken cancellationToken = default) =>
+        PostAsync<CloudPairingResult>($"api/v1/pairings/{Uri.EscapeDataString(pairingId)}/revoke", null, cancellationToken);
+
     public Task<CloudPairingResult?> UpdatePairingPrinterPermissionsAsync(string pairingId, string printerAccessMode, IReadOnlyList<string> allowedPrinters, CancellationToken cancellationToken = default) =>
         PutAsync<CloudPairingResult>($"api/v1/pairings/{Uri.EscapeDataString(pairingId)}/printer-permissions", new CloudPairingDecision(true, allowedPrinters, printerAccessMode), cancellationToken);
 

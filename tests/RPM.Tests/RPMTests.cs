@@ -1,4 +1,5 @@
 using System.Net.Http;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Security.Cryptography;
@@ -27,6 +28,88 @@ public class RPMTests
 
         Assert.False(DeviceInfoPolicy.IsRemoteDevice(host, "HOST-01"));
         Assert.True(DeviceInfoPolicy.IsRemoteDevice(client, "host-01"));
+    }
+
+    [Fact]
+    public void DeviceInfo_MissingCloudApproval_ClearsStaleLocalApproval()
+    {
+        var client = new DeviceInfo
+        {
+            DeviceId = "client-01",
+            IsApproved = true,
+            IsOnline = true,
+            PairingId = "revoked-pairing",
+            AllowedPrinters = new() { "Microsoft Print to PDF" },
+            PrinterPermissionMode = PrinterAccessMode.SelectedOnly
+        };
+
+        Assert.True(DeviceInfoPolicy.MarkCloudApprovalMissing(client));
+        Assert.False(client.IsApproved);
+        Assert.True(client.IsBlocked);
+        Assert.False(client.ReconnectAllowed);
+        Assert.False(client.IsOnline);
+        Assert.Empty(client.PairingId);
+        Assert.Empty(client.AllowedPrinters);
+        Assert.Equal(PrinterAccessMode.None, client.PrinterPermissionMode);
+    }
+
+    [Fact]
+    public void DeviceInfo_MissingCloudApproval_DoesNotChangePendingClient()
+    {
+        var client = new DeviceInfo
+        {
+            DeviceId = "client-01",
+            IsApproved = false,
+            IsBlocked = false,
+            ReconnectAllowed = true
+        };
+
+        Assert.False(DeviceInfoPolicy.MarkCloudApprovalMissing(client));
+        Assert.True(client.ReconnectAllowed);
+        Assert.False(client.IsBlocked);
+    }
+
+    [Fact]
+    public async Task CloudApiClient_RevokePairing_UsesRevokeEndpoint()
+    {
+        string tokenPath = Path.Combine(Path.GetTempPath(), $"rpm-test-token-{Guid.NewGuid():N}.bin");
+        var handler = new RecordingHandler("""
+            {"pairingId":"pairing-01","hostId":"host-01","clientId":"client-01","code":"123456","status":"REVOKED","expiresAt":"2026-11-16T00:00:00Z"}
+            """);
+
+        try
+        {
+            var tokenStore = new CloudDeviceTokenStore(tokenPath);
+            tokenStore.Save("test-token");
+            using var api = new CloudApiClient(
+                new Uri("https://example.test/"),
+                tokenStore: tokenStore,
+                handler: handler);
+
+            var result = await api.RevokePairingAsync("pairing-01");
+
+            Assert.Equal("REVOKED", result?.Status);
+            Assert.Equal(HttpMethod.Post, handler.Request?.Method);
+            Assert.Equal("/api/v1/pairings/pairing-01/revoke", handler.Request?.RequestUri?.AbsolutePath);
+        }
+        finally
+        {
+            try { File.Delete(tokenPath); } catch { }
+        }
+    }
+
+    private sealed class RecordingHandler(string responseJson) : HttpMessageHandler
+    {
+        public HttpRequestMessage? Request { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Request = request;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(responseJson, Encoding.UTF8, "application/json")
+            });
+        }
     }
 
     [Theory]

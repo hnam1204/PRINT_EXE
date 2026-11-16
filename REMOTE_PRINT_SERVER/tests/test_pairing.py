@@ -129,6 +129,43 @@ def test_rejected_client_can_create_a_new_pending_pairing_without_approving_it(t
     assert old.json()["status"] == "REJECTED"
 
 
+def test_revoked_client_can_create_a_new_pending_pairing(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'revoked-reconnect.db'}")
+    client = TestClient(app)
+    host_token = register(client, "host-revoked-reconnect", "HOST")
+    client_token = register(client, "client-revoked-reconnect", "CLIENT")
+    headers = {"Authorization": f"Bearer {client_token}"}
+    host_headers = {"Authorization": f"Bearer {host_token}"}
+
+    first = client.post(
+        "/api/v1/pairings",
+        headers=headers,
+        json={"hostId": "host-revoked-reconnect"},
+    ).json()
+    approved = client.post(
+        f"/api/v1/pairings/{first['pairingId']}/decision",
+        headers=host_headers,
+        json={"approve": True},
+    )
+    assert approved.status_code == 200
+
+    revoked = client.post(
+        f"/api/v1/pairings/{first['pairingId']}/revoke",
+        headers=host_headers,
+    )
+    assert revoked.status_code == 200
+    assert revoked.json()["status"] == "REVOKED"
+
+    second = client.post(
+        "/api/v1/pairings",
+        headers=headers,
+        json={"hostId": "host-revoked-reconnect"},
+    )
+    assert second.status_code == 201
+    assert second.json()["status"] == "PENDING"
+    assert second.json()["pairingId"] != first["pairingId"]
+
+
 def test_client_reuses_existing_approved_pairing_instead_of_creating_duplicate(tmp_path):
     app = create_app(database_url=f"sqlite:///{tmp_path / 'approved-retry.db'}")
     client = TestClient(app)

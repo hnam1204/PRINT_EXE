@@ -129,6 +129,22 @@ public static class DeviceInfoPolicy
     {
         return device is not null && IsRemoteDeviceId(device.DeviceId, currentDeviceId);
     }
+
+    public static bool MarkCloudApprovalMissing(DeviceInfo device)
+    {
+        if (!device.IsApproved) return false;
+
+        // A missing approved pairing is authoritative: local approval and
+        // printer permissions must not survive a Cloud revoke or expiry.
+        device.IsApproved = false;
+        device.IsBlocked = true;
+        device.ReconnectAllowed = false;
+        device.IsOnline = false;
+        device.PairingId = string.Empty;
+        device.AllowedPrinters.Clear();
+        device.PrinterPermissionMode = PrinterAccessMode.None;
+        return true;
+    }
 }
 
 public class SharedPrinterInfo
