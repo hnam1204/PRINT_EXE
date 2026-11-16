@@ -275,6 +275,27 @@ public class RPMTests
     }
 
     [Fact]
+    public async Task Relay_ReportsLanBindingAndLocalAccessStatus()
+    {
+        int testPort = 19890;
+        var relay = new RelayServer();
+        relay.Start(testPort);
+
+        try
+        {
+            Assert.Equal(testPort, relay.Port);
+            Assert.NotEmpty(relay.LanBindingStatus);
+
+            bool localAccess = await relay.CheckLocalLanAccessAsync();
+            Assert.Equal(relay.IsLanAvailable, localAccess);
+        }
+        finally
+        {
+            relay.Stop();
+        }
+    }
+
+    [Fact]
     public async Task IppServer_Starts_And_RespondsToStatusProbe()
     {
         int ippPort = 9885;

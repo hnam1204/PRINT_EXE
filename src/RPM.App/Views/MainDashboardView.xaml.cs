@@ -288,9 +288,9 @@ public partial class MainDashboardView : UserControl
         TxtServerGeofenceStatus.Text = _serverService.GeofenceStatusDisplay;
         var lanEndpoints = _serverService.LanRelayEndpoints;
         TxtServerLanEndpoint.Text = !_serverService.IsLanRelayAvailable
-            ? "Chưa mở quyền LAN cho cổng 9090"
+            ? _serverService.LanAccessStatus
             : lanEndpoints.Count > 0
-                ? string.Join("\n", lanEndpoints)
+                ? $"{_serverService.LanAccessStatus}\n{string.Join("\n", lanEndpoints)}"
                 : "Không tìm thấy IP LAN";
 
         UpdateCloudEnrollmentUI();

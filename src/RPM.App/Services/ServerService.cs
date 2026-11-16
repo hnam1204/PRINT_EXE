@@ -54,6 +54,7 @@ public class ServerService : IDisposable, IAsyncDisposable
         ? "Đã kết nối dịch vụ"
         : _relayClient.IsConnected ? "Đã kết nối nội bộ" : "Mất kết nối dịch vụ";
     public bool IsLanRelayAvailable => _embeddedRelay?.IsLanAvailable == true;
+    public string LanAccessStatus { get; private set; } = "Chưa kiểm tra quyền LAN";
     public int CloudApprovedClientCount { get; private set; }
     public int CloudOnlineClientCount { get; private set; }
     public int CloudMaxClientCount { get; private set; } = 15;
@@ -142,10 +143,13 @@ public class ServerService : IDisposable, IAsyncDisposable
                 }
                 _embeddedRelay = new RelayServer();
                 _embeddedRelay.Start(port);
+                LanAccessStatus = _embeddedRelay.LanBindingStatus;
+                await RefreshLanAccessStatusAsync();
                 OnLog?.Invoke(this, $"[Relay] Đã tự động kích hoạt máy chủ trung chuyển nội bộ trên cổng {port}.");
             }
             catch (Exception ex)
             {
+                LanAccessStatus = $"Không thể mở quyền LAN cho cổng 9090: {ex.Message}";
                 OnLog?.Invoke(this, $"[Relay] Khởi động trung chuyển nội bộ: {ex.Message}");
             }
         }
@@ -156,6 +160,30 @@ public class ServerService : IDisposable, IAsyncDisposable
         {
             OnLog?.Invoke(this, "[Cloud] Host worker đã khởi động; kết nối nội bộ LAN vẫn sẵn sàng dự phòng.");
         }
+    }
+
+    public async Task<bool> RefreshLanAccessStatusAsync(CancellationToken cancellationToken = default)
+    {
+        if (_embeddedRelay is null)
+        {
+            LanAccessStatus = "Relay LAN chưa được khởi động";
+            OnStatusChanged?.Invoke(this, EventArgs.Empty);
+            return false;
+        }
+
+        if (!_embeddedRelay.IsLanAvailable)
+        {
+            LanAccessStatus = _embeddedRelay.LanBindingStatus;
+            OnStatusChanged?.Invoke(this, EventArgs.Empty);
+            return false;
+        }
+
+        bool reachable = await _embeddedRelay.CheckLocalLanAccessAsync(cancellationToken);
+        LanAccessStatus = reachable
+            ? $"Đã mở LAN và kiểm tra được cổng {_embeddedRelay.Port} trên Host; Client cần kết nối thử để xác minh từ xa"
+            : $"Đã bind LAN nhưng chưa kiểm tra được cổng {_embeddedRelay.Port} trên Host";
+        OnStatusChanged?.Invoke(this, EventArgs.Empty);
+        return reachable;
     }
 
     private IReadOnlyList<string> GetLanRelayEndpoints()

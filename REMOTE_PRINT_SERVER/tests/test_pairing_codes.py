@@ -20,6 +20,29 @@ def register(client, device_id, role):
     return response.json()["deviceToken"]
 
 
+def test_client_cannot_manage_host_pairing_codes(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}")
+    client = TestClient(app)
+    client_token = register(client, "client-01", "CLIENT")
+    headers = {"Authorization": f"Bearer {client_token}"}
+
+    issue = client.post(
+        "/api/v1/pairing-codes/issue",
+        headers=headers,
+        json={"sessionId": "client-session"},
+    )
+    current = client.get("/api/v1/pairing-codes/current", headers=headers)
+    revoke = client.post(
+        "/api/v1/pairing-codes/revoke",
+        headers=headers,
+        json={"sessionId": "client-session"},
+    )
+
+    assert issue.status_code == 403
+    assert current.status_code == 403
+    assert revoke.status_code == 403
+
+
 def test_code_is_six_chars_unique_and_reissued_for_new_session(tmp_path):
     app = create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}")
     client = TestClient(app)

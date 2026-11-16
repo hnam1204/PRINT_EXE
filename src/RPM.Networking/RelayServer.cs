@@ -32,9 +32,13 @@ public class RelayServer
     private readonly ConcurrentDictionary<string, Room> _rooms = new(StringComparer.OrdinalIgnoreCase);
     private bool _isRunning;
     public bool IsLanAvailable { get; private set; }
+    public int Port { get; private set; }
+    public string LanBindingStatus { get; private set; } = "Chưa khởi động";
 
     public void Start(int port = 9090)
     {
+        Port = port;
+        IsLanAvailable = false;
         _listener = new HttpListener();
         // Bind the embedded broker to LAN interfaces so another device can join.
         _listener.Prefixes.Add($"http://+:{port}/");
@@ -43,6 +47,7 @@ public class RelayServer
         {
             _listener.Start();
             IsLanAvailable = true;
+            LanBindingStatus = $"Đã mở quyền LAN trên cổng {port}";
         }
         catch (HttpListenerException ex) when (ex.ErrorCode == 5)
         {
@@ -54,6 +59,7 @@ public class RelayServer
             _listener.Prefixes.Add($"http://127.0.0.1:{port}/");
             _listener.Start();
             IsLanAvailable = false;
+            LanBindingStatus = $"Windows chưa cấp quyền LAN cho cổng {port}; hiện chỉ truy cập được trên máy Host";
             Console.WriteLine($"[RPM Relay] LAN binding bị Windows từ chối (URL ACL). Đang chạy loopback: {ex.Message}");
         }
 
@@ -65,6 +71,8 @@ public class RelayServer
     public void Stop()
     {
         _isRunning = false;
+        IsLanAvailable = false;
+        LanBindingStatus = "Relay LAN đã dừng";
         try
         {
             _listener?.Stop();
@@ -153,6 +161,29 @@ public class RelayServer
                 if (!_isRunning) break;
                 Console.WriteLine($"[Relay Error] Accept loop: {ex.Message}");
             }
+        }
+    }
+
+    public async Task<bool> CheckLocalLanAccessAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_isRunning || _listener is null || !_listener.IsListening || !IsLanAvailable)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var client = new System.Net.Sockets.TcpClient();
+            await client.ConnectAsync(IPAddress.Loopback, Port, cancellationToken);
+            return client.Connected;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return false;
         }
     }
 

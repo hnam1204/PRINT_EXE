@@ -550,6 +550,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
 
     @app.post("/api/v1/pairing-codes/issue", response_model=PairingCodeResponse, status_code=201, tags=["Pairing codes"])
     def issue_code(payload: PairingCodeIssueRequest, device: Device = Depends(require_device)):
+        require_role(device, "HOST")
         now = utcnow()
         with session_factory() as session:
             existing = session.scalar(select(PairingCode).where(PairingCode.session_id == payload.sessionId))
@@ -592,6 +593,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
 
     @app.get("/api/v1/pairing-codes/current", response_model=PairingCodeResponse, tags=["Pairing codes"])
     def current_code(device: Device = Depends(require_device)):
+        require_role(device, "HOST")
         now = utcnow()
         with session_factory() as session:
             record = session.scalar(
@@ -648,6 +650,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
 
     @app.post("/api/v1/pairing-codes/revoke", response_model=PairingCodeResponse, tags=["Pairing codes"])
     def revoke_code(payload: PairingCodeIssueRequest, device: Device = Depends(require_device)):
+        require_role(device, "HOST")
         now = utcnow()
         with session_factory() as session:
             record = session.scalar(select(PairingCode).where(PairingCode.session_id == payload.sessionId, PairingCode.device_id == device.id))

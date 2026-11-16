@@ -63,6 +63,13 @@ public partial class MachineDiagnosticsDialog : Window
         bool endpointValid = RPM.Core.Networking.RelayEndpointPolicy.TryValidateForRole(_settings.Role, _settings.RelayServerUrl, out var endpointReason);
         string endpointType = _settings.Role == AppRole.Server ? "Kết nối nội bộ của máy chủ" : "Kết nối nội bộ của máy con";
         rows.Add(new DiagnosticRow(endpointType, endpointValid ? _settings.RelayServerUrl : $"{_settings.RelayServerUrl} • {endpointReason}", endpointValid ? DiagnosticState.Success : DiagnosticState.Warning));
+        if (_serverService is not null)
+        {
+            rows.Add(new DiagnosticRow(
+                "Quyền truy cập LAN của máy chủ",
+                _serverService.LanAccessStatus,
+                _serverService.IsLanRelayAvailable ? DiagnosticState.Success : DiagnosticState.Warning));
+        }
         rows.Add(new DiagnosticRow("Cổng nhận lệnh in cục bộ", $"127.0.0.1:{_settings.LocalIppPort} (chỉ dùng trên máy này)", DiagnosticState.Success));
 
         bool paired = _serverService != null || (_clientService?.IsApproved == true);
