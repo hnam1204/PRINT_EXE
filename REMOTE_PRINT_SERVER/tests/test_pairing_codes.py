@@ -4,6 +4,7 @@ import re
 os.environ.setdefault("RPM_SERVER_ENV", "development")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:3000")
 os.environ.setdefault("ENROLLMENT_SECRET", "test-enrollment-secret")
+os.environ.setdefault("REALTIME_GATEWAY_SHARED_SECRET", "realtime-test-secret")
 
 from fastapi.testclient import TestClient
 
@@ -158,6 +159,19 @@ def test_rotating_code_revokes_existing_pairing(tmp_path):
     )
     assert old_pairing.status_code == 200
     assert old_pairing.json()["status"] == "REVOKED"
+
+    events = client.get(
+        "/api/v1/internal/realtime/events?after=0",
+        headers={"X-Realtime-Gateway-Key": "realtime-test-secret"},
+    )
+    assert events.status_code == 200
+    revoked_events = [
+        event for event in events.json()
+        if event["eventType"] == "PAIRING_REVOKED"
+        and event["pairingId"] == pairing_id
+    ]
+    assert len(revoked_events) == 1
+    assert revoked_events[0]["recipientDeviceId"] == "client-01"
 
     old_code = client.post(
         "/api/v1/pairing-codes/resolve",

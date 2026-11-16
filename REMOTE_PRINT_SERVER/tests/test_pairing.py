@@ -3,6 +3,7 @@ import os
 os.environ.setdefault("RPM_SERVER_ENV", "development")
 os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:3000")
 os.environ.setdefault("ENROLLMENT_SECRET", "test-enrollment-secret")
+os.environ.setdefault("REALTIME_GATEWAY_SHARED_SECRET", "realtime-test-secret")
 
 from fastapi.testclient import TestClient
 
@@ -175,6 +176,19 @@ def test_expired_pending_pairing_is_closed_before_new_request(tmp_path):
 
     assert second.status_code == 201
     assert second.json()["pairingId"] != first.json()["pairingId"]
+
+    events = client.get(
+        "/api/v1/internal/realtime/events?after=0",
+        headers={"X-Realtime-Gateway-Key": "realtime-test-secret"},
+    )
+    assert events.status_code == 200
+    expiry_events = [
+        event for event in events.json()
+        if event["eventType"] == "PAIRING_REVOKED"
+        and event["pairingId"] == first.json()["pairingId"]
+    ]
+    assert len(expiry_events) == 1
+    assert expiry_events[0]["recipientDeviceId"] == "client-expired"
 
 
 def test_approved_pairing_printer_permissions_are_explicit_and_update_in_place(tmp_path):

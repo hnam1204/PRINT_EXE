@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Text.Json;
 using System.Collections.Concurrent;
+using System.Net.Http;
 using System.Windows;
 using RPM.Core.Config;
 using RPM.Core.Connection;
@@ -75,6 +76,7 @@ public class ClientService : IDisposable, IAsyncDisposable
         _cloud.OnStateChanged += (s, e) =>
         {
             OnStateChanged?.Invoke(this, EventArgs.Empty);
+            if (_cloud.IsOnline) _ = ResyncCloudPairingAsync();
             if (!_cloud.IsOnline) _ = StartRelayFallbackAsync();
         };
         _cloud.OnEnrollmentRevoked += (s, e) => OnEnrollmentRevoked?.Invoke(this, EventArgs.Empty);
@@ -440,6 +442,7 @@ public class ClientService : IDisposable, IAsyncDisposable
         if (string.Equals(pairing.Status, "REJECTED", StringComparison.OrdinalIgnoreCase) || string.Equals(pairing.Status, "REVOKED", StringComparison.OrdinalIgnoreCase))
         {
             _isApproved = false;
+            ClearCloudPairingState();
             _connectionStatus = string.Equals(pairing.Status, "REVOKED", StringComparison.OrdinalIgnoreCase) ? "Máy chủ đã thu hồi quyền" : "Máy chủ đã từ chối";
             OnStateChanged?.Invoke(this, EventArgs.Empty);
             return true;
@@ -466,6 +469,7 @@ public class ClientService : IDisposable, IAsyncDisposable
         _isApproved = true;
         _connectionStatus = "Đã được chấp nhận";
         var printers = await api.ListPrintersAsync(_settings.CloudHostId, cancellationToken);
+        _cloudPrinterIds.Clear();
         Application.Current?.Dispatcher.Invoke(() =>
         {
             AvailablePrinters.Clear();
@@ -480,6 +484,56 @@ public class ClientService : IDisposable, IAsyncDisposable
         OnLog?.Invoke(this, $"[Thành công] Đã được máy chủ chấp nhận, đồng bộ {AvailablePrinters.Count} máy in.");
         OnStateChanged?.Invoke(this, EventArgs.Empty);
         return true;
+    }
+
+    private async Task ResyncCloudPairingAsync()
+    {
+        if (!_cloud.IsOnline || string.IsNullOrWhiteSpace(_settings.CloudPairingId)) return;
+
+        await _cloudApprovalLock.WaitAsync();
+        try
+        {
+            await ApplyCloudPairingStatusAsync(_settings.CloudPairingId, CancellationToken.None);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            _isApproved = false;
+            ClearCloudPairingState();
+            _connectionStatus = "Phiên kết nối máy chủ không còn tồn tại";
+            OnStateChanged?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex)
+        {
+            OnLog?.Invoke(this, $"[Cloud] Chưa đồng bộ lại trạng thái ghép nối: {ex.Message}");
+        }
+        finally
+        {
+            _cloudApprovalLock.Release();
+        }
+    }
+
+    private void ClearCloudPairingState()
+    {
+        _settings.CloudHostId = string.Empty;
+        _settings.CloudHostPublicKey = string.Empty;
+        _settings.CloudHostPublicKeyFingerprint = string.Empty;
+        _settings.CloudPairingCode = string.Empty;
+        _settings.CloudPairingExpiresAt = null;
+        _settings.CloudPairingSessionId = string.Empty;
+        _settings.CloudPairingId = string.Empty;
+        ConfigManager.Save(_settings);
+        _cloudPrinterIds.Clear();
+
+        void ClearPrinters()
+        {
+            AvailablePrinters.Clear();
+            _remotePrinter = null;
+            _ippServer.PrinterName = string.Empty;
+        }
+
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess()) dispatcher.Invoke(ClearPrinters);
+        else ClearPrinters();
     }
 
     private async void Relay_OnConnected(object? sender, EventArgs e)

@@ -72,7 +72,7 @@ from .telegram_bot import (
 )
 
 
-def _revoke_pairings_for_code(session, host_id: str, code: str, revoked_at: datetime) -> int:
+def _revoke_pairings_for_code(session, host_id: str, code: str, revoked_at: datetime, enqueue_event=None) -> int:
     """Invalidate every pairing created from a rotated host code."""
     pairings = session.scalars(select(Pairing).where(
         Pairing.host_id == host_id,
@@ -88,10 +88,24 @@ def _revoke_pairings_for_code(session, host_id: str, code: str, revoked_at: date
             target_type="PAIRING",
             target_id=pairing.id,
         ))
+        if enqueue_event is not None:
+            enqueue_event(
+                session,
+                "PAIRING_REVOKED",
+                pairing.client_id,
+                host_id=pairing.host_id,
+                client_id=pairing.client_id,
+                pairing_id=pairing.id,
+                payload={
+                    "pairingId": pairing.id,
+                    "status": pairing.status,
+                    "reason": "PAIRING_CODE_ROTATED",
+                },
+            )
     return len(pairings)
 
 
-def _close_expired_live_pairings(session, host_id: str, client_id: str, now: datetime) -> None:
+def _close_expired_live_pairings(session, host_id: str, client_id: str, now: datetime, enqueue_event=None) -> None:
     """Release the live-pairing uniqueness slot after its lease expires."""
     expired = session.scalars(
         select(Pairing).where(
@@ -104,6 +118,26 @@ def _close_expired_live_pairings(session, host_id: str, client_id: str, now: dat
     for pairing in expired:
         pairing.status = "REVOKED"
         pairing.decided_at = pairing.decided_at or now
+        session.add(AuditEvent(
+            actor_id=host_id,
+            action="PAIRING_REVOKED_BY_EXPIRY",
+            target_type="PAIRING",
+            target_id=pairing.id,
+        ))
+        if enqueue_event is not None:
+            enqueue_event(
+                session,
+                "PAIRING_REVOKED",
+                pairing.client_id,
+                host_id=pairing.host_id,
+                client_id=pairing.client_id,
+                pairing_id=pairing.id,
+                payload={
+                    "pairingId": pairing.id,
+                    "status": pairing.status,
+                    "reason": "PAIRING_EXPIRED",
+                },
+            )
 
 
 def create_app(settings: Settings | None = None, database_url: str | None = None, blob_store: BlobStore | None = None) -> FastAPI:
@@ -508,7 +542,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 raise HTTPException(status_code=422, detail="Target device is not a Host")
             activation = session.get(ActivationCode, host.activation_code_id) if host.activation_code_id else None
             location_result = verify_pairing_location(host, activation, payload, now)
-            _close_expired_live_pairings(session, host.id, device.id, now)
+            _close_expired_live_pairings(session, host.id, device.id, now, enqueue_realtime_event)
             existing = session.scalar(
                 select(Pairing)
                 .where(
@@ -858,9 +892,13 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             for active_code in active_codes:
                 active_code.status = "REVOKED"
                 active_code.revoked_at = now
-                _revoke_pairings_for_code(session, device.id, decrypt_pairing_code(
-                    active_code.code_ciphertext, settings.enrollment_secret
-                ), now)
+                _revoke_pairings_for_code(
+                    session,
+                    device.id,
+                    decrypt_pairing_code(active_code.code_ciphertext, settings.enrollment_secret),
+                    now,
+                    enqueue_realtime_event,
+                )
             expires_at = now + timedelta(minutes=settings.pairing_ttl_minutes)
             try:
                 record, plain_code = issue_pairing_code(
@@ -930,7 +968,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
 
             # Repeated clicks/retries must not create multiple live requests for
             # the same Host/Client pair. The existing row remains authoritative.
-            _close_expired_live_pairings(session, host.id, device.id, now)
+            _close_expired_live_pairings(session, host.id, device.id, now, enqueue_realtime_event)
             existing = session.scalar(
                 select(Pairing)
                 .where(
@@ -1011,9 +1049,13 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             if record.status == "ACTIVE":
                 record.status = "REVOKED"
                 record.revoked_at = now
-                _revoke_pairings_for_code(session, device.id, decrypt_pairing_code(
-                    record.code_ciphertext, settings.enrollment_secret
-                ), now)
+                _revoke_pairings_for_code(
+                    session,
+                    device.id,
+                    decrypt_pairing_code(record.code_ciphertext, settings.enrollment_secret),
+                    now,
+                    enqueue_realtime_event,
+                )
                 session.add(AuditEvent(actor_id=device.id, action="PAIRING_CODE_REVOKED", target_type="PAIRING_CODE", target_id=record.id))
                 session.commit()
             return PairingCodeResponse(
