@@ -36,6 +36,9 @@ public sealed class CloudConnectionService : IAsyncDisposable
     public CloudActivationInfo? ActivationInfo { get; private set; }
     public bool IsOnline { get; private set; }
     public ActivationStatus ActivationStatus => _activationStatus;
+    public bool HasPreviouslyVerifiedActivation => ConnectionStatusResolver.IsPreviouslyVerifiedActivation(
+        _tokenStore.HasToken,
+        _settings.CloudActivationLastVerifiedAtUtc);
     public bool IsCustomerActivation => _settings.CloudUsesCustomerActivation || _activationSecretStore.HasSecret;
     public bool HasStoredToken => _tokenStore.HasToken;
     public event EventHandler<string>? OnLog;
@@ -167,7 +170,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
             }
             ActivationInfo = new CloudActivationInfo(profile.ActivationLabel, profile.ActivationExpiresAt, profile.ActivationMaxDevices, profile.ActivationUsedDevices, profile.ActivationGeofenceRadiusMeters, profile.ActivationGeofencePolicy);
             SaveActivationInfo();
-            var heartbeat = await GetOrCreateClient().HeartbeatAsync(cancellationToken);
+            var heartbeat = await GetOrCreateClient().HeartbeatAsync(_settings.AppVersion, cancellationToken);
             if (heartbeat is null || !string.Equals(heartbeat.Status, "ONLINE", StringComparison.OrdinalIgnoreCase))
             {
                 SetOffline("Máy chủ từ xa chưa xác nhận thiết bị trực tuyến.");
@@ -175,6 +178,8 @@ public sealed class CloudConnectionService : IAsyncDisposable
             }
             IsOnline = true;
             _activationStatus = ActivationStatus.Valid;
+            _settings.CloudActivationLastVerifiedAtUtc = DateTime.UtcNow;
+            ConfigManager.Save(_settings);
             await EnsureRealtimeGatewayAsync(cancellationToken);
             OnStateChanged?.Invoke(this, EventArgs.Empty);
             return true;
@@ -243,6 +248,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
         _settings.CloudUsesCustomerActivation = false;
         _settings.CloudEnrollmentKeyPrefix = string.Empty;
         _settings.CloudActivationLabel = string.Empty;
+        _settings.CloudActivationLastVerifiedAtUtc = null;
         _settings.CloudActivationExpiresAt = null;
         _settings.CloudActivationMaxDevices = null;
         _settings.CloudActivationUsedDevices = null;

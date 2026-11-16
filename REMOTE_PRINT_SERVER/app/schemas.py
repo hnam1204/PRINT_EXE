@@ -72,6 +72,10 @@ class HeartbeatResponse(BaseModel):
     lastSeenAt: datetime
 
 
+class HeartbeatRequest(BaseModel):
+    appVersion: str | None = Field(default=None, min_length=1, max_length=32)
+
+
 class PairingRequest(BaseModel):
     hostId: str = Field(min_length=1, max_length=128)
     latitude: float | None = Field(default=None, ge=-90, le=90)

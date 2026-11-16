@@ -18,6 +18,7 @@ from .schemas import (
     DeviceProfile,
     DeviceRegistration,
     DeviceRegistrationResponse,
+    HeartbeatRequest,
     HeartbeatResponse,
     PairingDecision,
     PairingPrinterPermissionUpdate,
@@ -482,11 +483,13 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         )
 
     @app.post("/api/v1/devices/heartbeat", response_model=HeartbeatResponse, tags=["Devices"])
-    def heartbeat(request: Request, device: Device = Depends(require_device)):
+    def heartbeat(payload: HeartbeatRequest | None = None, device: Device = Depends(require_device)):
         with session_factory() as session:
             current = session.get(Device, device.id)
             if current is None or current.is_revoked:
                 raise HTTPException(status_code=401, detail="Device is not active")
+            if payload is not None and payload.appVersion:
+                current.app_version = payload.appVersion
             current.last_seen_at = utcnow()
             session.add(AuditEvent(actor_id=current.id, action="DEVICE_HEARTBEAT", target_type="DEVICE", target_id=current.id))
             session.commit()

@@ -65,8 +65,13 @@ public sealed class CloudApiClient : IDisposable
     public Task<CloudDeviceProfile?> GetDeviceProfileAsync(string deviceId, CancellationToken cancellationToken = default) =>
         GetAsync<CloudDeviceProfile>($"api/v1/devices/{Uri.EscapeDataString(deviceId)}", cancellationToken);
 
-    public Task<CloudHeartbeatResponse?> HeartbeatAsync(CancellationToken cancellationToken = default) =>
-        PostAsync<CloudHeartbeatResponse>("api/v1/devices/heartbeat", null, cancellationToken);
+    public Task<CloudHeartbeatResponse?> HeartbeatAsync(
+        string appVersion,
+        CancellationToken cancellationToken = default) =>
+        PostAsync<CloudHeartbeatResponse>(
+            "api/v1/devices/heartbeat",
+            new { appVersion },
+            cancellationToken);
 
     public Task<CloudRealtimeSession?> CreateRealtimeSessionAsync(CancellationToken cancellationToken = default) =>
         PostAsync<CloudRealtimeSession>("api/v1/realtime/session", null, cancellationToken);

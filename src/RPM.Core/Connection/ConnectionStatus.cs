@@ -41,6 +41,9 @@ public sealed record ConnectionStatusSnapshot(
 /// </summary>
 public static class ConnectionStatusResolver
 {
+    public static bool IsPreviouslyVerifiedActivation(bool hasStoredToken, DateTime? lastVerifiedAtUtc) =>
+        hasStoredToken && lastVerifiedAtUtc.HasValue;
+
     public static string GetActivationText(ActivationStatus status) => status switch
     {
         ActivationStatus.Valid => "Mã kích hoạt đã được xác minh",
@@ -54,7 +57,8 @@ public static class ConnectionStatusResolver
     public static ConnectionStatusSnapshot Resolve(
         ActivationStatus activationStatus,
         bool cloudOnline,
-        bool relayOnline)
+        bool relayOnline,
+        bool previouslyVerified = false)
     {
         if (activationStatus == ActivationStatus.Valid)
         {
@@ -90,6 +94,16 @@ public static class ConnectionStatusResolver
                 relayOnline ? ConnectionMode.Lan : ConnectionMode.None,
                 relayOnline ? TransportStatus.Degraded : TransportStatus.Offline,
                 text,
+                relayOnline ? "Kết nối nội bộ vẫn sẵn sàng" : null);
+        }
+
+        if (previouslyVerified && !cloudOnline)
+        {
+            return new ConnectionStatusSnapshot(
+                activationStatus,
+                relayOnline ? ConnectionMode.Lan : ConnectionMode.None,
+                relayOnline ? TransportStatus.Degraded : TransportStatus.Offline,
+                "Mất kết nối dịch vụ",
                 relayOnline ? "Kết nối nội bộ vẫn sẵn sàng" : null);
         }
 

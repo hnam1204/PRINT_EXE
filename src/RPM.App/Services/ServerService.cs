@@ -64,7 +64,8 @@ public class ServerService : IDisposable, IAsyncDisposable
     public ConnectionStatusSnapshot ConnectionStatusInfo => ConnectionStatusResolver.Resolve(
         _cloud.ActivationStatus,
         _cloud.IsOnline,
-        IsInternalConnectionReady);
+        IsInternalConnectionReady,
+        _cloud.HasPreviouslyVerifiedActivation);
     public ConnectionMode ConnectionMode => ConnectionStatusInfo.ConnectionMode;
     public TransportStatus TransportStatus => ConnectionStatusInfo.TransportStatus;
     public string ConnectionStatus => ConnectionStatusInfo.PrimaryText;

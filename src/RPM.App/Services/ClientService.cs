@@ -53,7 +53,8 @@ public class ClientService : IDisposable, IAsyncDisposable
     public ConnectionStatusSnapshot ConnectionStatusInfo => ConnectionStatusResolver.Resolve(
         _cloud.ActivationStatus,
         _cloud.IsOnline,
-        _relayClient.IsConnected);
+        _relayClient.IsConnected,
+        _cloud.HasPreviouslyVerifiedActivation);
     public ConnectionMode ConnectionMode => ConnectionStatusInfo.ConnectionMode;
     public TransportStatus TransportStatus => ConnectionStatusInfo.TransportStatus;
     public string ConnectionStatusDisplay => ConnectionStatusInfo.PrimaryText;

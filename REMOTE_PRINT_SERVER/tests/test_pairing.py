@@ -6,6 +6,7 @@ os.environ.setdefault("ENROLLMENT_SECRET", "test-enrollment-secret")
 
 from fastapi.testclient import TestClient
 
+from app.database import Device
 from app.main import create_app
 
 
@@ -78,6 +79,23 @@ def test_host_geofence_route_is_not_captured_by_device_id_route(tmp_path):
 
     assert response.status_code == 200
     assert response.json()["hostId"] == "host-geofence"
+
+
+def test_heartbeat_updates_backend_app_version(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'heartbeat-version.db'}")
+    client = TestClient(app)
+    token = register(client, "heartbeat-version-device", "HOST")
+
+    response = client.post(
+        "/api/v1/devices/heartbeat",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"appVersion": "1.0.27"},
+    )
+
+    assert response.status_code == 200
+    with app.state.session_factory() as session:
+        device = session.get(Device, "heartbeat-version-device")
+        assert device.app_version == "1.0.27"
 
 
 def test_rejected_client_can_create_a_new_pending_pairing_without_approving_it(tmp_path):

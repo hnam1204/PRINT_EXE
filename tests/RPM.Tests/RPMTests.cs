@@ -63,6 +63,37 @@ public class RPMTests
     }
 
     [Fact]
+    public void ConnectionStatusResolver_PreservesCloudLossAfterRestartWithoutClaimingLanAsPrimary()
+    {
+        var result = ConnectionStatusResolver.Resolve(
+            ActivationStatus.VerificationPending,
+            cloudOnline: false,
+            relayOnline: true,
+            previouslyVerified: true);
+
+        Assert.Equal("Mất kết nối dịch vụ", result.PrimaryText);
+        Assert.Equal(ConnectionMode.Lan, result.ConnectionMode);
+        Assert.Equal(TransportStatus.Degraded, result.TransportStatus);
+        Assert.Equal("Kết nối nội bộ vẫn sẵn sàng", result.SecondaryText);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void ConnectionStatusResolver_RequiresStoredTokenAndVerificationMarker(
+        bool hasStoredToken,
+        bool hasVerificationMarker)
+    {
+        DateTime? verifiedAt = hasVerificationMarker ? DateTime.UtcNow : null;
+
+        Assert.Equal(
+            hasStoredToken && hasVerificationMarker,
+            ConnectionStatusResolver.IsPreviouslyVerifiedActivation(hasStoredToken, verifiedAt));
+    }
+
+    [Fact]
     public void TransportPolicy_DefaultsToDirectOnlyAndPreservesLegacyConfig()
     {
         var fresh = new AppSettings();

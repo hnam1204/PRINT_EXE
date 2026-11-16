@@ -42,6 +42,8 @@ public class AppSettings
     // Only the first five characters are retained for a safe activation hint.
     public string CloudEnrollmentKeyPrefix { get; set; } = string.Empty;
     public string CloudActivationLabel { get; set; } = string.Empty;
+    // Historical backend validation is display state only; it never grants Cloud authorization.
+    public DateTime? CloudActivationLastVerifiedAtUtc { get; set; }
     public DateTime? CloudActivationExpiresAt { get; set; }
     public int? CloudActivationMaxDevices { get; set; }
     public int? CloudActivationUsedDevices { get; set; }
