@@ -577,7 +577,7 @@ public partial class MainDashboardView : UserControl
             : _settings.CloudActivationGeofenceRadiusMeters is int meters
             ? $" • Giới hạn khoảng cách: {meters} m"
             : string.Empty;
-        return $"Thời hạn: {expiration} • {remaining} • Thiết bị: {devices}{radius}";
+        return $"Thời hạn: {expiration}\n{remaining}\nThiết bị: {devices}{radius}";
     }
 
     private static DateTime AsUtc(DateTime value) => value.Kind switch
@@ -621,7 +621,12 @@ public partial class MainDashboardView : UserControl
         string secret = TxtCloudEnrollmentSecret.Password.Trim();
         if (string.IsNullOrWhiteSpace(secret))
         {
-            MessageBox.Show("Nhập mã kích hoạt do quản trị viên cấp.", "Thiếu mã", MessageBoxButton.OK, MessageBoxImage.Warning);
+            UpdateCloudEnrollmentUI();
+            MessageBox.Show(
+                "Vui lòng nhập mã kích hoạt mới. Mã kích hoạt hiện tại vẫn được giữ nguyên.",
+                "Chưa nhập mã mới",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
             return;
         }
 
@@ -637,6 +642,10 @@ public partial class MainDashboardView : UserControl
                 _settings.CloudEnrollmentKeyPrefix = secret[..Math.Min(5, secret.Length)];
                 ConfigManager.Save(_settings);
             }
+            else
+            {
+                UpdateCloudEnrollmentUI();
+            }
             if (_serverService != null) UpdateServerUI();
             else UpdateClientUI();
             MessageBox.Show(success ? "Đã kích hoạt kết nối dịch vụ." : "Không thể kết nối dịch vụ.", "Kết nối dịch vụ", MessageBoxButton.OK, success ? MessageBoxImage.Information : MessageBoxImage.Warning);
@@ -644,6 +653,7 @@ public partial class MainDashboardView : UserControl
         catch (Exception ex)
         {
             TxtCloudEnrollmentSecret.Clear();
+            UpdateCloudEnrollmentUI();
             ApplyConnectionStatus(GetConnectionStatus());
             MessageBox.Show(GetCloudEnrollmentErrorMessage(ex), "Kết nối dịch vụ", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
@@ -682,6 +692,7 @@ public partial class MainDashboardView : UserControl
         TxtCloudEnrollmentSecret.Visibility = Visibility.Visible;
         BtnCloudEnroll.Visibility = Visibility.Visible;
         BtnChangeCloudEnrollment.Visibility = Visibility.Collapsed;
+        TxtCloudLicenseSummary.Visibility = Visibility.Visible;
         TxtCloudEnrollmentSecret.Focus();
     }
 

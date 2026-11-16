@@ -390,21 +390,22 @@
 
                                 <Border Background="{StaticResource BgBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="8,6" Margin="0,0,0,8">
                                     <Grid>
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="170"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                        <StackPanel Grid.RowSpan="2" Grid.Column="0" VerticalAlignment="Center">
                                             <TextBlock Text="Kết nối dịch vụ" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}"/>
                                             <TextBlock x:Name="TxtCloudStatus" Text="Đang tắt" FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,1,0,0"/>
                                         </StackPanel>
-                                        <Grid Grid.Column="1">
+                                        <Grid Grid.Row="0" Grid.Column="1">
                                             <StackPanel>
                                                 <Grid>
                                                     <PasswordBox x:Name="TxtCloudEnrollmentSecret" Height="28" Padding="7,4" VerticalContentAlignment="Center" ToolTip="Mã kích hoạt do quản trị viên cấp"/>
                                                     <TextBlock x:Name="TxtCloudEnrollmentMaskedKey" Visibility="Collapsed" VerticalAlignment="Center" Padding="7,0" FontSize="11" Foreground="{StaticResource TextMainBrush}"/>
                                                 </Grid>
-                                                <TextBlock x:Name="TxtCloudLicenseSummary" Visibility="Collapsed" Margin="7,2,0,0" FontSize="9" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap"/>
                                             </StackPanel>
                                         </Grid>
-                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock x:Name="TxtCloudLicenseSummary" Grid.Row="1" Grid.Column="1" Visibility="Collapsed" Margin="7,3,8,0" FontSize="9" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap"/>
+                                        <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                                             <Button x:Name="BtnCloudEnroll" Style="{StaticResource SecondaryBtn}" Click="BtnCloudEnroll_Click" Padding="10,5" Margin="8,0,0,0" MinWidth="88">
                                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                                                     <ProgressBar x:Name="PbCloudEnroll" Width="14" Height="14" IsIndeterminate="True" Visibility="Collapsed" Margin="0,0,6,0"/>

@@ -6,7 +6,7 @@ import time
 import asyncio
 import uuid
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select, text
@@ -68,6 +68,8 @@ from .telegram_bot import (
     set_bot_commands,
     format_remaining,
     format_vietnam_datetime,
+    build_activation_success_message,
+    send_activation_success_notifications,
     tracked_message_ids,
 )
 
@@ -375,6 +377,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
     def register_device(
         payload: DeviceRegistration,
         request: Request,
+        background_tasks: BackgroundTasks,
         enrollment_secret: str | None = Header(default=None, alias="X-Enrollment-Secret"),
         reactivation_signature: str | None = Header(default=None, alias="X-Device-Reactivation-Signature"),
     ):
@@ -396,6 +399,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             )
             activation_code = None
             reactivating_revoked_device = False
+            is_new_customer_activation = False
             if not uses_admin_secret:
                 activation_code = session.scalar(
                     select(ActivationCode)
@@ -418,6 +422,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                     ):
                         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device reactivation proof required")
                     reactivating_revoked_device = True
+                    is_new_customer_activation = True
                     for pairing in session.scalars(select(Pairing).where(
                         ((Pairing.host_id == device.id) | (Pairing.client_id == device.id)),
                         Pairing.status.in_(["PENDING", "APPROVED"]),
@@ -433,6 +438,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                     if activation_code.max_devices is not None and activation_code.used_devices >= activation_code.max_devices:
                         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Activation code device limit reached")
                     activation_code.used_devices += 1
+                    is_new_customer_activation = True
 
             token = new_device_token()
             if device is None:
@@ -469,8 +475,25 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 device.last_seen_at = utcnow()
 
             session.add(AuditEvent(actor_id=payload.deviceId, action="DEVICE_REGISTERED", target_type="DEVICE", target_id=payload.deviceId))
-            session.commit()
             activation = activation_code or (session.get(ActivationCode, device.activation_code_id) if device.activation_code_id else None)
+            notification = None
+            if activation is not None and is_new_customer_activation:
+                notification = build_activation_success_message(
+                    enrollment_secret=enrollment_secret,
+                    device_id=device.id,
+                    device_name=device.name,
+                    role=device.role,
+                    activation=activation,
+                    reactivated=reactivating_revoked_device,
+                )
+            session.commit()
+            if notification is not None:
+                background_tasks.add_task(
+                    send_activation_success_notifications,
+                    settings.telegram_bot_token,
+                    settings.telegram_admin_ids,
+                    notification,
+                )
             return DeviceRegistrationResponse(
                 deviceId=device.id,
                 deviceToken=token,

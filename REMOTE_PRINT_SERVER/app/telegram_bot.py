@@ -203,6 +203,58 @@ def send_message(bot_token: str, chat_id: int, text: str) -> int:
         return int(((body.get("result") or {}).get("message_id")) or 0)
 
 
+def build_activation_success_message(
+    *,
+    enrollment_secret: str,
+    device_id: str,
+    device_name: str,
+    role: str,
+    activation: ActivationCode,
+    reactivated: bool = False,
+) -> str:
+    """Build the one-time admin notice without persisting the plaintext code."""
+    device_limit = "Không giới hạn" if activation.max_devices is None else str(activation.max_devices)
+    radius = (
+        "Không giới hạn khoảng cách"
+        if activation.geofence_policy == GEOFENCE_POLICY_UNLIMITED
+        else f"{activation.geofence_radius_meters} mét"
+    )
+    return (
+        "KÍCH HOẠT KHÁCH HÀNG THÀNH CÔNG\n\n"
+        f"Mã kích hoạt đầy đủ (chỉ hiển thị lần này): {enrollment_secret.upper()}\n"
+        "Mã đầy đủ không được lưu trên server; server chỉ lưu hash và mã gợi ý.\n\n"
+        f"ID mã kích hoạt: {activation.id}\n"
+        f"Mã gợi ý: {activation.code_hint}...\n"
+        f"Khách hàng: {activation.label}\n"
+        f"Thiết bị: {device_name}\n"
+        f"Device ID: {device_id}\n"
+        f"Vai trò: {role}\n"
+        f"Thiết bị đã dùng: {activation.used_devices}/{device_limit}\n"
+        f"Phạm vi: {radius}\n"
+        f"Tạo lúc: {format_vietnam_datetime(activation.created_at)}\n"
+        f"Hết hạn: {format_vietnam_datetime(activation.expires_at)}\n"
+        f"Đếm ngược: {format_remaining(activation.expires_at)}\n"
+        "Trạng thái: ĐANG HOẠT ĐỘNG\n"
+        f"Hình thức: {'Kích hoạt lại thiết bị' if reactivated else 'Kích hoạt mới'}"
+    )
+
+
+def send_activation_success_notifications(
+    bot_token: str,
+    admin_chat_ids: tuple[int, ...],
+    text: str,
+) -> None:
+    """Send best-effort notices; a Telegram outage must not break enrollment."""
+    if not bot_token or not admin_chat_ids:
+        return
+    for chat_id in admin_chat_ids:
+        try:
+            send_message(bot_token, chat_id, text)
+        except Exception:
+            # Never log or rethrow the message because it contains the plaintext key.
+            continue
+
+
 def set_bot_commands(bot_token: str) -> bool:
     payload = json.dumps({
         "commands": [

@@ -68,28 +68,39 @@ public sealed class CloudConnectionService : IAsyncDisposable
     public async Task<bool> EnrollAsync(string enrollmentSecret, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(enrollmentSecret)) throw new ArgumentException("Enrollment secret is required.", nameof(enrollmentSecret));
+        ActivationStatus previousActivationStatus = _activationStatus;
         _disabledByServer = false;
         _activationStatus = ActivationStatus.VerificationPending;
         OnStateChanged?.Invoke(this, EventArgs.Empty);
-        var client = GetOrCreateClient();
-        var registration = await client.RegisterDeviceAsync(_settings, enrollmentSecret, cancellationToken);
-        bool isCustomerActivation = registration.IsActivationCode ||
-            (!string.IsNullOrWhiteSpace(registration.ActivationLabel) &&
-             !string.Equals(registration.ActivationLabel, "Quản trị viên", StringComparison.OrdinalIgnoreCase));
-        _settings.CloudUsesCustomerActivation = isCustomerActivation;
-        if (isCustomerActivation)
+        try
         {
-            _activationSecretStore.Save(enrollmentSecret);
+            var client = GetOrCreateClient();
+            var registration = await client.RegisterDeviceAsync(_settings, enrollmentSecret, cancellationToken);
+            bool isCustomerActivation = registration.IsActivationCode ||
+                (!string.IsNullOrWhiteSpace(registration.ActivationLabel) &&
+                 !string.Equals(registration.ActivationLabel, "Quản trị viên", StringComparison.OrdinalIgnoreCase));
+            _settings.CloudUsesCustomerActivation = isCustomerActivation;
+            if (isCustomerActivation)
+            {
+                _activationSecretStore.Save(enrollmentSecret);
+            }
+            else
+            {
+                _activationSecretStore.Clear();
+            }
+            ActivationInfo = new CloudActivationInfo(registration.ActivationLabel, registration.ActivationExpiresAt, registration.ActivationMaxDevices, registration.ActivationUsedDevices, registration.ActivationGeofenceRadiusMeters, registration.ActivationGeofencePolicy);
+            SaveActivationInfo();
+            _settings.CloudHostId = _settings.Role == AppRole.Server ? registration.DeviceId : _settings.CloudHostId;
+            ConfigManager.Save(_settings);
+            return await ProbeAsync(cancellationToken);
         }
-        else
+        catch
         {
-            _activationSecretStore.Clear();
+            // A rejected replacement key must not make a still-valid enrollment look pending.
+            _activationStatus = previousActivationStatus;
+            OnStateChanged?.Invoke(this, EventArgs.Empty);
+            throw;
         }
-        ActivationInfo = new CloudActivationInfo(registration.ActivationLabel, registration.ActivationExpiresAt, registration.ActivationMaxDevices, registration.ActivationUsedDevices, registration.ActivationGeofenceRadiusMeters, registration.ActivationGeofencePolicy);
-        SaveActivationInfo();
-        _settings.CloudHostId = _settings.Role == AppRole.Server ? registration.DeviceId : _settings.CloudHostId;
-        ConfigManager.Save(_settings);
-        return await ProbeAsync(cancellationToken);
     }
 
     public async Task StartAsync(CancellationToken cancellationToken = default)

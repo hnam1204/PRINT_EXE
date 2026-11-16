@@ -58,6 +58,79 @@ def test_customer_code_binds_devices_and_reuses_same_device(tmp_path):
     assert blocked.json()["detail"] == "Activation code device limit reached"
 
 
+def test_customer_activation_notifies_admin_with_full_key_without_persisting_plaintext(tmp_path, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-bot-token")
+    monkeypatch.setenv("TELEGRAM_ADMIN_IDS", "12345")
+    monkeypatch.setattr("app.main.send_activation_success_notifications", lambda token, chats, text: captured.append((token, chats, text)))
+    captured = []
+
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'activation-notification.db'}")
+    client = TestClient(app)
+    with app.state.session_factory() as session:
+        code = create_activation_code(session, label="Customer", days=30, max_devices=2, created_by="admin")
+        session.commit()
+
+    response = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Enrollment-Secret": code},
+        json=registration_payload("customer-01"),
+    )
+
+    assert response.status_code == 201
+    assert len(captured) == 1
+    token, chat_ids, message = captured[0]
+    assert token == "test-bot-token"
+    assert chat_ids == (12345,)
+    assert code in message
+    assert "Customer" in message
+    assert "customer-01" in message
+    assert "code_hash" not in message
+
+    with app.state.session_factory() as session:
+        record = session.query(ActivationCode).one()
+        assert code not in str(record.__dict__)
+        assert record.code_hash != code
+        assert record.code_hint == code[:5]
+
+
+def test_customer_activation_notification_failure_does_not_fail_registration(tmp_path, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-bot-token")
+    monkeypatch.setenv("TELEGRAM_ADMIN_IDS", "12345")
+    monkeypatch.setattr("app.telegram_bot.send_message", lambda *args: (_ for _ in ()).throw(RuntimeError("telegram unavailable")))
+
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'activation-notification-failure.db'}")
+    client = TestClient(app)
+    with app.state.session_factory() as session:
+        code = create_activation_code(session, label="Customer", days=30, max_devices=1, created_by="admin")
+        session.commit()
+
+    response = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Enrollment-Secret": code},
+        json=registration_payload("customer-01"),
+    )
+
+    assert response.status_code == 201
+
+
+def test_repeated_registration_does_not_resend_activation_notification(tmp_path, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-bot-token")
+    monkeypatch.setenv("TELEGRAM_ADMIN_IDS", "12345")
+    sent = []
+    monkeypatch.setattr("app.main.send_activation_success_notifications", lambda *args: sent.append(args))
+
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'activation-notification-repeat.db'}")
+    client = TestClient(app)
+    with app.state.session_factory() as session:
+        code = create_activation_code(session, label="Customer", days=30, max_devices=1, created_by="admin")
+        session.commit()
+
+    headers = {"X-Enrollment-Secret": code}
+    assert client.post("/api/v1/devices/register", headers=headers, json=registration_payload("customer-01")).status_code == 201
+    assert client.post("/api/v1/devices/register", headers=headers, json=registration_payload("customer-01")).status_code == 201
+    assert len(sent) == 1
+
+
 def test_same_device_can_switch_host_client_role_without_consuming_another_slot(tmp_path):
     app = create_app(database_url=f"sqlite:///{tmp_path / 'activation-role-switch.db'}")
     client = TestClient(app)

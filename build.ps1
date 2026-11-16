@@ -3,6 +3,10 @@ param(
     [string]$Channel = "Beta",
     [string]$DownloadBaseUrl = "",
     [string[]]$Changelog = @(
+        "Gui thong bao Telegram khi khach hang kich hoat thanh cong; server chi luu hash va ma goi y",
+        "Khong gui lai thong bao khi thiet bi dang ky lai cung ma trong heartbeat hoac reconnect",
+        "Bao toan key va trang thai dich vu cu khi doi ma kich hoat khong hop le hoac de trong",
+        "Sua hien thi thong tin ban quyen bi cat chu trong Dashboard",
         "Toi gian hoan toan Trang chu: Bo thanh toolbar day man hinh, gom 100% chuc nang vao trung tam Cai dat",
         "Tich hop 6 tab in-page trong Cai dat: Thiet lap chung, May in, Thiet bi, Hang doi in, Chan doan, Cap nhat",
         "Sua triet de loi khoi dong NullReferenceException (ApplyClientFilters) khi nap ung dung",
