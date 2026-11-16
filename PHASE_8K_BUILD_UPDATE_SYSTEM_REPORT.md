@@ -1,8 +1,8 @@
 # Phase 8K - Build, Update & Deployment Verification
 
-Ngày kiểm tra: 2026-11-16  
-Repository: `https://github.com/hnam1204/PRINT_EXE`  
-Commit source: `138a9b9`  
+Ngày kiểm tra: 2026-11-16
+Repository: `https://github.com/hnam1204/PRINT_EXE`
+Commit source: `138a9b9`
 Release: `v1.0.27 Beta`
 
 ## Kết luận
