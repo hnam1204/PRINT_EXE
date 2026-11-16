@@ -212,7 +212,6 @@ public partial class MainDashboardView : UserControl
     private void SelectSettingsTab(SettingsTab tab)
     {
         _currentSettingsTab = tab;
-        ViewSettingsContentRow.Height = tab == SettingsTab.General ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
 
         // Toggle content containers
         TabContentGeneral.Visibility = (tab == SettingsTab.General) ? Visibility.Visible : Visibility.Collapsed;

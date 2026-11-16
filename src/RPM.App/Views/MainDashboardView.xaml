@@ -75,7 +75,7 @@
             <!-- ===================================================== -->
             <Grid x:Name="ViewHome" Visibility="Visible">
                 <Grid.RowDefinitions>
-                    <RowDefinition x:Name="ViewSettingsContentRow" Height="*"/>
+                    <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <!-- Cột trái: Thông tin kết nối & Máy in chia sẻ -->
@@ -347,8 +347,8 @@
                 <Grid Grid.Row="1" Margin="0,0,0,8">
 
                     <!-- PHÂN HỆ 1: THIẾT LẬP CHUNG -->
-                    <Border x:Name="TabContentGeneral" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="14" Visibility="Visible" VerticalAlignment="Top">
-                        <ScrollViewer VerticalScrollBarVisibility="Disabled">
+                    <Border x:Name="TabContentGeneral" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="14" Visibility="Visible" VerticalAlignment="Stretch">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" CanContentScroll="True">
                             <StackPanel>
                                 <TextBlock Text="CÀI ĐẶT CHUNG" FontSize="13" FontWeight="Bold" Foreground="{StaticResource NavyMainBrush}" Margin="0,0,0,10"/>
 

@@ -56,7 +56,7 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <Button Grid.Column="0" Style="{StaticResource SecondaryBtn}" Click="BtnCancel_Click" Padding="12,6">
+                <Button Grid.Column="0" Style="{StaticResource SecondaryBtn}" Click="BtnCancel_Click" Height="34" MinWidth="78" Padding="10,5" HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
                     <StackPanel Orientation="Horizontal">
                         <Path Data="{StaticResource GeoCancel}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"/>
                         <TextBlock Text="Hủy" FontSize="11" FontWeight="Medium"/>
@@ -64,14 +64,14 @@
                 </Button>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
-                    <Button Style="{StaticResource PrimaryBtn}" Click="BtnMinimize_Click" Margin="0,0,8,0" Padding="12,6">
+                    <Button Style="{StaticResource PrimaryBtn}" Click="BtnMinimize_Click" Margin="0,0,8,0" Height="34" MinWidth="152" Padding="10,5" HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource GeoDevices}" Fill="#FFFFFF" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"/>
                             <TextBlock Text="Ẩn xuống khay" FontSize="11" FontWeight="SemiBold"/>
                         </StackPanel>
                     </Button>
 
-                    <Button Style="{StaticResource DestructiveBtn}" Click="BtnExit_Click" Padding="12,6">
+                    <Button Style="{StaticResource DestructiveBtn}" Click="BtnExit_Click" Height="34" MinWidth="160" Padding="10,5" HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource GeoPower}" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0"/>
                             <TextBlock Text="Thoát ứng dụng" FontSize="11" FontWeight="Bold"/>
