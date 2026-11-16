@@ -19,6 +19,16 @@ namespace RPM.Tests;
 
 public class RPMTests
 {
+    [Fact]
+    public void DeviceInfo_IsRemoteDevice_ExcludesCurrentHost()
+    {
+        var host = new DeviceInfo { DeviceId = "host-01" };
+        var client = new DeviceInfo { DeviceId = "client-01" };
+
+        Assert.False(DeviceInfoPolicy.IsRemoteDevice(host, "HOST-01"));
+        Assert.True(DeviceInfoPolicy.IsRemoteDevice(client, "host-01"));
+    }
+
     [Theory]
     [InlineData(ActivationStatus.NotActivated, false, true, "Đã kết nối nội bộ", ConnectionMode.Lan, TransportStatus.Online)]
     [InlineData(ActivationStatus.VerificationPending, false, true, "Đã kết nối nội bộ", ConnectionMode.Lan, TransportStatus.Online)]

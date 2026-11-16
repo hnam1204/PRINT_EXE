@@ -108,8 +108,18 @@ public class ServerService : IDisposable, IAsyncDisposable
             OnStatusChanged?.Invoke(this, EventArgs.Empty);
         };
 
-        // Restore known approved clients
-        foreach (var client in _settings.ApprovedClients)
+        // Restore only remote devices. Role switches can leave the previous
+        // local device in the persisted client list.
+        var persistedClients = _settings.ApprovedClients
+            .Where(client => DeviceInfoPolicy.IsRemoteDevice(client, _settings.DeviceId))
+            .ToList();
+        if (persistedClients.Count != _settings.ApprovedClients.Count)
+        {
+            _settings.ApprovedClients = persistedClients;
+            ConfigManager.Save(_settings);
+        }
+
+        foreach (var client in persistedClients)
         {
             client.IsOnline = false;
             ConnectedClients.Add(client);
@@ -486,7 +496,9 @@ public class ServerService : IDisposable, IAsyncDisposable
             var client = _cloud.Client;
             var pending = await client.ListPendingPairingsAsync(cancellationToken);
             var summary = await client.GetPairingSummaryAsync(cancellationToken);
-            var pendingItems = pending ?? Array.Empty<CloudPendingPairing>();
+            var pendingItems = (pending ?? Array.Empty<CloudPendingPairing>())
+                .Where(item => DeviceInfoPolicy.IsRemoteDeviceId(item.ClientId, _settings.DeviceId))
+                .ToArray();
             var pendingClientIds = pendingItems.Select(item => item.ClientId).ToHashSet(StringComparer.Ordinal);
             if (summary is not null)
             {
@@ -583,6 +595,7 @@ public class ServerService : IDisposable, IAsyncDisposable
         _lastApprovedClientStatusRefreshUtc = DateTime.UtcNow;
 
         var approvedClients = ConnectedClients
+            .Where(item => DeviceInfoPolicy.IsRemoteDevice(item, _settings.DeviceId))
             .Where(item => item.IsApproved && !item.IsBlocked)
             .Take(15)
             .ToList();
@@ -749,6 +762,7 @@ public class ServerService : IDisposable, IAsyncDisposable
 
     public async Task ApproveClientAsync(DeviceInfo client)
     {
+        EnsureRemoteClient(client);
         bool previousApproved = client.IsApproved;
         bool previousBlocked = client.IsBlocked;
         bool previousReconnectAllowed = client.ReconnectAllowed;
@@ -809,6 +823,7 @@ public class ServerService : IDisposable, IAsyncDisposable
 
     public async Task RevokeClientAsync(DeviceInfo client)
     {
+        EnsureRemoteClient(client);
         bool previousApproved = client.IsApproved;
         bool previousBlocked = client.IsBlocked;
         bool previousReconnectAllowed = client.ReconnectAllowed;
@@ -885,6 +900,9 @@ public class ServerService : IDisposable, IAsyncDisposable
 
     public async Task SetClientAllowedPrintersAsync(string deviceId, List<string> allowedPrinters, PrinterAccessMode accessMode)
     {
+        if (!DeviceInfoPolicy.IsRemoteDeviceId(deviceId, _settings.DeviceId))
+            throw new InvalidOperationException("Không thể cập nhật quyền máy in cho chính máy chủ.");
+
         var client = ConnectedClients.FirstOrDefault(c => c.DeviceId == deviceId);
         if (client == null) return;
 
@@ -922,6 +940,7 @@ public class ServerService : IDisposable, IAsyncDisposable
 
     private async Task<string> ResolveCloudPairingIdAsync(DeviceInfo client, CancellationToken cancellationToken = default)
     {
+        if (!DeviceInfoPolicy.IsRemoteDevice(client, _settings.DeviceId)) return string.Empty;
         if (!string.IsNullOrWhiteSpace(client.PairingId)) return client.PairingId;
         if (_cloudPairingIds.TryGetValue(client.DeviceId, out var mappedPairingId) && !string.IsNullOrWhiteSpace(mappedPairingId))
         {
@@ -1011,7 +1030,9 @@ public class ServerService : IDisposable, IAsyncDisposable
 
     private void SaveClientList()
     {
-        _settings.ApprovedClients = ConnectedClients.ToList();
+        _settings.ApprovedClients = ConnectedClients
+            .Where(client => DeviceInfoPolicy.IsRemoteDevice(client, _settings.DeviceId))
+            .ToList();
         ConfigManager.Save(_settings);
         OnStatusChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -1483,6 +1504,12 @@ public class ServerService : IDisposable, IAsyncDisposable
             client.DeviceId = packet.SenderId;
         }
 
+        if (!DeviceInfoPolicy.IsRemoteDeviceId(client.DeviceId, _settings.DeviceId))
+        {
+            OnLog?.Invoke(this, "[Bảo vệ] Bỏ qua yêu cầu kết nối tự gửi từ chính máy chủ.");
+            return;
+        }
+
         var existing = ConnectedClients.FirstOrDefault(c => c.DeviceId == client.DeviceId);
 
         Application.Current?.Dispatcher.Invoke(() =>
@@ -1530,6 +1557,12 @@ public class ServerService : IDisposable, IAsyncDisposable
             OnLog?.Invoke(this, $"[Yêu cầu kết nối] Máy con '{existing.DeviceName}' xin kết nối.");
             OnClientRequestedApproval?.Invoke(this, existing);
         }
+    }
+
+    private void EnsureRemoteClient(DeviceInfo client)
+    {
+        if (!DeviceInfoPolicy.IsRemoteDevice(client, _settings.DeviceId))
+            throw new InvalidOperationException("Không thể quản lý chính máy chủ trong danh sách máy con.");
     }
 
     private async Task HandleSubmitPrintJobAsync(NetworkPacket packet)

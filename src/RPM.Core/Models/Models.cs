@@ -117,6 +117,20 @@ public class DeviceInfo
     public string DeviceStatus => PermissionStatus;
 }
 
+public static class DeviceInfoPolicy
+{
+    public static bool IsRemoteDeviceId(string deviceId, string currentDeviceId)
+    {
+        return !string.IsNullOrWhiteSpace(deviceId) &&
+            !string.Equals(deviceId, currentDeviceId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool IsRemoteDevice(DeviceInfo device, string currentDeviceId)
+    {
+        return device is not null && IsRemoteDeviceId(device.DeviceId, currentDeviceId);
+    }
+}
+
 public class SharedPrinterInfo
 {
     public string Name { get; set; } = string.Empty;

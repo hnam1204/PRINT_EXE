@@ -280,13 +280,16 @@ public partial class MainDashboardView : UserControl
             TxtActivePrinterSummary.Text = "Chưa chọn máy in";
         }
 
+        var remoteClients = _serverService.ConnectedClients
+            .Where(client => DeviceInfoPolicy.IsRemoteDevice(client, _settings.DeviceId))
+            .ToList();
         int onlineClients = _serverService.CloudCapacityLoaded
             ? _serverService.CloudOnlineClientCount
-            : _serverService.ConnectedClients.Count(c => c.IsOnline && c.IsApproved);
+            : remoteClients.Count(c => c.IsOnline && c.IsApproved);
         int approvedClients = _serverService.CloudCapacityLoaded
             ? _serverService.CloudApprovedClientCount
-            : _serverService.ConnectedClients.Count(c => c.IsApproved && !c.IsBlocked);
-        int pendingClients = _serverService.ConnectedClients.Count(c => !c.IsApproved && !c.IsBlocked);
+            : remoteClients.Count(c => c.IsApproved && !c.IsBlocked);
+        int pendingClients = remoteClients.Count(c => !c.IsApproved && !c.IsBlocked);
         int maxClients = _serverService.CloudMaxClientCount;
         TxtServerClientsSummary.Text = $"{approvedClients}/{maxClients} máy đã được chấp nhận ({onlineClients} máy đang trực tuyến • {pendingClients} yêu cầu đang chờ)";
         TxtServerGeofenceStatus.Text = _serverService.GeofenceStatusDisplay;
@@ -886,7 +889,10 @@ public partial class MainDashboardView : UserControl
         int pendingCount = 0;
         int offlineCount = 0;
 
-        foreach (var client in _serverService.ConnectedClients)
+        var remoteClients = _serverService.ConnectedClients
+            .Where(client => DeviceInfoPolicy.IsRemoteDevice(client, _settings.DeviceId))
+            .ToList();
+        foreach (var client in remoteClients)
         {
             if (client.IsOnline) onlineCount++;
             else offlineCount++;
@@ -909,7 +915,7 @@ public partial class MainDashboardView : UserControl
 
         if (TxtClientStats != null)
         {
-            TxtClientStats.Text = $"{_serverService.ConnectedClients.Count} máy con · {onlineCount} máy đang trực tuyến · {pendingCount} yêu cầu đang chờ · {_serverService.ConnectionStatusInfo.PrimaryText}";
+            TxtClientStats.Text = $"{remoteClients.Count} máy con · {onlineCount} máy đang trực tuyến · {pendingCount} yêu cầu đang chờ · {_serverService.ConnectionStatusInfo.PrimaryText}";
         }
         if (PanelClientsEmpty != null) PanelClientsEmpty.Visibility = _filteredClients.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
