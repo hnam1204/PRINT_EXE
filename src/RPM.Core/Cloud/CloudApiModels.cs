@@ -14,6 +14,7 @@ public sealed record CloudDeviceRegistrationResponse(
     [property: JsonPropertyName("deviceId")] string DeviceId,
     [property: JsonPropertyName("deviceToken")] string DeviceToken,
     [property: JsonPropertyName("role")] string Role,
+    [property: JsonPropertyName("isActivationCode")] bool IsActivationCode = false,
     [property: JsonPropertyName("activationLabel")] string? ActivationLabel = null,
     [property: JsonPropertyName("activationExpiresAt")] DateTime? ActivationExpiresAt = null,
     [property: JsonPropertyName("activationMaxDevices")] int? ActivationMaxDevices = null,

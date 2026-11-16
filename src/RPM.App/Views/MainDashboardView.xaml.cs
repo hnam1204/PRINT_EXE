@@ -44,7 +44,7 @@ public partial class MainDashboardView : UserControl
     private readonly DispatcherTimer _activationCountdownTimer;
 
     public event EventHandler? OnMinimizeRequested;
-    public event EventHandler? OnRoleChangeRequested;
+    public event EventHandler<AppRole>? OnRoleChangeRequested;
 
     public MainDashboardView(AppSettings settings, ServerService? serverService, ClientService? clientService)
     {
@@ -287,11 +287,12 @@ public partial class MainDashboardView : UserControl
         TxtServerClientsSummary.Text = $"{approvedClients}/{maxClients} máy đã được chấp nhận ({onlineClients} máy đang trực tuyến • {pendingClients} yêu cầu đang chờ)";
         TxtServerGeofenceStatus.Text = _serverService.GeofenceStatusDisplay;
         var lanEndpoints = _serverService.LanRelayEndpoints;
-        TxtServerLanEndpoint.Text = !_serverService.IsLanRelayAvailable
+        string lanDetails = !_serverService.IsLanRelayAvailable
             ? _serverService.LanAccessStatus
             : lanEndpoints.Count > 0
                 ? $"{_serverService.LanAccessStatus}\n{string.Join("\n", lanEndpoints)}"
                 : "Không tìm thấy IP LAN";
+        TxtServerLanEndpoint.Text = $"{lanDetails}\nMã LAN dự phòng: {_settings.PairingCode}";
 
         UpdateCloudEnrollmentUI();
         RefreshRecentJobs();
@@ -650,9 +651,8 @@ public partial class MainDashboardView : UserControl
 
         if (confirm == MessageBoxResult.Yes)
         {
-            _settings.Role = targetRole;
-            ConfigManager.Save(_settings);
-            OnRoleChangeRequested?.Invoke(this, EventArgs.Empty);
+            // MainWindow stops the old role service before mutating shared settings.
+            OnRoleChangeRequested?.Invoke(this, targetRole);
         }
     }
 
@@ -917,16 +917,30 @@ public partial class MainDashboardView : UserControl
 
     private async Task ManageApproveAsync(DeviceInfo client)
     {
-        await _serverService!.ApproveClientAsync(client);
-        ApplyClientFilters();
-        UpdateServerUI();
+        try
+        {
+            await _serverService!.ApproveClientAsync(client);
+            ApplyClientFilters();
+            UpdateServerUI();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Không thể phê duyệt thiết bị:\n{ex.Message}", "Phê duyệt thất bại", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     private async Task ManageRevokeAsync(DeviceInfo client)
     {
-        await _serverService!.RevokeClientAsync(client);
-        ApplyClientFilters();
-        UpdateServerUI();
+        try
+        {
+            await _serverService!.RevokeClientAsync(client);
+            ApplyClientFilters();
+            UpdateServerUI();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Không thể từ chối thiết bị:\n{ex.Message}", "Từ chối thất bại", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     private Task ManageAllowReconnectAsync(DeviceInfo client)
@@ -949,10 +963,17 @@ public partial class MainDashboardView : UserControl
         if (_serverService == null) return;
         if (DgClients.SelectedItem is DeviceInfo client)
         {
-            await _serverService.ApproveClientAsync(client);
-            ApplyClientFilters();
-            UpdateServerUI();
-            MessageBox.Show($"Đã cho phép máy '{client.DeviceName}'.", "Đã cho phép", MessageBoxButton.OK, MessageBoxImage.Information);
+            try
+            {
+                await _serverService.ApproveClientAsync(client);
+                ApplyClientFilters();
+                UpdateServerUI();
+                MessageBox.Show($"Đã cho phép máy '{client.DeviceName}'.", "Đã cho phép", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Không thể phê duyệt thiết bị:\n{ex.Message}", "Phê duyệt thất bại", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
         else
         {
@@ -1017,9 +1038,16 @@ public partial class MainDashboardView : UserControl
         {
             if (MessageBox.Show($"Bỏ quyền của máy '{client.DeviceName}'?", "Xác nhận", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
             {
-                await _serverService.RevokeClientAsync(client);
-                ApplyClientFilters();
-                UpdateServerUI();
+                try
+                {
+                    await _serverService.RevokeClientAsync(client);
+                    ApplyClientFilters();
+                    UpdateServerUI();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Không thể từ chối thiết bị:\n{ex.Message}", "Từ chối thất bại", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
             }
         }
         else
@@ -1308,7 +1336,10 @@ public partial class MainDashboardView : UserControl
                 return;
             }
 
-            _settings.PairingCode = code;
+            // Keep the LAN code separate from the six-character Cloud code so
+            // an offline Cloud attempt can safely fall back to Relay.
+            if (code.StartsWith("RPM-", StringComparison.OrdinalIgnoreCase))
+                _settings.PairingCode = code.ToUpperInvariant();
             _settings.RelayServerUrl = TxtClientRelayAddress.Text.Trim();
             ConfigManager.Save(_settings);
             BtnClientConnectToggle.IsEnabled = false;

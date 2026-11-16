@@ -63,6 +63,46 @@ public class RPMTests
     }
 
     [Fact]
+    public void CloudDocumentCrypto_PublicKeyFingerprintChangesWhenKeyChanges()
+    {
+        using var first = RSA.Create(2048);
+        using var second = RSA.Create(2048);
+        string firstKey = Convert.ToBase64String(first.ExportSubjectPublicKeyInfo());
+        string secondKey = Convert.ToBase64String(second.ExportSubjectPublicKeyInfo());
+
+        string firstFingerprint = CloudDocumentCrypto.ComputePublicKeyFingerprint(firstKey);
+        string secondFingerprint = CloudDocumentCrypto.ComputePublicKeyFingerprint(secondKey);
+
+        Assert.Equal(64, firstFingerprint.Length);
+        Assert.NotEqual(firstFingerprint, secondFingerprint);
+    }
+
+    [Fact]
+    public void CloudCredentials_PersistAcrossRoleChanges()
+    {
+        string folder = Path.Combine(Path.GetTempPath(), $"rpm_cloud_credentials_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var hostTokenStore = CloudDeviceTokenStore.ForDevice("device-1", folder);
+            hostTokenStore.Save("token-before-role-change");
+
+            var clientTokenStore = CloudDeviceTokenStore.ForDevice("device-1", folder);
+            Assert.Equal("token-before-role-change", clientTokenStore.Load());
+
+            var secretStore = CloudActivationSecretStore.ForDevice("device-1", folder);
+            secretStore.Save("activation-code");
+
+            var afterRoleChangeStore = CloudActivationSecretStore.ForDevice("device-1", folder);
+            Assert.Equal("activation-code", afterRoleChangeStore.Load());
+        }
+        finally
+        {
+            if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        }
+    }
+
+    [Fact]
     public void RelayEndpointPolicy_ClientDoesNotUseItsOwnLoopback()
     {
         Assert.False(RelayEndpointPolicy.TryValidateForRole(AppRole.Client, "ws://127.0.0.1:9090", out var reason));

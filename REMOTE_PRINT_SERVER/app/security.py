@@ -11,7 +11,7 @@ from cryptography.exceptions import InvalidSignature
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from .database import Device, RateLimitEvent
+from .database import ActivationCode, Device, RateLimitEvent, as_utc, utcnow
 
 
 def hash_token(token: str) -> str:
@@ -69,6 +69,12 @@ def require_device(request: Request, authorization: str | None = Header(default=
         device = session.scalar(select(Device).where(Device.token_hash == hash_token(token)))
         if device is None or device.is_revoked:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid device token")
+        if device.activation_code_id:
+            activation = session.get(ActivationCode, device.activation_code_id)
+            if activation is None or activation.revoked_at is not None or (
+                activation.expires_at is not None and as_utc(activation.expires_at) <= utcnow()
+            ):
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Activation code is no longer active")
         session.commit()
         session.expunge(device)
         return device

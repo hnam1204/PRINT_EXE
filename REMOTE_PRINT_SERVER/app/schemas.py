@@ -17,6 +17,7 @@ class DeviceRegistrationResponse(BaseModel):
     deviceId: str
     deviceToken: str
     role: str
+    isActivationCode: bool = False
     expiresAt: datetime | None = None
     activationLabel: str | None = None
     activationExpiresAt: datetime | None = None

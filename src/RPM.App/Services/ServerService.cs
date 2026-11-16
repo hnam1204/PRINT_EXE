@@ -27,6 +27,7 @@ public class ServerService : IDisposable, IAsyncDisposable
     private readonly WindowsLocationService _locationService = new();
     private readonly SemaphoreSlim _cloudPairingRefreshLock = new(1, 1);
     private readonly SemaphoreSlim _cloudGeofenceLock = new(1, 1);
+    private DateTime _lastApprovedClientStatusRefreshUtc = DateTime.MinValue;
     private int _cloudWorkersStarted;
     private int _cloudGeofenceConfigured;
     private Task? _cloudWorkerTask;
@@ -37,7 +38,7 @@ public class ServerService : IDisposable, IAsyncDisposable
     private readonly HashSet<string> _recentlyPrintedHashes = new();
     private const int MaxQueuedJobs = 100;
     private RelayServer? _embeddedRelay;
-    private bool _isProcessingQueue;
+    private int _isProcessingQueue;
 
     public RelayClient Relay => _relayClient;
     public PrinterService PrinterService => _printerService;
@@ -80,6 +81,12 @@ public class ServerService : IDisposable, IAsyncDisposable
                 _ = EnsureCloudWorkersAsync();
                 _ = EnsureCloudGeofenceAsync();
             }
+            else
+            {
+                CloudCapacityLoaded = false;
+                CloudOnlineClientCount = 0;
+            }
+            OnStatusChanged?.Invoke(this, EventArgs.Empty);
         };
 
         // Restore known approved clients
@@ -411,6 +418,8 @@ public class ServerService : IDisposable, IAsyncDisposable
                 CloudCapacityLoaded = true;
             }
 
+            await RefreshApprovedClientStatusesAsync(client, cancellationToken);
+
             var geofence = await client.GetGeofenceAsync(cancellationToken);
             if (geofence is not null)
             {
@@ -431,8 +440,7 @@ public class ServerService : IDisposable, IAsyncDisposable
                     {
                         DeviceId = item.ClientId,
                         DeviceName = item.ClientName,
-                        IsOnline = true,
-                        LastSeen = DateTime.UtcNow
+                        IsOnline = false
                     };
                     Application.Current?.Dispatcher.Invoke(() => ConnectedClients.Add(device));
                     SaveClientList();
@@ -445,8 +453,7 @@ public class ServerService : IDisposable, IAsyncDisposable
                     device.IsBlocked = false;
                     device.ReconnectAllowed = false;
                     device.DeviceName = item.ClientName;
-                    device.IsOnline = true;
-                    device.LastSeen = DateTime.UtcNow;
+                    device.IsOnline = false;
                     SaveClientList();
                 }
 
@@ -463,6 +470,25 @@ public class ServerService : IDisposable, IAsyncDisposable
                 }
             }
 
+            var expiredPending = ConnectedClients
+                .Where(device => !device.IsApproved && !device.IsBlocked && !device.ReconnectAllowed)
+                .Where(device => !pendingClientIds.Contains(device.DeviceId))
+                .ToList();
+            if (expiredPending.Count > 0)
+            {
+                Application.Current?.Dispatcher.Invoke(() =>
+                {
+                    foreach (var device in expiredPending)
+                        ConnectedClients.Remove(device);
+                });
+                if (Application.Current is null)
+                {
+                    foreach (var device in expiredPending)
+                        ConnectedClients.Remove(device);
+                }
+                SaveClientList();
+            }
+
             OnStatusChanged?.Invoke(this, EventArgs.Empty);
         }
         finally
@@ -470,6 +496,59 @@ public class ServerService : IDisposable, IAsyncDisposable
             _cloudPairingRefreshLock.Release();
         }
     }
+
+    private async Task RefreshApprovedClientStatusesAsync(CloudApiClient client, CancellationToken cancellationToken)
+    {
+        if (DateTime.UtcNow - _lastApprovedClientStatusRefreshUtc < TimeSpan.FromSeconds(5)) return;
+        _lastApprovedClientStatusRefreshUtc = DateTime.UtcNow;
+
+        var approvedClients = ConnectedClients
+            .Where(item => item.IsApproved && !item.IsBlocked)
+            .Take(15)
+            .ToList();
+        if (approvedClients.Count == 0) return;
+
+        DateTime cutoff = DateTime.UtcNow - TimeSpan.FromSeconds(120);
+        var updates = await Task.WhenAll(approvedClients.Select(async item =>
+        {
+            try
+            {
+                return (item, profile: await client.GetDeviceProfileAsync(item.DeviceId, cancellationToken));
+            }
+            catch
+            {
+                return (item, profile: null);
+            }
+        }));
+
+        void ApplyUpdates()
+        {
+            foreach (var update in updates)
+            {
+                if (update.profile is null)
+                {
+                    update.item.IsOnline = false;
+                    continue;
+                }
+
+                update.item.DeviceName = update.profile.Name;
+                update.item.LastSeen = NormalizeUtc(update.profile.LastSeenAt);
+                update.item.IsOnline = update.item.LastSeen >= cutoff;
+            }
+        }
+
+        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+            dispatcher.Invoke(ApplyUpdates);
+        else
+            ApplyUpdates();
+    }
+
+    private static DateTime NormalizeUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Local => value.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+    };
 
     public void LoadPrinters()
     {
@@ -614,69 +693,106 @@ public class ServerService : IDisposable, IAsyncDisposable
 
     public async Task ApproveClientAsync(DeviceInfo client)
     {
-        client.IsApproved = true;
-        client.IsBlocked = false;
-        client.ReconnectAllowed = false;
-        SaveClientList();
-
+        bool previousApproved = client.IsApproved;
+        bool previousBlocked = client.IsBlocked;
+        bool previousReconnectAllowed = client.ReconnectAllowed;
         var permittedPrinters = GetPrintersForClient(client);
-
-        if (_settings.CloudTransportEnabled && _cloud.Client is not null && _cloudPairingIds.TryGetValue(client.DeviceId, out var cloudPairingId))
+        try
         {
-            await _cloud.Client.DecidePairingAsync(cloudPairingId, true, permittedPrinters.Select(p => CloudPrinterId(p.Name)).ToList());
-            OnLog?.Invoke(this, $"[Cloud] Đã duyệt thiết bị: {client.DeviceName}");
-            return;
+            if (_settings.CloudTransportEnabled && _cloud.Client is not null && _cloudPairingIds.TryGetValue(client.DeviceId, out var cloudPairingId))
+            {
+                var result = await _cloud.Client.DecidePairingAsync(
+                    cloudPairingId,
+                    true,
+                    permittedPrinters.Select(p => CloudPrinterId(p.Name)).ToList());
+                if (result is null || !string.Equals(result.Status, "APPROVED", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Máy chủ từ xa chưa xác nhận phê duyệt thiết bị.");
+                OnLog?.Invoke(this, $"[Cloud] Đã duyệt thiết bị: {client.DeviceName}");
+            }
+            else
+            {
+                var response = new ClientJoinResponsePayload
+                {
+                    Approved = true,
+                    IsPending = false,
+                    Message = "Máy chủ đã chấp thuận thiết bị của bạn.",
+                    EncryptionSecret = _settings.EncryptionSecret,
+                    SharedPrinter = permittedPrinters.FirstOrDefault() ?? ActiveSharedPrinter,
+                    AvailablePrinters = permittedPrinters
+                };
+
+                bool sent = await _relayClient.SendEncryptedPayloadAsync(
+                    MessageType.ClientJoinResponse,
+                    _settings.DeviceId,
+                    client.DeviceId,
+                    _settings.PairingCode,
+                    response,
+                    _settings.PairingCode);
+                if (!sent) throw new InvalidOperationException("Không gửi được phản hồi phê duyệt tới máy con.");
+                OnLog?.Invoke(this, $"[Duyệt] Đã chấp thuận máy con: {client.DeviceName} (Phòng: {client.Department}) - Quyền: {client.AllowedPrintersSummary}");
+            }
+
+            client.IsApproved = true;
+            client.IsBlocked = false;
+            client.ReconnectAllowed = false;
+            SaveClientList();
+            OnStatusChanged?.Invoke(this, EventArgs.Empty);
         }
-
-        var response = new ClientJoinResponsePayload
+        catch
         {
-            Approved = true,
-            IsPending = false,
-            Message = "Máy chủ đã chấp thuận thiết bị của bạn.",
-            EncryptionSecret = _settings.EncryptionSecret,
-            SharedPrinter = permittedPrinters.FirstOrDefault() ?? ActiveSharedPrinter,
-            AvailablePrinters = permittedPrinters
-        };
-
-        await _relayClient.SendEncryptedPayloadAsync(
-            MessageType.ClientJoinResponse,
-            _settings.DeviceId,
-            client.DeviceId,
-            _settings.PairingCode,
-            response,
-            _settings.PairingCode);
-        OnLog?.Invoke(this, $"[Duyệt] Đã chấp thuận máy con: {client.DeviceName} (Phòng: {client.Department}) - Quyền: {client.AllowedPrintersSummary}");
+            client.IsApproved = previousApproved;
+            client.IsBlocked = previousBlocked;
+            client.ReconnectAllowed = previousReconnectAllowed;
+            SaveClientList();
+            throw;
+        }
     }
 
     public async Task RevokeClientAsync(DeviceInfo client)
     {
-        client.IsApproved = false;
-        client.IsBlocked = true;
-        client.ReconnectAllowed = false;
-
-        if (_settings.CloudTransportEnabled && _cloud.Client is not null && _cloudPairingIds.TryGetValue(client.DeviceId, out var cloudPairingId))
+        bool previousApproved = client.IsApproved;
+        bool previousBlocked = client.IsBlocked;
+        bool previousReconnectAllowed = client.ReconnectAllowed;
+        try
         {
-            await _cloud.Client.DecidePairingAsync(cloudPairingId, false, Array.Empty<string>());
-            OnLog?.Invoke(this, $"[Cloud] Đã từ chối thiết bị: {client.DeviceName}");
-        }
-        else
-        {
-            var packet = new NetworkPacket
+            if (_settings.CloudTransportEnabled && _cloud.Client is not null && _cloudPairingIds.TryGetValue(client.DeviceId, out var cloudPairingId))
             {
-                Type = MessageType.DeviceRevoked,
-                SenderId = _settings.DeviceId,
-                TargetId = client.DeviceId,
-                PairingCode = _settings.PairingCode,
-                PayloadJson = "{\"status\":\"revoked\"}"
-            };
+                var result = await _cloud.Client.DecidePairingAsync(cloudPairingId, false, Array.Empty<string>());
+                if (result is null || !string.Equals(result.Status, "REJECTED", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Máy chủ từ xa chưa xác nhận từ chối thiết bị.");
+                OnLog?.Invoke(this, $"[Cloud] Đã từ chối thiết bị: {client.DeviceName}");
+            }
+            else
+            {
+                var packet = new NetworkPacket
+                {
+                    Type = MessageType.DeviceRevoked,
+                    SenderId = _settings.DeviceId,
+                    TargetId = client.DeviceId,
+                    PairingCode = _settings.PairingCode,
+                    PayloadJson = "{\"status\":\"revoked\"}"
+                };
 
-            await _relayClient.SendPacketAsync(packet);
-            OnLog?.Invoke(this, $"[Thu hồi] Đã thu hồi quyền máy con: {client.DeviceName}");
+                bool sent = await _relayClient.SendPacketAsync(packet);
+                if (!sent) throw new InvalidOperationException("Không gửi được phản hồi từ chối tới máy con.");
+                OnLog?.Invoke(this, $"[Thu hồi] Đã thu hồi quyền máy con: {client.DeviceName}");
+            }
+
+            client.IsApproved = false;
+            client.IsBlocked = true;
+            client.ReconnectAllowed = false;
+            _cloudPairingIds.Remove(client.DeviceId);
+            SaveClientList();
+            OnStatusChanged?.Invoke(this, EventArgs.Empty);
         }
-
-        _cloudPairingIds.Remove(client.DeviceId);
-        SaveClientList();
-        OnStatusChanged?.Invoke(this, EventArgs.Empty);
+        catch
+        {
+            client.IsApproved = previousApproved;
+            client.IsBlocked = previousBlocked;
+            client.ReconnectAllowed = previousReconnectAllowed;
+            SaveClientList();
+            throw;
+        }
     }
 
     public bool AllowReconnectClient(DeviceInfo client)
@@ -1071,26 +1187,27 @@ public class ServerService : IDisposable, IAsyncDisposable
 
     private async Task ProcessPrintQueueAsync()
     {
-        if (_isProcessingQueue) return;
-        _isProcessingQueue = true;
+        if (Interlocked.CompareExchange(ref _isProcessingQueue, 1, 0) != 0) return;
 
-        while (true)
+        try
         {
-            PrintJob? job = null;
-            await _queueLock.WaitAsync();
-            try
+            while (true)
             {
-                if (_printQueue.Count > 0)
+                PrintJob? job = null;
+                await _queueLock.WaitAsync();
+                try
                 {
-                    job = _printQueue.Dequeue();
+                    if (_printQueue.Count > 0)
+                    {
+                        job = _printQueue.Dequeue();
+                    }
                 }
-            }
-            finally
-            {
-                _queueLock.Release();
-            }
+                finally
+                {
+                    _queueLock.Release();
+                }
 
-            if (job == null) break;
+                if (job == null) break;
 
             string destPrinter = !string.IsNullOrWhiteSpace(job.TargetPrinter)
                 ? job.TargetPrinter
@@ -1150,11 +1267,14 @@ public class ServerService : IDisposable, IAsyncDisposable
                 OnLog?.Invoke(this, $"[Lỗi in] {job.DocumentName}: {errMsg}");
             }
 
-            await NotifyJobProgressAsync(job);
-            OnStatusChanged?.Invoke(this, EventArgs.Empty);
+                await NotifyJobProgressAsync(job);
+                OnStatusChanged?.Invoke(this, EventArgs.Empty);
+            }
         }
-
-        _isProcessingQueue = false;
+        finally
+        {
+            Volatile.Write(ref _isProcessingQueue, 0);
+        }
     }
 
     private async Task CloudWorkerLoopAsync()
@@ -1183,6 +1303,7 @@ public class ServerService : IDisposable, IAsyncDisposable
     {
         CloudJobClaim? claim = null;
         string? tempFile = null;
+        bool spoolerAccepted = false;
         try
         {
             if (_cloud.Client is null) return;
@@ -1219,6 +1340,7 @@ public class ServerService : IDisposable, IAsyncDisposable
             string documentName = GetMetadataString(job.Metadata, "documentName") ?? $"Cloud-{job.JobId}";
             bool accepted = _printerService.PrintFileDirectly(printerName, tempFile, documentName, out var error);
             if (!accepted) throw new InvalidOperationException(error);
+            spoolerAccepted = true;
             await _cloud.Client.UpdateJobStatusAsync(job.JobId, new CloudJobStatusUpdate(claim.ClaimToken, "SPOOLER_ACCEPTED"), _cloudWorkerStop.Token);
             // PrintFileDirectly confirms spooler acceptance, not physical completion.
             await _cloud.Client.UpdateJobStatusAsync(job.JobId, new CloudJobStatusUpdate(claim.ClaimToken, "UNKNOWN", null, "SPOOLER_COMPLETION_UNVERIFIED", "Windows Spooler accepted the job; physical completion was not verifiable."), _cloudWorkerStop.Token);
@@ -1229,7 +1351,12 @@ public class ServerService : IDisposable, IAsyncDisposable
         {
             if (claim is not null && _cloud.Client is not null)
             {
-                try { await _cloud.Client.UpdateJobStatusAsync(job.JobId, new CloudJobStatusUpdate(claim.ClaimToken, "FAILED", null, "HOST_WORKER_ERROR", ex.Message[..Math.Min(500, ex.Message.Length)]), CancellationToken.None); } catch { }
+                string status = spoolerAccepted ? "UNKNOWN" : "FAILED";
+                string failureCode = spoolerAccepted ? "SPOOLER_COMPLETION_UNVERIFIED" : "HOST_WORKER_ERROR";
+                string failureMessage = spoolerAccepted
+                    ? "Windows Spooler đã nhận tài liệu nhưng mất kết nối trước khi xác nhận trạng thái cuối. Không tự động in lại."
+                    : ex.Message[..Math.Min(500, ex.Message.Length)];
+                try { await _cloud.Client.UpdateJobStatusAsync(job.JobId, new CloudJobStatusUpdate(claim.ClaimToken, status, null, failureCode, failureMessage), CancellationToken.None); } catch { }
             }
             _cloudJobStateStore.MarkUnknown(job.JobId);
             OnLog?.Invoke(this, $"[Cloud] Không xử lý Job {job.JobId}: {ex.Message}");

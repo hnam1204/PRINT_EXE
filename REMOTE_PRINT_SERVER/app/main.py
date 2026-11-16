@@ -81,6 +81,21 @@ def _revoke_pairings_for_code(session, host_id: str, code: str, revoked_at: date
     return len(pairings)
 
 
+def _close_expired_live_pairings(session, host_id: str, client_id: str, now: datetime) -> None:
+    """Release the live-pairing uniqueness slot after its lease expires."""
+    expired = session.scalars(
+        select(Pairing).where(
+            Pairing.host_id == host_id,
+            Pairing.client_id == client_id,
+            Pairing.status == "PENDING",
+            Pairing.expires_at <= now,
+        )
+    ).all()
+    for pairing in expired:
+        pairing.status = "REVOKED"
+        pairing.decided_at = pairing.decided_at or now
+
+
 def create_app(settings: Settings | None = None, database_url: str | None = None, blob_store: BlobStore | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     db_url = database_url or settings.database_url
@@ -286,6 +301,8 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                         session.add(pairing)
                 elif device is not None and device.activation_code_id not in (None, activation_code.id):
                     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device is already activated with another code")
+                elif device is not None and device.public_key and payload.publicKey != device.public_key:
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Device public key cannot change without reactivation")
                 if device is None or device.activation_code_id is None:
                     if activation_code.max_devices is not None and activation_code.used_devices >= activation_code.max_devices:
                         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Activation code device limit reached")
@@ -332,6 +349,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 deviceId=device.id,
                 deviceToken=token,
                 role=device.role,
+                isActivationCode=activation is not None,
                 activationLabel=activation.label if activation else "Quản trị viên",
                 activationExpiresAt=activation.expires_at if activation else None,
                 activationMaxDevices=activation.max_devices if activation else None,
@@ -382,13 +400,16 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             if host.role != "HOST":
                 raise HTTPException(status_code=422, detail="Target device is not a Host")
             location_result = verify_pairing_location(host, payload, now)
+            _close_expired_live_pairings(session, host.id, device.id, now)
             existing = session.scalar(
-                select(Pairing).where(
+                select(Pairing)
+                .where(
                     Pairing.client_id == device.id,
                     Pairing.host_id == host.id,
-                    Pairing.status == "PENDING",
-                    Pairing.expires_at > now,
+                    (Pairing.status == "APPROVED")
+                    | ((Pairing.status == "PENDING") & (Pairing.expires_at > now)),
                 )
+                .order_by(Pairing.created_at.desc())
             )
             if existing:
                 apply_location_evidence(existing, payload, location_result)
@@ -403,7 +424,26 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 expires_at=expires_at,
             )
             apply_location_evidence(pairing, payload, location_result)
-            session.add(pairing)
+            try:
+                with session.begin_nested():
+                    session.add(pairing)
+                    session.flush()
+            except IntegrityError:
+                existing = session.scalar(
+                    select(Pairing)
+                    .where(
+                        Pairing.client_id == device.id,
+                        Pairing.host_id == host.id,
+                        (Pairing.status == "APPROVED")
+                        | ((Pairing.status == "PENDING") & (Pairing.expires_at > now)),
+                    )
+                    .order_by(Pairing.created_at.desc())
+                )
+                if existing is None:
+                    raise
+                apply_location_evidence(existing, payload, location_result)
+                session.commit()
+                return pairing_response(existing)
             session.add(AuditEvent(actor_id=device.id, action="PAIRING_REQUESTED", target_type="DEVICE", target_id=host.id))
             session.commit()
             return pairing_response(pairing)
@@ -597,7 +637,16 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         now = utcnow()
         with session_factory() as session:
             record = session.scalar(
-                select(PairingCode).where(PairingCode.device_id == device.id).order_by(PairingCode.issued_at.desc())
+                select(PairingCode)
+                .where(PairingCode.device_id == device.id)
+                # A host keeps revoked/expired rows as audit history. The
+                # current endpoint must prefer the one live code rather than
+                # relying on timestamp ordering when SQLite truncates ties.
+                .order_by(
+                    (PairingCode.status == "ACTIVE").desc(),
+                    PairingCode.issued_at.desc(),
+                    PairingCode.id.desc(),
+                )
             )
             if record is None:
                 raise HTTPException(status_code=404, detail="No pairing code has been issued")
@@ -631,13 +680,59 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             host = session.get(Device, record.device_id)
             if host is None or host.role != "HOST" or host.is_revoked or host.id == device.id:
                 raise HTTPException(status_code=404, detail="Invalid or expired pairing code")
+
+            # Repeated clicks/retries must not create multiple live requests for
+            # the same Host/Client pair. The existing row remains authoritative.
+            _close_expired_live_pairings(session, host.id, device.id, now)
+            existing = session.scalar(
+                select(Pairing)
+                .where(
+                    Pairing.host_id == host.id,
+                    Pairing.client_id == device.id,
+                    (Pairing.status == "APPROVED")
+                    | ((Pairing.status == "PENDING") & (Pairing.expires_at > now)),
+                )
+                .order_by(Pairing.created_at.desc())
+            )
+            if existing is not None:
+                return PairingCodeResolveResponse(
+                    pairingId=existing.id,
+                    hostId=existing.host_id,
+                    clientId=existing.client_id,
+                    status=existing.status,
+                    locationStatus=existing.location_status,
+                )
+
             location_result = verify_pairing_location(host, location_payload(host.id, payload), utcnow())
             pairing = Pairing(
                 host_id=host.id, client_id=device.id, code=payload.code,
                 status="PENDING", expires_at=record.expires_at,
             )
             apply_location_evidence(pairing, payload, location_result)
-            session.add(pairing)
+            try:
+                with session.begin_nested():
+                    session.add(pairing)
+                    session.flush()
+            except IntegrityError:
+                existing = session.scalar(
+                    select(Pairing)
+                    .where(
+                        Pairing.host_id == host.id,
+                        Pairing.client_id == device.id,
+                        (Pairing.status == "APPROVED")
+                        | ((Pairing.status == "PENDING") & (Pairing.expires_at > now)),
+                    )
+                    .order_by(Pairing.created_at.desc())
+                )
+                if existing is None:
+                    raise
+                return PairingCodeResolveResponse(
+                    pairingId=existing.id,
+                    hostId=existing.host_id,
+                    clientId=existing.client_id,
+                    status=existing.status,
+                    locationStatus=existing.location_status,
+                )
             session.add(AuditEvent(actor_id=device.id, action="PAIRING_REQUESTED", target_type="DEVICE", target_id=host.id))
             session.commit()
             return PairingCodeResolveResponse(

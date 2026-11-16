@@ -97,6 +97,26 @@ def test_resolve_code_requires_client_and_host_approval(tmp_path):
     assert revoked.json()["status"] == "REVOKED"
 
 
+def test_repeated_resolve_returns_same_live_pairing(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'pairing-retry.db'}")
+    client = TestClient(app)
+    host_token = register(client, "host-01", "HOST")
+    client_token = register(client, "client-01", "CLIENT")
+    issued = client.post(
+        "/api/v1/pairing-codes/issue",
+        headers={"Authorization": f"Bearer {host_token}"},
+        json={"sessionId": "boot-1"},
+    ).json()
+    headers = {"Authorization": f"Bearer {client_token}"}
+
+    first = client.post("/api/v1/pairing-codes/resolve", headers=headers, json={"code": issued["code"]})
+    second = client.post("/api/v1/pairing-codes/resolve", headers=headers, json={"code": issued["code"]})
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert second.json()["pairingId"] == first.json()["pairingId"]
+
+
 def test_rotating_code_revokes_existing_pairing(tmp_path):
     app = create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}")
     client = TestClient(app)

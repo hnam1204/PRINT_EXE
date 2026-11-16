@@ -19,6 +19,7 @@ public class ClientService : IDisposable, IAsyncDisposable
     private readonly LocalIppServer _ippServer = new();
     private readonly CloudConnectionService _cloud;
     private readonly WindowsLocationService _locationService = new();
+    private readonly SemaphoreSlim _relayStartLock = new(1, 1);
     private bool _isApproved;
     private string _connectionStatus = "Chưa kết nối";
     private SharedPrinterInfo? _remotePrinter;
@@ -53,7 +54,11 @@ public class ClientService : IDisposable, IAsyncDisposable
         _settings = settings;
         _cloud = new CloudConnectionService(settings);
         _cloud.OnLog += (s, msg) => OnLog?.Invoke(this, msg);
-        _cloud.OnStateChanged += (s, e) => OnStateChanged?.Invoke(this, EventArgs.Empty);
+        _cloud.OnStateChanged += (s, e) =>
+        {
+            OnStateChanged?.Invoke(this, EventArgs.Empty);
+            if (!_cloud.IsOnline) _ = StartRelayFallbackAsync();
+        };
         _cloud.OnEnrollmentRevoked += (s, e) => OnEnrollmentRevoked?.Invoke(this, EventArgs.Empty);
 
         // Restore history
@@ -73,45 +78,90 @@ public class ClientService : IDisposable, IAsyncDisposable
 
     public async Task StartAsync()
     {
+        _ippServer.Start(_settings.LocalIppPort);
         if (_settings.CloudTransportEnabled || _cloud.HasStoredToken)
         {
-            _ippServer.Start(_settings.LocalIppPort);
             await _cloud.StartAsync();
+            if (!_cloud.IsOnline) await StartRelayFallbackAsync();
             return;
         }
-        if (!RelayEndpointPolicy.TryValidateForRole(AppRole.Client, _settings.RelayServerUrl, out var reason))
-        {
-            _connectionStatus = "Chưa kết nối";
-            OnLog?.Invoke(this, reason + " Hãy thiết lập địa chỉ Host/kết nối nội bộ trong Chẩn đoán.");
-            OnStateChanged?.Invoke(this, EventArgs.Empty);
-            _ippServer.Start(_settings.LocalIppPort);
-            return;
-        }
-
-        _connectionStatus = "Đang kết nối...";
-        _relayClient.PairingCode = _settings.PairingCode;
-        OnStateChanged?.Invoke(this, EventArgs.Empty);
-
-        // Start local IPP service
-        _ippServer.Start(_settings.LocalIppPort);
-
-        // Connect to relay
-        await _relayClient.StartAsync(_settings.RelayServerUrl);
+        await StartRelayFallbackAsync();
     }
 
     public async Task ConnectToServerAsync(string pairingCode)
     {
-        if (_settings.CloudTransportEnabled || _cloud.HasStoredToken)
+        string code = pairingCode.Trim().ToUpperInvariant();
+        bool isCloudCode = code.Length == 6 && !code.StartsWith("RPM-", StringComparison.OrdinalIgnoreCase);
+        if ((_settings.CloudTransportEnabled || _cloud.HasStoredToken) && isCloudCode)
         {
-            await ConnectToCloudAsync(pairingCode);
+            if (await ConnectToCloudAsync(code)) return;
+
+            // Cloud pairing codes are not valid Relay credentials. Fall back
+            // only to the separately stored LAN code when it is available.
+            if (PacketSecurity.IsValidPairingCode(_settings.PairingCode))
+            {
+                await ConnectToRelayAsync(_settings.PairingCode);
+            }
             return;
         }
-        _settings.PairingCode = pairingCode.Trim();
+        await ConnectToRelayAsync(code);
+    }
+
+    private async Task StartRelayFallbackAsync()
+    {
         if (!PacketSecurity.IsValidPairingCode(_settings.PairingCode))
         {
-            OnLog?.Invoke(this, "Mã kết nối không đúng. Hãy nhập đủ mã kết nối hiện tại.");
+            OnLog?.Invoke(this, "Cloud đang ngoại tuyến. Kết nối nội bộ cần mã LAN dạng RPM-XXXXXX và địa chỉ LAN của máy chủ.");
             return;
         }
+
+        await _relayStartLock.WaitAsync();
+        try
+        {
+            if (_relayClient.IsConnected) return;
+            if (!RelayEndpointPolicy.TryValidateForRole(AppRole.Client, _settings.RelayServerUrl, out var reason))
+            {
+                _connectionStatus = "Chưa kết nối nội bộ";
+                OnLog?.Invoke(this, reason + " Hãy thiết lập địa chỉ LAN của máy chủ trong Chẩn đoán.");
+                OnStateChanged?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+
+            _connectionStatus = "Đang kết nối nội bộ...";
+            _relayClient.PairingCode = _settings.PairingCode;
+            OnStateChanged?.Invoke(this, EventArgs.Empty);
+            await _relayClient.StartAsync(_settings.RelayServerUrl);
+        }
+        finally
+        {
+            _relayStartLock.Release();
+        }
+    }
+
+    private async Task<bool> EnsureRelayConnectedAsync(TimeSpan timeout)
+    {
+        if (_relayClient.IsConnected) return true;
+        if (!PacketSecurity.IsValidPairingCode(_settings.PairingCode)) return false;
+        await StartRelayFallbackAsync();
+
+        DateTime deadline = DateTime.UtcNow + timeout;
+        while (!_relayClient.IsConnected && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+        }
+
+        return _relayClient.IsConnected;
+    }
+
+    private async Task ConnectToRelayAsync(string pairingCode)
+    {
+        string normalizedCode = pairingCode.Trim().ToUpperInvariant();
+        if (!PacketSecurity.IsValidPairingCode(normalizedCode))
+        {
+            OnLog?.Invoke(this, "Mã kết nối nội bộ không đúng. Hãy nhập mã dạng RPM-XXXXXX.");
+            return;
+        }
+        _settings.PairingCode = normalizedCode;
         _relayClient.PairingCode = _settings.PairingCode;
         ConfigManager.Save(_settings);
         IsConnecting = true;
@@ -176,13 +226,13 @@ public class ClientService : IDisposable, IAsyncDisposable
         return enrolled;
     }
 
-    private async Task ConnectToCloudAsync(string pairingCode)
+    private async Task<bool> ConnectToCloudAsync(string pairingCode)
     {
         string code = pairingCode.Trim().ToUpperInvariant();
         if (code.Length != 6)
         {
             OnLog?.Invoke(this, "Mã kết nối phải có 6 ký tự.");
-            return;
+            return false;
         }
         IsConnecting = true;
         _connectionStatus = "Đang tìm máy chủ...";
@@ -191,24 +241,17 @@ public class ClientService : IDisposable, IAsyncDisposable
         {
             if (!_cloud.IsOnline || !await _cloud.ProbeAsync())
             {
-                _connectionStatus = "Mất kết nối dịch vụ";
-                return;
+                _connectionStatus = "Mất kết nối dịch vụ; đang thử kết nối nội bộ";
+                return false;
             }
             var location = await _locationService.TryGetCurrentAsync();
             var resolution = await _cloud.Client!.ResolvePairingCodeAsync(code, location);
             if (resolution is null)
             {
                 _connectionStatus = "Không tìm thấy máy chủ";
-                return;
+                return false;
             }
             _settings.CloudHostId = resolution.HostId;
-            var host = await _cloud.Client.GetDeviceProfileAsync(resolution.HostId);
-            if (host is null || host.IsRevoked || string.IsNullOrWhiteSpace(host.PublicKey))
-            {
-                _connectionStatus = "Máy chủ chưa sẵn sàng";
-                return;
-            }
-            _settings.CloudHostPublicKey = host.PublicKey;
             _settings.CloudPairingCode = code;
             _settings.CloudPairingId = resolution.PairingId;
             ConfigManager.Save(_settings);
@@ -221,8 +264,14 @@ public class ClientService : IDisposable, IAsyncDisposable
             _connectionStatus = "Đang gửi yêu cầu kết nối...";
             OnLog?.Invoke(this, "Đã gửi yêu cầu kết nối. Chờ máy chủ chấp nhận trước khi in.");
             _ = WaitForCloudApprovalAsync(resolution.PairingId);
+            return true;
         }
-        catch (Exception ex) { _connectionStatus = "Mất kết nối dịch vụ"; OnLog?.Invoke(this, $"Không thể kết nối máy chủ: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            _connectionStatus = "Mất kết nối dịch vụ; đang thử kết nối nội bộ";
+            OnLog?.Invoke(this, $"Không thể kết nối máy chủ từ xa: {ex.Message}");
+            return false;
+        }
         finally { IsConnecting = false; OnStateChanged?.Invoke(this, EventArgs.Empty); }
     }
 
@@ -239,6 +288,28 @@ public class ClientService : IDisposable, IAsyncDisposable
                 if (pairing is null) continue;
                 if (string.Equals(pairing.Status, "APPROVED", StringComparison.OrdinalIgnoreCase))
                 {
+                    var host = await api.GetDeviceProfileAsync(_settings.CloudHostId);
+                    if (host is null || host.IsRevoked || string.IsNullOrWhiteSpace(host.PublicKey))
+                    {
+                        _connectionStatus = "Máy chủ chưa cung cấp khóa bảo mật";
+                        OnLog?.Invoke(this, "Máy chủ đã chấp nhận nhưng chưa cung cấp public key hợp lệ; chưa thể gửi tài liệu.");
+                        OnStateChanged?.Invoke(this, EventArgs.Empty);
+                        return;
+                    }
+
+                    string hostFingerprint = CloudDocumentCrypto.ComputePublicKeyFingerprint(host.PublicKey);
+                    if (!string.IsNullOrWhiteSpace(_settings.CloudHostPublicKeyFingerprint) &&
+                        !string.Equals(_settings.CloudHostPublicKeyFingerprint, hostFingerprint, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _connectionStatus = "Khóa bảo mật máy chủ đã thay đổi";
+                        OnLog?.Invoke(this, "Từ chối ghép nối: public key máy chủ không khớp khóa đã tin cậy trên thiết bị.");
+                        OnStateChanged?.Invoke(this, EventArgs.Empty);
+                        return;
+                    }
+
+                    _settings.CloudHostPublicKey = host.PublicKey;
+                    _settings.CloudHostPublicKeyFingerprint = hostFingerprint;
+                    ConfigManager.Save(_settings);
                     _isApproved = true;
                     _connectionStatus = "Đã được chấp nhận";
                     var printers = await api.ListPrintersAsync(_settings.CloudHostId);
@@ -498,9 +569,27 @@ public class ClientService : IDisposable, IAsyncDisposable
 
         OnLog?.Invoke(this, $"[Đang gửi] Bắt đầu truyền lệnh in '{job.DocumentName}' tới máy chủ...");
 
-        if (_settings.CloudTransportEnabled)
+        if (_settings.CloudTransportEnabled && _cloud.IsOnline)
         {
-            await SubmitCloudJobAsync(job, e.Data, Path.GetExtension(job.DocumentName));
+            try
+            {
+                await SubmitCloudJobAsync(job, e.Data, Path.GetExtension(job.DocumentName));
+            }
+            catch (Exception ex)
+            {
+                job.Status = PrintJobStatus.Failed;
+                job.StatusMessage = "Không thể tải tài liệu lên máy chủ từ xa.";
+                OnLog?.Invoke(this, $"[Lỗi Cloud] Gửi tài liệu '{job.DocumentName}' thất bại: {ex.Message}");
+            }
+            OnStateChanged?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        if (!await EnsureRelayConnectedAsync(TimeSpan.FromSeconds(10)))
+        {
+            job.Status = PrintJobStatus.Failed;
+            job.StatusMessage = "Không thể kết nối máy chủ nội bộ.";
+            OnLog?.Invoke(this, $"[Lỗi LAN] Không thể gửi tài liệu '{job.DocumentName}' vì Relay chưa kết nối.");
             OnStateChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
@@ -555,13 +644,25 @@ public class ClientService : IDisposable, IAsyncDisposable
             location?.Latitude, location?.Longitude, location?.AccuracyMeters, location?.LocationTimestamp);
         var created = await _cloud.Client.CreateJobAsync(request, job.JobId);
         if (created is null) throw new InvalidOperationException("Máy chủ từ xa không tạo được lệnh in.");
-        await _cloud.Client.UploadDocumentAsync(created.JobId, encrypted);
+        try
+        {
+            await _cloud.Client.UploadDocumentAsync(created.JobId, encrypted);
+        }
+        catch
+        {
+            try
+            {
+                await _cloud.Client.CancelJobAsync(created.JobId, "DOCUMENT_UPLOAD_FAILED");
+            }
+            catch { }
+            throw;
+        }
         job.StatusMessage = "Đã gửi đến máy chủ, đang chờ xử lý.";
     }
 
     public async Task<bool> SendTestPrintAsync()
     {
-        if (!_isApproved || (!_settings.CloudTransportEnabled && string.IsNullOrEmpty(_settings.EncryptionSecret)))
+        if (!_isApproved || (!_cloud.IsOnline && string.IsNullOrEmpty(_settings.EncryptionSecret)))
         {
             return false;
         }
@@ -589,11 +690,28 @@ public class ClientService : IDisposable, IAsyncDisposable
             PrintHistory.Insert(0, job);
         });
 
-        if (_settings.CloudTransportEnabled)
+        if (_settings.CloudTransportEnabled && _cloud.IsOnline)
         {
-            await SubmitCloudJobAsync(job, testBytes, ".txt");
+            try
+            {
+                await SubmitCloudJobAsync(job, testBytes, ".txt");
+            }
+            catch (Exception ex)
+            {
+                job.Status = PrintJobStatus.Failed;
+                job.StatusMessage = "Không thể tải trang thử nghiệm lên máy chủ từ xa.";
+                OnLog?.Invoke(this, $"[Lỗi Cloud] Gửi trang thử nghiệm thất bại: {ex.Message}");
+            }
             OnStateChanged?.Invoke(this, EventArgs.Empty);
             return job.Status != PrintJobStatus.Failed;
+        }
+
+        if (!await EnsureRelayConnectedAsync(TimeSpan.FromSeconds(10)))
+        {
+            job.Status = PrintJobStatus.Failed;
+            job.StatusMessage = "Không thể kết nối máy chủ nội bộ.";
+            OnStateChanged?.Invoke(this, EventArgs.Empty);
+            return false;
         }
 
         var payload = new PrintJobPayload
@@ -603,7 +721,7 @@ public class ClientService : IDisposable, IAsyncDisposable
             FileExtension = ".txt"
         };
 
-        return await _relayClient.SendEncryptedPayloadAsync(
+        bool sent = await _relayClient.SendEncryptedPayloadAsync(
             MessageType.SubmitPrintJob,
             _settings.DeviceId,
             string.Empty,
@@ -611,6 +729,13 @@ public class ClientService : IDisposable, IAsyncDisposable
             payload,
             _settings.EncryptionSecret
         );
+        if (!sent)
+        {
+            job.Status = PrintJobStatus.Failed;
+            job.StatusMessage = "Không thể gửi dữ liệu tới máy chủ nội bộ.";
+            OnStateChanged?.Invoke(this, EventArgs.Empty);
+        }
+        return sent;
     }
 
     public async Task DisconnectAsync()

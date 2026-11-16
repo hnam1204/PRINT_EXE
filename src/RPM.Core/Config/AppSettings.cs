@@ -30,6 +30,7 @@ public class AppSettings
     public int? CloudActivationGeofenceRadiusMeters { get; set; }
     public string CloudHostId { get; set; } = string.Empty;
     public string CloudHostPublicKey { get; set; } = string.Empty;
+    public string CloudHostPublicKeyFingerprint { get; set; } = string.Empty;
     public string CloudPairingCode { get; set; } = string.Empty;
     public DateTime? CloudPairingExpiresAt { get; set; }
     public string CloudPairingSessionId { get; set; } = string.Empty;

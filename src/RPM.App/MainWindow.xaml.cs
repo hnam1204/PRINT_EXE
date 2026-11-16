@@ -64,38 +64,69 @@ public partial class MainWindow : Window
         await _roleNavigationLock.WaitAsync();
         try
         {
-            // Wait off the UI thread while background workers and sockets stop.
-            if (_serverStartTask is not null)
-            {
-                try { await _serverStartTask; } catch { }
-                _serverStartTask = null;
-            }
-            if (_clientStartTask is not null)
-            {
-                try { await _clientStartTask; } catch { }
-                _clientStartTask = null;
-            }
-            try { if (_serverService is not null) await _serverService.DisposeAsync(); } catch { }
-            _serverService = null;
-            try { if (_clientService is not null) await _clientService.DisposeAsync(); } catch { }
-            _clientService = null;
-
-            switch (_settings.Role)
-            {
-                case AppRole.Server:
-                    LoadServerMode();
-                    break;
-                case AppRole.Client:
-                    LoadClientMode();
-                    break;
-                default:
-                    LoadModeSelection();
-                    break;
-            }
+            await StopCurrentRoleServicesAsync();
+            LoadCurrentRoleView();
         }
         finally
         {
             _roleNavigationLock.Release();
+        }
+    }
+
+    private async Task ChangeRoleAsync(AppRole role)
+    {
+        await _roleNavigationLock.WaitAsync();
+        try
+        {
+            await StopCurrentRoleServicesAsync();
+            _settings.Role = role;
+            ConfigManager.Save(_settings);
+            LoadCurrentRoleView();
+        }
+        finally
+        {
+            _roleNavigationLock.Release();
+        }
+    }
+
+    private async Task StopCurrentRoleServicesAsync()
+    {
+        // Dispose first so an in-flight Cloud/Relay startup is cancelled before
+        // the role switch waits for its task. This keeps the WPF UI responsive.
+        Task? serverStartTask = _serverStartTask;
+        Task? clientStartTask = _clientStartTask;
+        var serverService = _serverService;
+        var clientService = _clientService;
+        _serverStartTask = null;
+        _clientStartTask = null;
+        _serverService = null;
+        _clientService = null;
+
+        try { if (serverService is not null) await serverService.DisposeAsync(); } catch { }
+        try { if (clientService is not null) await clientService.DisposeAsync(); } catch { }
+        if (serverStartTask is not null)
+        {
+            try { await serverStartTask; } catch { }
+        }
+        if (clientStartTask is not null)
+        {
+            try { await clientStartTask; } catch { }
+        }
+    }
+
+    private void LoadCurrentRoleView()
+    {
+        switch (_settings.Role)
+        {
+            case AppRole.Server:
+                LoadServerMode();
+                break;
+            case AppRole.Client:
+                LoadClientMode();
+                break;
+            default:
+                LoadModeSelection();
+                break;
         }
     }
 
@@ -131,7 +162,7 @@ public partial class MainWindow : Window
 
         var dashboard = new MainDashboardView(_settings, _serverService, null);
         dashboard.OnMinimizeRequested += (s, e) => _trayService?.HideMainWindow();
-        dashboard.OnRoleChangeRequested += (s, e) => _ = NavigateToCurrentRoleAsync();
+        dashboard.OnRoleChangeRequested += (s, role) => _ = ChangeRoleAsync(role);
 
         MainContentArea.Content = dashboard;
         _serverStartTask = _serverService.StartAsync();
@@ -144,7 +175,7 @@ public partial class MainWindow : Window
 
         var dashboard = new MainDashboardView(_settings, null, _clientService);
         dashboard.OnMinimizeRequested += (s, e) => _trayService?.HideMainWindow();
-        dashboard.OnRoleChangeRequested += (s, e) => _ = NavigateToCurrentRoleAsync();
+        dashboard.OnRoleChangeRequested += (s, role) => _ = ChangeRoleAsync(role);
 
         MainContentArea.Content = dashboard;
         _clientStartTask = _clientService.StartAsync();

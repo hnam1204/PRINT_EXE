@@ -22,6 +22,7 @@ public class RelayClient : IDisposable
     private bool _isDisposed;
     private string _relayUrl = string.Empty;
     private bool _shouldAutoReconnect = true;
+    private int _startRequested;
     private int _consecutiveFails = 0;
     private bool _wasConnectedBefore = false;
 
@@ -43,6 +44,11 @@ public class RelayClient : IDisposable
             throw new ArgumentException("ws:// chỉ được dùng cho IP mạng LAN riêng; Relay công khai phải dùng wss://.", nameof(relayUrl));
         }
 
+        if (Interlocked.CompareExchange(ref _startRequested, 1, 0) != 0)
+        {
+            return Task.CompletedTask;
+        }
+
         _relayUrl = relayUrl;
         _shouldAutoReconnect = true;
         _ = Task.Run(ConnectInternalAsync);
@@ -51,6 +57,7 @@ public class RelayClient : IDisposable
 
     public async Task StopAsync()
     {
+        Interlocked.Exchange(ref _startRequested, 0);
         _shouldAutoReconnect = false;
         _cts?.Cancel();
 
@@ -272,6 +279,7 @@ public class RelayClient : IDisposable
     {
         if (_isDisposed) return;
         _isDisposed = true;
+        Interlocked.Exchange(ref _startRequested, 0);
         _cts?.Cancel();
         _ws?.Dispose();
         _sendLock.Dispose();

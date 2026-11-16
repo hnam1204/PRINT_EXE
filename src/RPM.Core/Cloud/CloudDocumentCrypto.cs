@@ -11,6 +11,13 @@ public static class CloudDocumentCrypto
     private const int TagSize = 16;
     private const int KeySize = 32;
 
+    public static string ComputePublicKeyFingerprint(string publicKeyBase64)
+    {
+        if (string.IsNullOrWhiteSpace(publicKeyBase64)) throw new ArgumentException("Public key is required.", nameof(publicKeyBase64));
+        byte[] keyBytes = Convert.FromBase64String(publicKeyBase64);
+        return Convert.ToHexString(SHA256.HashData(keyBytes)).ToLowerInvariant();
+    }
+
     public static byte[] EncryptForHost(ReadOnlySpan<byte> plaintext, string hostPublicKeyBase64)
     {
         using var hostKey = RSA.Create();

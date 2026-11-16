@@ -2,7 +2,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import uuid
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, create_engine
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 
@@ -40,6 +40,16 @@ class Device(Base):
 
 class Pairing(Base):
     __tablename__ = "pairings"
+    __table_args__ = (
+        Index(
+            "uq_pairings_live_host_client",
+            "host_id",
+            "client_id",
+            unique=True,
+            postgresql_where=text("status IN ('PENDING', 'APPROVED')"),
+            sqlite_where=text("status IN ('PENDING', 'APPROVED')"),
+        ),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     host_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
     client_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)

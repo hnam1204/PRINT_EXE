@@ -237,6 +237,52 @@ public sealed class CloudDeviceTokenStore
 {
     private readonly string _path;
 
+    public static void ClearAllForDevice(string deviceId)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId)) return;
+        string root = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "RemotePrintManager");
+        string[] scopes =
+        {
+            deviceId,
+            $"{deviceId}-Server",
+            $"{deviceId}-Client",
+            $"{deviceId}-HOST",
+            $"{deviceId}-CLIENT"
+        };
+        foreach (string scope in scopes)
+        {
+            string path = Path.Combine(root, $"cloud-device-token-{SanitizeScope(scope)}.bin");
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    public static CloudDeviceTokenStore ForDevice(string deviceId, string? rootPath = null)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId)) throw new ArgumentException("Device ID is required.", nameof(deviceId));
+        string fileName = $"cloud-device-token-{SanitizeScope(deviceId)}.bin";
+        return new CloudDeviceTokenStore(
+            rootPath is null ? null : Path.Combine(rootPath, fileName),
+            rootPath is null ? deviceId : null);
+    }
+
+    public static CloudDeviceTokenStore ForRole(string deviceId, string role, string? rootPath = null)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId)) throw new ArgumentException("Device ID is required.", nameof(deviceId));
+        if (string.IsNullOrWhiteSpace(role)) throw new ArgumentException("Role is required.", nameof(role));
+        string scope = $"{deviceId}-{role}";
+        string fileName = $"cloud-device-token-{SanitizeScope(scope)}.bin";
+        return new CloudDeviceTokenStore(
+            rootPath is null ? null : Path.Combine(rootPath, fileName),
+            rootPath is null ? scope : null);
+    }
+
     public CloudDeviceTokenStore(string? path = null, string? scope = null)
     {
         string fileName = string.IsNullOrWhiteSpace(scope)
@@ -282,7 +328,79 @@ public sealed class CloudDeviceTokenStore
 
     public void Clear()
     {
-        if (File.Exists(_path)) File.Delete(_path);
+        try
+        {
+            if (File.Exists(_path)) File.Delete(_path);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+}
+
+public sealed class CloudActivationSecretStore
+{
+    private readonly string _path;
+
+    public static CloudActivationSecretStore ForDevice(string deviceId, string? rootPath = null)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId)) throw new ArgumentException("Device ID is required.", nameof(deviceId));
+        string fileName = $"cloud-activation-secret-{SanitizeScope(deviceId)}.bin";
+        return new CloudActivationSecretStore(
+            rootPath is null ? null : Path.Combine(rootPath, fileName),
+            rootPath is null ? deviceId : null);
+    }
+
+    public CloudActivationSecretStore(string? path = null, string? scope = null)
+    {
+        string fileName = string.IsNullOrWhiteSpace(scope)
+            ? "cloud-activation-secret.bin"
+            : $"cloud-activation-secret-{SanitizeScope(scope)}.bin";
+        _path = path ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "RemotePrintManager",
+            fileName);
+    }
+
+    private static string SanitizeScope(string scope) =>
+        string.Concat(scope.Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' ? ch : '_'));
+
+    public void Save(string secret)
+    {
+        if (string.IsNullOrWhiteSpace(secret)) throw new ArgumentException("Activation secret is required.", nameof(secret));
+        var folder = Path.GetDirectoryName(_path) ?? throw new InvalidOperationException("Activation secret path has no parent directory.");
+        Directory.CreateDirectory(folder);
+#pragma warning disable CA1416
+        var protectedBytes = ProtectedData.Protect(Encoding.UTF8.GetBytes(secret.Trim()), null, DataProtectionScope.CurrentUser);
+#pragma warning restore CA1416
+        var tempPath = _path + ".tmp";
+        File.WriteAllBytes(tempPath, protectedBytes);
+        File.Move(tempPath, _path, true);
+    }
+
+    public string? Load()
+    {
+        if (!File.Exists(_path)) return null;
+        try
+        {
+#pragma warning disable CA1416
+            var secret = ProtectedData.Unprotect(File.ReadAllBytes(_path), null, DataProtectionScope.CurrentUser);
+#pragma warning restore CA1416
+            return Encoding.UTF8.GetString(secret);
+        }
+        catch (CryptographicException) { return null; }
+        catch (IOException) { return null; }
+    }
+
+    public bool HasSecret => !string.IsNullOrWhiteSpace(Load());
+
+    public void Clear()
+    {
+        try
+        {
+            if (File.Exists(_path)) File.Delete(_path);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 }
 

@@ -30,6 +30,7 @@ def test_customer_code_binds_devices_and_reuses_same_device(tmp_path):
     headers = {"X-Enrollment-Secret": code}
     first = client.post("/api/v1/devices/register", headers=headers, json=registration_payload("client-01"))
     assert first.status_code == 201
+    assert first.json()["isActivationCode"] is True
     assert first.json()["activationLabel"] == "Customer"
     assert first.json()["activationMaxDevices"] == 1
     assert first.json()["activationUsedDevices"] == 1
@@ -55,6 +56,35 @@ def test_customer_code_binds_devices_and_reuses_same_device(tmp_path):
     blocked = client.post("/api/v1/devices/register", headers=headers, json=registration_payload("client-02"))
     assert blocked.status_code == 403
     assert blocked.json()["detail"] == "Activation code device limit reached"
+
+
+def test_same_device_can_switch_host_client_role_without_consuming_another_slot(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'activation-role-switch.db'}")
+    client = TestClient(app)
+    with app.state.session_factory() as session:
+        code = create_activation_code(session, label="Role Switch", days=30, max_devices=1, created_by="admin")
+        session.commit()
+
+    payload = {**registration_payload("device-1"), "role": "HOST"}
+    first = client.post("/api/v1/devices/register", headers={"X-Enrollment-Secret": code}, json=payload)
+    assert first.status_code == 201
+
+    switched = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Enrollment-Secret": code},
+        json={**payload, "role": "CLIENT"},
+    )
+    assert switched.status_code == 201
+    assert switched.json()["role"] == "CLIENT"
+    assert switched.json()["activationUsedDevices"] == 1
+
+    with app.state.session_factory() as session:
+        from app.database import ActivationCode, Device
+
+        device = session.get(Device, "device-1")
+        activation = session.get(ActivationCode, device.activation_code_id)
+        assert device.role == "CLIENT"
+        assert activation.used_devices == 1
 
 
 def test_customer_code_rejects_expired_and_revoked_codes(tmp_path):
@@ -87,6 +117,56 @@ def test_customer_code_rejects_expired_and_revoked_codes(tmp_path):
         json=registration_payload("revoked-device"),
     )
     assert revoked_response.status_code == 401
+
+
+def test_expired_activation_invalidates_existing_device_token(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'activation-heartbeat-expired.db'}")
+    client = TestClient(app)
+    with app.state.session_factory() as session:
+        code = create_activation_code(session, label="Heartbeat expiry", days=1, max_devices=1, created_by="admin")
+        session.commit()
+    token = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Enrollment-Secret": code},
+        json=registration_payload("expired-heartbeat-device"),
+    ).json()["deviceToken"]
+
+    with app.state.session_factory() as session:
+        activation = session.query(ActivationCode).one()
+        activation.expires_at = utcnow() - timedelta(seconds=1)
+        session.commit()
+
+    response = client.post("/api/v1/devices/heartbeat", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 401
+
+
+def test_existing_device_public_key_cannot_be_replaced_without_reactivation(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'activation-key-pinning.db'}")
+    client = TestClient(app)
+    first_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    first_public_key = base64.b64encode(first_key.public_key().public_bytes(
+        serialization.Encoding.DER,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )).decode()
+    second_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    second_public_key = base64.b64encode(second_key.public_key().public_bytes(
+        serialization.Encoding.DER,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )).decode()
+    with app.state.session_factory() as session:
+        code = create_activation_code(session, label="Pinned key", days=30, max_devices=1, created_by="admin")
+        session.commit()
+
+    payload = {**registration_payload("pinned-device"), "publicKey": first_public_key}
+    first = client.post("/api/v1/devices/register", headers={"X-Enrollment-Secret": code}, json=payload)
+    assert first.status_code == 201
+
+    changed = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Enrollment-Secret": code},
+        json={**payload, "publicKey": second_public_key},
+    )
+    assert changed.status_code == 409
 
 
 def test_perpetual_unlimited_code_accepts_multiple_devices(tmp_path):

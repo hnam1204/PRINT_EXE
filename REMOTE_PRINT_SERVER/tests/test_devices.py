@@ -22,6 +22,7 @@ def test_device_registration_returns_token_once_and_heartbeat(tmp_path):
     body = response.json()
     assert body["deviceId"] == "client-01"
     assert body["deviceToken"]
+    assert body["isActivationCode"] is False
 
     profile = client.get("/api/v1/devices/me", headers={"Authorization": f"Bearer {body['deviceToken']}"})
     assert profile.status_code == 200
