@@ -40,6 +40,9 @@ class Settings:
     telegram_bot_token: str
     telegram_admin_ids: tuple[int, ...]
     telegram_webhook_secret: str
+    realtime_gateway_url: str
+    realtime_gateway_shared_secret: str
+    realtime_event_retention_seconds: int
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -57,6 +60,8 @@ class Settings:
             if item.isdigit()
         )
         telegram_webhook_secret = _secret(os.getenv("TELEGRAM_WEBHOOK_SECRET", ""))
+        realtime_gateway_url = os.getenv("REALTIME_GATEWAY_URL", "").strip()
+        realtime_gateway_shared_secret = _secret(os.getenv("REALTIME_GATEWAY_SHARED_SECRET", ""))
 
         if environment in {"production", "preview"}:
             if not enrollment_secret or not admin_api_key or not cron_secret:
@@ -100,4 +105,7 @@ class Settings:
             telegram_bot_token=telegram_bot_token,
             telegram_admin_ids=telegram_admin_ids,
             telegram_webhook_secret=telegram_webhook_secret,
+            realtime_gateway_url=realtime_gateway_url,
+            realtime_gateway_shared_secret=realtime_gateway_shared_secret,
+            realtime_event_retention_seconds=int(os.getenv("REALTIME_EVENT_RETENTION_SECONDS", str(7 * 24 * 3600))),
         )

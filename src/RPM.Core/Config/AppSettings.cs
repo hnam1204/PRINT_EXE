@@ -15,18 +15,25 @@ public class AppSettings
     public string DeviceName { get; set; } = Environment.MachineName;
     public string PairingCode { get; set; } = string.Empty;
     public string RelayServerUrl { get; set; } = "ws://127.0.0.1:9090"; // loopback is allowed; public relays must use wss://
+    public bool RelayServerAutoDiscovered { get; set; }
     public string SelectedPrinterName { get; set; } = string.Empty;
     public List<string> SharedPrinterNames { get; set; } = new();
     public List<string> Departments { get; set; } = new() { "Chung", "Kế toán", "Kinh doanh", "Hành chính", "Kỹ thuật", "Ban Giám Đốc" };
     public string EncryptionSecret { get; set; } = string.Empty;
     public string CloudApiBaseUrl { get; set; } = "https://print-exe.vercel.app/";
+    public string RealtimeGatewayUrl { get; set; } = string.Empty;
+    public bool RealtimeEnabled { get; set; } = true;
     public bool CloudTransportEnabled { get; set; } = false;
+    // Kept separately from the customer-facing label so authorization cannot
+    // be bypassed by choosing a label such as "Quản trị viên".
+    public bool CloudUsesCustomerActivation { get; set; } = false;
     // Only the first five characters are retained for a safe activation hint.
     public string CloudEnrollmentKeyPrefix { get; set; } = string.Empty;
     public string CloudActivationLabel { get; set; } = string.Empty;
     public DateTime? CloudActivationExpiresAt { get; set; }
     public int? CloudActivationMaxDevices { get; set; }
     public int? CloudActivationUsedDevices { get; set; }
+    public string CloudActivationGeofencePolicy { get; set; } = "LIMITED";
     public int? CloudActivationGeofenceRadiusMeters { get; set; }
     public string CloudHostId { get; set; } = string.Empty;
     public string CloudHostPublicKey { get; set; } = string.Empty;
@@ -39,6 +46,9 @@ public class AppSettings
     public bool MinimizeToSystemTray { get; set; } = true;
     public bool ShowDesktopNotifications { get; set; } = true;
     public int LocalIppPort { get; set; } = 9199;
+    public bool DirectPrintStreamingEnabled { get; set; } = true;
+    public int DirectPrintChunkBytes { get; set; } = RPM.Core.Security.PacketSecurity.DirectPrintChunkBytes;
+    public long DirectPrintMaxBytes { get; set; } = RPM.Core.Security.PacketSecurity.MaxDirectPrintJobBytes;
     public List<DeviceInfo> ApprovedClients { get; set; } = new();
     public List<PrintJob> PrintHistory { get; set; } = new();
     

@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using RPM.Core.Models;
+using RPM.Core.Security;
 
 namespace RPM.Core.Protocol;
 
@@ -24,6 +25,11 @@ public enum MessageType
     SubmitPrintJobAck = 21,
     PrintJobProgress = 22,
     CancelPrintJob = 23,
+    PrintStreamStart = 24,
+    PrintStreamChunk = 25,
+    PrintStreamEnd = 26,
+    PrintStreamAck = 27,
+    PrintStreamRejected = 28,
 
     // Generic
     Error = 99
@@ -87,12 +93,51 @@ public class PrintJobPayload
     /// </summary>
     public string DataBase64 { get; set; } = string.Empty;
     public string FileExtension { get; set; } = ".pdf";
+    public string AuthorizationId { get; set; } = string.Empty;
+    public string AuthorizationToken { get; set; } = string.Empty;
+    public string AuthorizationPrinterId { get; set; } = string.Empty;
 }
 
 public class PrintJobProgressPayload
 {
     public string JobId { get; set; } = string.Empty;
     public PrintJobStatus Status { get; set; }
+    public string Message { get; set; } = string.Empty;
+}
+
+public sealed class PrintStreamStartPayload
+{
+    public string JobId { get; set; } = string.Empty;
+    public PrintJob JobInfo { get; set; } = new();
+    public string FileExtension { get; set; } = ".bin";
+    public long TotalBytes { get; set; }
+    public string ContentSha256 { get; set; } = string.Empty;
+    public int ChunkBytes { get; set; } = PacketSecurity.DirectPrintChunkBytes;
+    public string AuthorizationId { get; set; } = string.Empty;
+    public string AuthorizationToken { get; set; } = string.Empty;
+    public string AuthorizationPrinterId { get; set; } = string.Empty;
+}
+
+public sealed class PrintStreamChunkPayload
+{
+    public string JobId { get; set; } = string.Empty;
+    public long Sequence { get; set; }
+    public long Offset { get; set; }
+    public string DataBase64 { get; set; } = string.Empty;
+}
+
+public sealed class PrintStreamEndPayload
+{
+    public string JobId { get; set; } = string.Empty;
+    public long TotalBytes { get; set; }
+    public string ContentSha256 { get; set; } = string.Empty;
+}
+
+public sealed class PrintStreamAckPayload
+{
+    public string JobId { get; set; } = string.Empty;
+    public long Sequence { get; set; }
+    public string Status { get; set; } = "RECEIVED";
     public string Message { get; set; } = string.Empty;
 }
 

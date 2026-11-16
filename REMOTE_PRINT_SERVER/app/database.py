@@ -126,6 +126,33 @@ class PrintJobTombstone(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class PrintAuthorization(Base):
+    __tablename__ = "print_authorizations"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    job_id: Mapped[str] = mapped_column(String(200), index=True)
+    client_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
+    host_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
+    printer_id: Mapped[str] = mapped_column(ForeignKey("printers.id"))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RealtimeEvent(Base):
+    __tablename__ = "realtime_events"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_type: Mapped[str] = mapped_column(String(80), index=True)
+    recipient_device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
+    host_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    client_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    pairing_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    job_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    correlation_id: Mapped[str] = mapped_column(String(128), default=lambda: str(uuid.uuid4()))
+    payload_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -161,7 +188,8 @@ class ActivationCode(Base):
     label: Mapped[str] = mapped_column(String(160), default="customer")
     max_devices: Mapped[int | None] = mapped_column(Integer, default=None, nullable=True)
     used_devices: Mapped[int] = mapped_column(Integer, default=0)
-    geofence_radius_meters: Mapped[int] = mapped_column(Integer, default=1000)
+    geofence_policy: Mapped[str] = mapped_column(String(16), default="LIMITED")
+    geofence_radius_meters: Mapped[int | None] = mapped_column(Integer, nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str] = mapped_column(String(128))

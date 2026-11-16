@@ -12,6 +12,7 @@ using RPM.Core.Update;
 using RPM.Core.Cloud;
 using RPM.Networking;
 using RPM.Printing;
+using RPM.Core.Printing;
 
 namespace RPM.Tests;
 
@@ -129,6 +130,24 @@ public class RPMTests
     }
 
     [Fact]
+    public void LanRelayDiscovery_AdvertisementContainsPrivateEndpoint()
+    {
+        string advertisement = LanRelayDiscovery.BuildAdvertisement("192.168.1.25", 9090);
+
+        Assert.True(LanRelayDiscovery.TryParseAdvertisement(advertisement, out var endpoint));
+        Assert.Equal("ws://192.168.1.25:9090/", endpoint);
+    }
+
+    [Theory]
+    [InlineData("RPM_RELAY_ADVERTISEMENT_V1|127.0.0.1|9090")]
+    [InlineData("RPM_RELAY_ADVERTISEMENT_V1|8.8.8.8|9090")]
+    [InlineData("RPM_RELAY_ADVERTISEMENT_V1|192.168.1.25|70000")]
+    public void LanRelayDiscovery_RejectsUnsafeAdvertisement(string advertisement)
+    {
+        Assert.False(LanRelayDiscovery.TryParseAdvertisement(advertisement, out _));
+    }
+
+    [Fact]
     public void Crypto_EncryptionDecryptionRoundtrip_Succeeds()
     {
         string secret = "MySuperSecretPassword_2026";
@@ -180,6 +199,55 @@ public class RPMTests
         packet.TargetId = string.Empty;
         packet.Timestamp = DateTime.UtcNow.AddMinutes(-10);
         Assert.False(PacketSecurity.IsFresh(packet, DateTime.UtcNow));
+    }
+
+    [Fact]
+    public async Task PrintStreamChunker_ReadsOrderedBoundedChunks()
+    {
+        byte[] sourceBytes = new byte[(PacketSecurity.DirectPrintChunkBytes * 2) + 17];
+        Random.Shared.NextBytes(sourceBytes);
+        var chunks = new List<PrintStreamChunk>();
+
+        await using var source = new MemoryStream(sourceBytes, writable: false);
+        await foreach (var chunk in PrintStreamChunker.ReadAsync(source, PacketSecurity.DirectPrintChunkBytes))
+        {
+            chunks.Add(chunk);
+            Assert.InRange(chunk.Data.Length, 1, PacketSecurity.DirectPrintChunkBytes);
+        }
+
+        Assert.Equal(3, chunks.Count);
+        Assert.Equal(new long[] { 0, 1, 2 }, chunks.Select(chunk => chunk.Sequence));
+        Assert.Equal(new long[] { 0, PacketSecurity.DirectPrintChunkBytes, PacketSecurity.DirectPrintChunkBytes * 2 }, chunks.Select(chunk => chunk.Offset));
+        Assert.Equal(sourceBytes, chunks.SelectMany(chunk => chunk.Data).ToArray());
+    }
+
+    [Fact]
+    public void DirectPrintAuthorization_ResolvesOnlySharedAndAllowedPrinter()
+    {
+        var sender = new DeviceInfo
+        {
+            AllowedPrinters = new List<string> { "Canon" }
+        };
+        var printers = new[]
+        {
+            new SharedPrinterInfo { Name = "Canon", IsShared = true },
+            new SharedPrinterInfo { Name = "Epson", IsShared = false }
+        };
+
+        Assert.True(DirectPrintAuthorization.TryResolveTargetPrinter(sender, printers, null, out var target, out _));
+        Assert.Equal("Canon", target);
+        Assert.False(DirectPrintAuthorization.TryResolveTargetPrinter(sender, printers, "Epson", out _, out var error));
+        Assert.Contains("không khả dụng", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void DirectPrintAuthorization_RejectsPrinterOutsideClientPermission()
+    {
+        var sender = new DeviceInfo { AllowedPrinters = new List<string> { "Canon" } };
+        var printers = new[] { new SharedPrinterInfo { Name = "Epson", IsShared = true } };
+
+        Assert.False(DirectPrintAuthorization.TryResolveTargetPrinter(sender, printers, "Epson", out _, out var error));
+        Assert.Contains("quyền", error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -315,6 +383,79 @@ public class RPMTests
     }
 
     [Fact]
+    public async Task Relay_RoutesDirectPrintAckBackToClient()
+    {
+        int testPort = 19891;
+        var relay = new RelayServer();
+        relay.Start(testPort);
+
+        try
+        {
+            string relayUrl = $"ws://127.0.0.1:{testPort}/";
+            string pairingCode = "RPM-B8L3T7";
+            string secretKey = "RPM_TEST_STREAM_SECRET";
+            using var host = new RelayClient { PairingCode = pairingCode };
+            using var client = new RelayClient { PairingCode = pairingCode };
+            var ackReceived = new TaskCompletionSource<PrintStreamAckPayload>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            client.OnPacketReceived += (_, packet) =>
+            {
+                if (packet.Type != MessageType.PrintStreamAck) return;
+                var ack = client.DecryptPayload<PrintStreamAckPayload>(packet, secretKey);
+                if (ack is not null) ackReceived.TrySetResult(ack);
+            };
+
+            await host.StartAsync(relayUrl);
+            await Task.Delay(250);
+            Assert.True(await host.SendPacketAsync(new NetworkPacket
+            {
+                Type = MessageType.RegisterServer,
+                SenderId = "HOST-01",
+                PairingCode = pairingCode
+            }));
+
+            await client.StartAsync(relayUrl);
+            await Task.Delay(250);
+            Assert.True(await client.SendPacketAsync(new NetworkPacket
+            {
+                Type = MessageType.ClientJoin,
+                SenderId = "CLIENT-01",
+                PairingCode = pairingCode,
+                PayloadJson = JsonSerializer.Serialize(new ClientJoinPayload
+                {
+                    PairingCode = pairingCode,
+                    ClientDevice = new DeviceInfo { DeviceId = "CLIENT-01", DeviceName = "Test Client" }
+                })
+            }));
+
+            await Task.Delay(250);
+            Assert.True(await host.SendEncryptedPayloadAsync(
+                MessageType.PrintStreamAck,
+                "HOST-01",
+                "CLIENT-01",
+                pairingCode,
+                new PrintStreamAckPayload
+                {
+                    JobId = "job-1",
+                    Sequence = 0,
+                    Status = "RECEIVED",
+                    Message = "Đã nhận chunk"
+                },
+                secretKey));
+
+            var completed = await Task.WhenAny(ackReceived.Task, Task.Delay(5000));
+            Assert.Same(ackReceived.Task, completed);
+            var ack = await ackReceived.Task;
+            Assert.Equal("job-1", ack.JobId);
+            Assert.Equal("RECEIVED", ack.Status);
+        }
+        finally
+        {
+            relay.Stop();
+        }
+    }
+
+    [Fact]
     public async Task Relay_ReportsLanBindingAndLocalAccessStatus()
     {
         int testPort = 19890;
@@ -399,6 +540,58 @@ public class RPMTests
         finally
         {
             ippServer.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task IppServer_SpoolsLargePayloadToBoundedTempFile()
+    {
+        int ippPort = 9887;
+        using var ippServer = new LocalIppServer();
+        var received = new TaskCompletionSource<PrintJobReceivedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ippServer.OnJobReceived += (_, args) => received.TrySetResult(args);
+        ippServer.Start(ippPort);
+
+        string tempPath = string.Empty;
+        try
+        {
+            byte[] payload = new byte[5 * 1024 * 1024];
+            Random.Shared.NextBytes(payload);
+            using var packet = new MemoryStream();
+            packet.Write([1, 1, 0, 2, 0, 0, 0, 2]);
+            packet.WriteByte(0x01);
+            WriteIppAttribute(packet, 0x47, "attributes-charset", "utf-8");
+            WriteIppAttribute(packet, 0x48, "attributes-natural-language", "en-us");
+            WriteIppAttribute(packet, 0x49, "document-format", "application/postscript");
+            WriteIppAttribute(packet, 0x42, "job-name", "large-test.prn");
+            packet.WriteByte(0x03);
+            int documentOffset = (int)packet.Position;
+            packet.Write(payload);
+
+            using var http = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{ippPort}/")
+            {
+                Content = new ByteArrayContent(packet.ToArray())
+            };
+            request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/ipp");
+            var response = await http.SendAsync(request);
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+
+            var completed = await Task.WhenAny(received.Task, Task.Delay(5000));
+            Assert.Same(received.Task, completed);
+            var captured = await received.Task;
+            tempPath = captured.TempFilePath ?? string.Empty;
+            Assert.NotNull(captured.TempFilePath);
+            Assert.Empty(captured.Data);
+            Assert.Equal(payload.LongLength, captured.DataLength);
+            Assert.Equal(documentOffset, captured.DataOffset);
+            Assert.True(File.Exists(captured.TempFilePath));
+        }
+        finally
+        {
+            ippServer.Stop();
+            if (!string.IsNullOrWhiteSpace(tempPath))
+                File.Delete(tempPath);
         }
     }
 

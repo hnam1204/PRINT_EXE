@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using RPM.Core.Security;
+using RPM.Core.Config;
 using System.IO;
 using RPM.Core.Models;
 
@@ -10,6 +11,9 @@ public class PrintJobReceivedEventArgs : EventArgs
 {
     public PrintJob Job { get; set; } = new();
     public byte[] Data { get; set; } = Array.Empty<byte>();
+    public string? TempFilePath { get; set; }
+    public long DataOffset { get; set; }
+    public long DataLength { get; set; }
 }
 
 public class LocalIppServer : IDisposable
@@ -92,38 +96,68 @@ public class LocalIppServer : IDisposable
 
             if (req.HttpMethod.Equals("POST", StringComparison.OrdinalIgnoreCase))
             {
-                if (req.ContentLength64 < 0 || req.ContentLength64 > PacketSecurity.MaxPrintJobBytes + 256 * 1024)
+                // Windows IPP clients may use chunked transfer, where ContentLength64
+                // is -1. The streaming guard below still enforces the hard limit.
+                if (req.ContentLength64 > PacketSecurity.MaxDirectPrintJobBytes + 256 * 1024)
                 {
                     res.StatusCode = 413;
                     res.Close();
                     return;
                 }
 
-                using var ms = new MemoryStream();
+                string tempFilePath = Path.Combine(ConfigManager.GetTempJobsFolder(), $"ipp-{Guid.NewGuid():N}.bin");
                 var buffer = new byte[81920];
-                int read;
-                while ((read = req.InputStream.Read(buffer, 0, buffer.Length)) > 0)
+                long requestLength = 0;
+                using (var output = new FileStream(tempFilePath, FileMode.CreateNew, FileAccess.Write, FileShare.Read, 128 * 1024))
                 {
-                    if (ms.Length + read > PacketSecurity.MaxPrintJobBytes + 256 * 1024)
+                    int read;
+                    while ((read = req.InputStream.Read(buffer, 0, buffer.Length)) > 0)
                     {
-                        res.StatusCode = 413;
-                        res.Close();
-                        return;
+                        requestLength += read;
+                        if (requestLength > PacketSecurity.MaxDirectPrintJobBytes + 256 * 1024)
+                        {
+                            res.StatusCode = 413;
+                            res.Close();
+                            TryDelete(tempFilePath);
+                            return;
+                        }
+                        output.Write(buffer, 0, read);
                     }
-                    ms.Write(buffer, 0, read);
                 }
-                byte[] requestBytes = ms.ToArray();
+
+                int prefixLength = (int)Math.Min(requestLength, 1024 * 1024);
+                byte[] requestBytes = ReadFileSegment(tempFilePath, 0, prefixLength);
 
                 byte[] responseBytes = ProcessIppPacket(requestBytes, out var capturedJob, out var documentData);
 
-                if (capturedJob != null && documentData != null && documentData.Length > 0)
+                int documentOffset = FindDocumentOffset(requestBytes);
+                long documentLength = documentOffset >= 0 ? requestLength - documentOffset : 0;
+                if (capturedJob != null && documentOffset >= 0 && documentLength > 0)
                 {
-                    OnLog?.Invoke(this, $"[IPP] Nhận lệnh in: {capturedJob.DocumentName} ({documentData.Length} bytes)");
-                    OnJobReceived?.Invoke(this, new PrintJobReceivedEventArgs
+                    capturedJob.FileSizeBytes = documentLength;
+                    var args = new PrintJobReceivedEventArgs
                     {
                         Job = capturedJob,
-                        Data = documentData
-                    });
+                        DataLength = documentLength,
+                        DataOffset = documentOffset
+                    };
+
+                    if (documentLength <= 4L * 1024 * 1024)
+                    {
+                        args.Data = ReadFileSegment(tempFilePath, documentOffset, documentLength);
+                        TryDelete(tempFilePath);
+                    }
+                    else
+                    {
+                        args.TempFilePath = tempFilePath;
+                    }
+
+                    OnLog?.Invoke(this, $"[IPP] Nhận lệnh in: {capturedJob.DocumentName} ({documentLength} bytes)");
+                    OnJobReceived?.Invoke(this, args);
+                }
+                else
+                {
+                    TryDelete(tempFilePath);
                 }
 
                 res.ContentType = "application/ipp";
@@ -155,6 +189,36 @@ public class LocalIppServer : IDisposable
         }
     }
 
+    private static int FindDocumentOffset(byte[] data)
+    {
+        for (int i = 8; i < data.Length; i++)
+        {
+            if (data[i] == 0x03) return i + 1;
+        }
+        return -1;
+    }
+
+    private static byte[] ReadFileSegment(string path, long offset, long length)
+    {
+        if (length <= 0 || length > int.MaxValue) return Array.Empty<byte>();
+        byte[] result = new byte[(int)length];
+        using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 128 * 1024);
+        input.Position = offset;
+        int total = 0;
+        while (total < result.Length)
+        {
+            int read = input.Read(result, total, result.Length - total);
+            if (read == 0) break;
+            total += read;
+        }
+        return total == result.Length ? result : result[..total];
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { File.Delete(path); } catch { }
+    }
+
     private byte[] ProcessIppPacket(byte[] data, out PrintJob? capturedJob, out byte[]? documentData)
     {
         capturedJob = null;
@@ -181,8 +245,10 @@ public class LocalIppServer : IDisposable
             }
         }
 
-        // Operation 0x0002 = Print-Job
-        if (opCode == 0x0002)
+        // Operation 0x0002 = Print-Job, 0x0006 = Send-Document.
+        // Some Windows IPP clients split Create-Job and Send-Document instead
+        // of using one Print-Job request, so both paths must capture the payload.
+        if (opCode == 0x0002 || opCode == 0x0006)
         {
             string docName = "RemoteDocument_" + DateTime.Now.ToString("HHmmss");
             string documentFormat = GetAttributeValue(data, endTagIndex, "document-format") ?? "application/octet-stream";
@@ -219,6 +285,13 @@ public class LocalIppServer : IDisposable
                 };
             }
 
+            return CreatePrintJobResponse(major, minor, reqId, 1);
+        }
+
+        // Operation 0x0005 = Create-Job. The following Send-Document carries
+        // the actual bytes and is handled above.
+        if (opCode == 0x0005)
+        {
             return CreatePrintJobResponse(major, minor, reqId, 1);
         }
 

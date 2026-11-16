@@ -1,6 +1,19 @@
 version: '3.8'
 
 services:
+  rpm-realtime-gateway:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.realtime-gateway
+    container_name: rpm-realtime-gateway
+    restart: always
+    ports:
+      - "9191:9191"
+    environment:
+      - PORT=9191
+      - REALTIME_API_BASE_URL=${REALTIME_API_BASE_URL}
+      - REALTIME_GATEWAY_SHARED_SECRET=${REALTIME_GATEWAY_SHARED_SECRET}
+
   rpm-relay:
     build:
       context: ..

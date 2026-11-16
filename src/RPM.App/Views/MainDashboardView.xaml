@@ -206,9 +206,14 @@
                                         <TextBlock x:Name="TxtClientPrinterName" Text="Chưa có máy in" FontWeight="Bold" FontSize="12" Foreground="{StaticResource TextMainBrush}"/>
                                         <TextBlock x:Name="TxtClientPrinterStatus" Text="Sẵn sàng nhận tài liệu" FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,1,0,0"/>
                                     </StackPanel>
-                                    <Button Grid.Column="2" Style="{StaticResource SecondaryBtn}" Click="BtnClientTestPrint_Click" Padding="8,4" FontSize="10">
-                                        <TextBlock Text="In thử"/>
-                                    </Button>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                        <Button x:Name="BtnClientSetupPrinter" Style="{StaticResource SecondaryBtn}" Click="BtnClientSetupPrinter_Click" Padding="8,4" FontSize="10" Margin="0,0,4,0">
+                                            <TextBlock Text="Thiết lập Ctrl + P"/>
+                                        </Button>
+                                        <Button Style="{StaticResource SecondaryBtn}" Click="BtnClientTestPrint_Click" Padding="8,4" FontSize="10">
+                                            <TextBlock Text="In thử"/>
+                                        </Button>
+                                    </StackPanel>
                                 </Grid>
                             </Border>
                         </StackPanel>

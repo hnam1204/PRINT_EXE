@@ -27,15 +27,18 @@ public sealed class CloudConnectionService : IAsyncDisposable
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
     private readonly SemaphoreSlim _roleReenrollmentLock = new(1, 1);
     private Task? _heartbeatTask;
+    private RealtimeGatewayClient? _realtimeGateway;
     private bool _disabledByServer;
 
     public CloudApiClient? Client { get; private set; }
     public CloudActivationInfo? ActivationInfo { get; private set; }
     public bool IsOnline { get; private set; }
+    public bool IsCustomerActivation => _settings.CloudUsesCustomerActivation || _activationSecretStore.HasSecret;
     public bool HasStoredToken => _tokenStore.HasToken;
     public event EventHandler<string>? OnLog;
     public event EventHandler? OnStateChanged;
     public event EventHandler? OnEnrollmentRevoked;
+    public event EventHandler<CloudRealtimeEvent>? OnRealtimeEvent;
 
     public CloudConnectionService(AppSettings settings)
     {
@@ -48,7 +51,8 @@ public sealed class CloudConnectionService : IAsyncDisposable
             settings.CloudActivationExpiresAt,
             settings.CloudActivationMaxDevices,
             settings.CloudActivationUsedDevices,
-            settings.CloudActivationGeofenceRadiusMeters);
+            settings.CloudActivationGeofenceRadiusMeters,
+            string.IsNullOrWhiteSpace(settings.CloudActivationGeofencePolicy) ? "LIMITED" : settings.CloudActivationGeofencePolicy);
     }
 
     public async Task<bool> EnrollAsync(string enrollmentSecret, CancellationToken cancellationToken = default)
@@ -60,6 +64,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
         bool isCustomerActivation = registration.IsActivationCode ||
             (!string.IsNullOrWhiteSpace(registration.ActivationLabel) &&
              !string.Equals(registration.ActivationLabel, "Quản trị viên", StringComparison.OrdinalIgnoreCase));
+        _settings.CloudUsesCustomerActivation = isCustomerActivation;
         if (isCustomerActivation)
         {
             _activationSecretStore.Save(enrollmentSecret);
@@ -68,7 +73,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
         {
             _activationSecretStore.Clear();
         }
-        ActivationInfo = new CloudActivationInfo(registration.ActivationLabel, registration.ActivationExpiresAt, registration.ActivationMaxDevices, registration.ActivationUsedDevices, registration.ActivationGeofenceRadiusMeters);
+        ActivationInfo = new CloudActivationInfo(registration.ActivationLabel, registration.ActivationExpiresAt, registration.ActivationMaxDevices, registration.ActivationUsedDevices, registration.ActivationGeofenceRadiusMeters, registration.ActivationGeofencePolicy);
         SaveActivationInfo();
         _settings.CloudHostId = _settings.Role == AppRole.Server ? registration.DeviceId : _settings.CloudHostId;
         ConfigManager.Save(_settings);
@@ -149,7 +154,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
                     return false;
                 }
             }
-            ActivationInfo = new CloudActivationInfo(profile.ActivationLabel, profile.ActivationExpiresAt, profile.ActivationMaxDevices, profile.ActivationUsedDevices, profile.ActivationGeofenceRadiusMeters);
+            ActivationInfo = new CloudActivationInfo(profile.ActivationLabel, profile.ActivationExpiresAt, profile.ActivationMaxDevices, profile.ActivationUsedDevices, profile.ActivationGeofenceRadiusMeters, profile.ActivationGeofencePolicy);
             SaveActivationInfo();
             var heartbeat = await GetOrCreateClient().HeartbeatAsync(cancellationToken);
             if (heartbeat is null || !string.Equals(heartbeat.Status, "ONLINE", StringComparison.OrdinalIgnoreCase))
@@ -158,6 +163,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
                 return false;
             }
             IsOnline = true;
+            await EnsureRealtimeGatewayAsync(cancellationToken);
             OnStateChanged?.Invoke(this, EventArgs.Empty);
             return true;
         }
@@ -219,11 +225,13 @@ public sealed class CloudConnectionService : IAsyncDisposable
         _activationSecretStore.Clear();
         ActivationInfo = null;
         _settings.CloudTransportEnabled = false;
+        _settings.CloudUsesCustomerActivation = false;
         _settings.CloudEnrollmentKeyPrefix = string.Empty;
         _settings.CloudActivationLabel = string.Empty;
         _settings.CloudActivationExpiresAt = null;
         _settings.CloudActivationMaxDevices = null;
         _settings.CloudActivationUsedDevices = null;
+        _settings.CloudActivationGeofencePolicy = "LIMITED";
         _settings.CloudActivationGeofenceRadiusMeters = null;
         _settings.CloudHostId = string.Empty;
         _settings.CloudHostPublicKey = string.Empty;
@@ -239,6 +247,25 @@ public sealed class CloudConnectionService : IAsyncDisposable
         OnStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    private async Task EnsureRealtimeGatewayAsync(CancellationToken cancellationToken)
+    {
+        if (!_settings.RealtimeEnabled || _realtimeGateway is not null || Client is null) return;
+        try
+        {
+            _realtimeGateway = new RealtimeGatewayClient(
+                _settings.DeviceId,
+                token => Client.CreateRealtimeSessionAsync(token));
+            _realtimeGateway.OnEvent += (sender, realtimeEvent) => OnRealtimeEvent?.Invoke(this, realtimeEvent);
+            _realtimeGateway.OnLog += (sender, message) => OnLog?.Invoke(this, message);
+            await _realtimeGateway.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            _realtimeGateway = null;
+            OnLog?.Invoke(this, $"[Realtime] Chưa khởi động được Gateway; dùng đối soát dự phòng: {ex.Message}");
+        }
+    }
+
     private void SaveActivationInfo()
     {
         if (ActivationInfo is null) return;
@@ -247,6 +274,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
             _settings.CloudActivationExpiresAt == ActivationInfo.ExpiresAt &&
             _settings.CloudActivationMaxDevices == ActivationInfo.MaxDevices &&
             _settings.CloudActivationUsedDevices == ActivationInfo.UsedDevices &&
+            string.Equals(_settings.CloudActivationGeofencePolicy, ActivationInfo.GeofencePolicy, StringComparison.Ordinal) &&
             _settings.CloudActivationGeofenceRadiusMeters == ActivationInfo.GeofenceRadiusMeters)
         {
             return;
@@ -256,6 +284,7 @@ public sealed class CloudConnectionService : IAsyncDisposable
         _settings.CloudActivationExpiresAt = ActivationInfo.ExpiresAt;
         _settings.CloudActivationMaxDevices = ActivationInfo.MaxDevices;
         _settings.CloudActivationUsedDevices = ActivationInfo.UsedDevices;
+        _settings.CloudActivationGeofencePolicy = ActivationInfo.GeofencePolicy ?? "LIMITED";
         _settings.CloudActivationGeofenceRadiusMeters = ActivationInfo.GeofenceRadiusMeters;
         ConfigManager.Save(_settings);
     }
@@ -283,7 +312,9 @@ public sealed class CloudConnectionService : IAsyncDisposable
                     registration.ActivationExpiresAt,
                     registration.ActivationMaxDevices,
                     registration.ActivationUsedDevices,
-                    registration.ActivationGeofenceRadiusMeters);
+                    registration.ActivationGeofenceRadiusMeters,
+                    registration.ActivationGeofencePolicy);
+                _settings.CloudUsesCustomerActivation = true;
                 SaveActivationInfo();
                 _settings.CloudHostId = _settings.Role == AppRole.Server ? registration.DeviceId : _settings.CloudHostId;
                 ConfigManager.Save(_settings);
@@ -344,6 +375,10 @@ public sealed class CloudConnectionService : IAsyncDisposable
             try { await _heartbeatTask; } catch (OperationCanceledException) { }
         }
         Client?.Dispose();
+        if (_realtimeGateway is not null)
+        {
+            try { await _realtimeGateway.DisposeAsync(); } catch { }
+        }
         _lifecycleLock.Dispose();
         _roleReenrollmentLock.Dispose();
         _stop.Dispose();

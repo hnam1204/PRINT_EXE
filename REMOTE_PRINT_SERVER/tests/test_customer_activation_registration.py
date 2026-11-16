@@ -241,6 +241,102 @@ def test_activation_host_requires_geofence_and_cannot_exceed_radius(tmp_path):
     assert invalid_radius.status_code == 422
 
 
+def test_unlimited_activation_does_not_require_location_but_returns_policy(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'activation-unlimited-geofence.db'}")
+    client = TestClient(app)
+    with app.state.session_factory() as session:
+        host_code = create_activation_code(
+            session, label="No location limit", days=None, max_devices=None,
+            geofence_policy="UNLIMITED", geofence_radius_meters=None, created_by="admin",
+        )
+        session.commit()
+
+    host = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Enrollment-Secret": host_code},
+        json={**registration_payload("unlimited-host"), "role": "HOST"},
+    )
+    assert host.status_code == 201
+    assert host.json()["activationGeofencePolicy"] == "UNLIMITED"
+    assert host.json()["activationGeofenceRadiusMeters"] is None
+    host_headers = {"Authorization": f"Bearer {host.json()['deviceToken']}"}
+
+    client_registration = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Enrollment-Secret": "test-enrollment-secret"},
+        json=registration_payload("unlimited-client"),
+    )
+    client_headers = {"Authorization": f"Bearer {client_registration.json()['deviceToken']}"}
+    pairing = client.post(
+        "/api/v1/pairings",
+        headers=client_headers,
+        json={"hostId": "unlimited-host"},
+    )
+    assert pairing.status_code == 201
+    assert pairing.json()["locationStatus"] == "NOT_REQUIRED"
+
+    geofence = client.get("/api/v1/devices/geofence", headers=host_headers)
+    assert geofence.status_code == 200
+    assert geofence.json()["policy"] == "UNLIMITED"
+    assert geofence.json()["enabled"] is False
+
+
+def test_direct_print_authorization_is_backend_bound_and_single_use(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'print-authorization.db'}")
+    client = TestClient(app)
+    with app.state.session_factory() as session:
+        host_code = create_activation_code(
+            session, label="Direct printing", days=None, max_devices=None,
+            geofence_policy="UNLIMITED", geofence_radius_meters=None, created_by="admin",
+        )
+        session.commit()
+
+    host = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Enrollment-Secret": host_code},
+        json={**registration_payload("grant-host"), "role": "HOST"},
+    )
+    host_headers = {"Authorization": f"Bearer {host.json()['deviceToken']}"}
+    customer = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Enrollment-Secret": "test-enrollment-secret"},
+        json=registration_payload("grant-client"),
+    )
+    client_headers = {"Authorization": f"Bearer {customer.json()['deviceToken']}"}
+    assert client.post(
+        "/api/v1/printers",
+        headers=host_headers,
+        json={"printerId": "grant-printer", "displayName": "Office", "isShared": True},
+    ).status_code == 200
+    pairing = client.post("/api/v1/pairings", headers=client_headers, json={"hostId": "grant-host"}).json()
+    assert client.post(
+        f"/api/v1/pairings/{pairing['pairingId']}/decision",
+        headers=host_headers,
+        json={"approve": True, "allowedPrinters": ["grant-printer"]},
+    ).status_code == 200
+
+    issued = client.post(
+        "/api/v1/print-authorizations",
+        headers=client_headers,
+        json={"jobId": "direct-job-1", "hostId": "grant-host", "printerId": "grant-printer"},
+    )
+    assert issued.status_code == 201
+    grant = issued.json()
+    consumed = client.post(
+        f"/api/v1/print-authorizations/{grant['authorizationId']}/consume",
+        headers=host_headers,
+        json={"authorizationToken": grant["authorizationToken"]},
+    )
+    assert consumed.status_code == 200
+    assert consumed.json()["jobId"] == "direct-job-1"
+    replay = client.post(
+        f"/api/v1/print-authorizations/{grant['authorizationId']}/consume",
+        headers=host_headers,
+        json={"authorizationToken": grant["authorizationToken"]},
+    )
+    assert replay.status_code == 409
+
+
 def test_revoked_device_can_reactivate_with_new_code_and_same_public_key(tmp_path):
     app = create_app(database_url=f"sqlite:///{tmp_path / 'activation-reactivation.db'}")
     client = TestClient(app)

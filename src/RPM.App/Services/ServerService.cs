@@ -11,6 +11,7 @@ using RPM.Core.Protocol;
 using RPM.Core.Security;
 using RPM.Networking;
 using RPM.Printing;
+using RPM.Core.Printing;
 
 namespace RPM.App.Services;
 
@@ -36,9 +37,13 @@ public class ServerService : IDisposable, IAsyncDisposable
     private readonly Queue<PrintJob> _printQueue = new();
     private readonly SemaphoreSlim _queueLock = new(1, 1);
     private readonly HashSet<string> _recentlyPrintedHashes = new();
+    private readonly Dictionary<string, DirectStreamState> _directStreams = new(StringComparer.Ordinal);
+    private readonly object _directStreamLock = new();
     private const int MaxQueuedJobs = 100;
+    private static readonly TimeSpan DirectStreamIdleTimeout = TimeSpan.FromMinutes(15);
     private RelayServer? _embeddedRelay;
     private int _isProcessingQueue;
+    private Task? _directStreamCleanupTask;
 
     public RelayClient Relay => _relayClient;
     public PrinterService PrinterService => _printerService;
@@ -55,6 +60,7 @@ public class ServerService : IDisposable, IAsyncDisposable
         ? "Đã kết nối dịch vụ"
         : _relayClient.IsConnected ? "Đã kết nối nội bộ" : "Mất kết nối dịch vụ";
     public bool IsLanRelayAvailable => _embeddedRelay?.IsLanAvailable == true;
+    private bool RequiresBackendPrintAuthorization => _cloud.IsCustomerActivation;
     public string LanAccessStatus { get; private set; } = "Chưa kiểm tra quyền LAN";
     public int CloudApprovedClientCount { get; private set; }
     public int CloudOnlineClientCount { get; private set; }
@@ -74,6 +80,7 @@ public class ServerService : IDisposable, IAsyncDisposable
         _cloud = new CloudConnectionService(settings);
         _cloud.OnLog += (s, msg) => OnLog?.Invoke(this, msg);
         _cloud.OnEnrollmentRevoked += (s, e) => OnEnrollmentRevoked?.Invoke(this, EventArgs.Empty);
+        _cloud.OnRealtimeEvent += Cloud_OnRealtimeEvent;
         _cloud.OnStateChanged += (s, e) =>
         {
             if (_settings.CloudTransportEnabled && _cloud.IsOnline)
@@ -106,6 +113,36 @@ public class ServerService : IDisposable, IAsyncDisposable
         _relayClient.OnDisconnected += Relay_OnDisconnected;
         _relayClient.OnPacketReceived += Relay_OnPacketReceived;
         _relayClient.OnLog += (s, msg) => OnLog?.Invoke(this, msg);
+    }
+
+    private void Cloud_OnRealtimeEvent(object? sender, CloudRealtimeEvent realtimeEvent)
+    {
+        if (realtimeEvent.EventType.Equals("PAIRING_REQUESTED", StringComparison.OrdinalIgnoreCase))
+        {
+            _ = RefreshPendingPairingsAsync();
+            return;
+        }
+
+        if (realtimeEvent.EventType.Equals("PRINT_JOB_CREATED", StringComparison.OrdinalIgnoreCase))
+            _ = ProcessCloudJobNotificationAsync(realtimeEvent.JobId);
+    }
+
+    private async Task ProcessCloudJobNotificationAsync(string? jobId)
+    {
+        if (string.IsNullOrWhiteSpace(jobId) || _cloud.Client is null || !_cloud.IsOnline) return;
+        try
+        {
+            // The client uploads the ciphertext immediately after creating the
+            // durable job. Give that upload a small head start, then reconcile.
+            await Task.Delay(200, _cloudWorkerStop.Token);
+            var job = await _cloud.Client.GetJobAsync(jobId, _cloudWorkerStop.Token);
+            if (job is not null && string.Equals(job.Status, "QUEUED", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(job.DataRef))
+            {
+                if (_cloudJobsInProgress.Add(job.JobId)) _ = ProcessCloudJobAsync(job);
+            }
+        }
+        catch (OperationCanceledException) when (_cloudWorkerStop.IsCancellationRequested) { }
+        catch (Exception ex) { OnLog?.Invoke(this, $"[Realtime] Không xử lý ngay Job {jobId}: {ex.Message}"); }
     }
 
     public async Task StartAsync()
@@ -162,6 +199,7 @@ public class ServerService : IDisposable, IAsyncDisposable
         }
 
         await _relayClient.StartAsync(_settings.RelayServerUrl);
+        _directStreamCleanupTask = Task.Run(DirectStreamCleanupLoopAsync);
 
         if (cloudReady)
         {
@@ -201,15 +239,7 @@ public class ServerService : IDisposable, IAsyncDisposable
             port = uri.Port;
         }
 
-        return NetworkInterface.GetAllNetworkInterfaces()
-            .Where(adapter => adapter.OperationalStatus == OperationalStatus.Up
-                && adapter.NetworkInterfaceType != NetworkInterfaceType.Loopback
-                && adapter.NetworkInterfaceType != NetworkInterfaceType.Tunnel)
-            .SelectMany(adapter => adapter.GetIPProperties().UnicastAddresses)
-            .Select(address => address.Address)
-            .Where(address => address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
-                && !IPAddress.IsLoopback(address)
-                && !address.ToString().StartsWith("169.254.", StringComparison.Ordinal))
+        return LanRelayDiscovery.GetPrivateIpv4Addresses()
             .Distinct()
             .Select(address => $"ws://{address}:{port}")
             .ToList();
@@ -276,10 +306,28 @@ public class ServerService : IDisposable, IAsyncDisposable
         await _cloudGeofenceLock.WaitAsync(cancellationToken);
         try
         {
-            if (_cloudGeofenceConfigured != 0 ||
-                _settings.CloudActivationGeofenceRadiusMeters is not int radius ||
-                _cloud.Client is null || !_cloud.IsOnline)
+            if (_cloudGeofenceConfigured != 0 || _cloud.Client is null || !_cloud.IsOnline)
                 return;
+
+            bool unlimited = string.Equals(_settings.CloudActivationGeofencePolicy, "UNLIMITED", StringComparison.OrdinalIgnoreCase);
+            int configuredRadius = _settings.CloudActivationGeofenceRadiusMeters ?? 0;
+            if (!unlimited && configuredRadius <= 0)
+                return;
+
+            if (unlimited)
+            {
+                var updatedUnlimited = await _cloud.Client.UpdateGeofenceAsync(new CloudGeofenceSettings(
+                    _settings.CloudHostId,
+                    false,
+                    null,
+                    null,
+                    null,
+                    "UNLIMITED"), cancellationToken);
+                Interlocked.Exchange(ref _cloudGeofenceConfigured, 1);
+                GeofenceStatusDisplay = updatedUnlimited?.Policy == "UNLIMITED" ? "Không giới hạn khoảng cách" : "Chính sách phạm vi chưa đồng bộ";
+                OnStatusChanged?.Invoke(this, EventArgs.Empty);
+                return;
+            }
 
             var location = await _locationService.TryGetCurrentAsync(cancellationToken);
             if (location is null)
@@ -295,7 +343,8 @@ public class ServerService : IDisposable, IAsyncDisposable
                 true,
                 location.Latitude,
                 location.Longitude,
-                radius), cancellationToken);
+                configuredRadius,
+                "LIMITED"), cancellationToken);
             Interlocked.Exchange(ref _cloudGeofenceConfigured, 1);
             GeofenceStatusDisplay = updated?.Enabled == true ? $"Đang bật: {updated.RadiusMeters:0} m" : "Đang tắt";
             OnStatusChanged?.Invoke(this, EventArgs.Empty);
@@ -423,9 +472,9 @@ public class ServerService : IDisposable, IAsyncDisposable
             var geofence = await client.GetGeofenceAsync(cancellationToken);
             if (geofence is not null)
             {
-                GeofenceStatusDisplay = geofence.Enabled
-                    ? $"Đang bật: {geofence.RadiusMeters:0} m"
-                    : "Đang tắt";
+                GeofenceStatusDisplay = string.Equals(geofence.Policy, "UNLIMITED", StringComparison.OrdinalIgnoreCase)
+                    ? "Không giới hạn khoảng cách"
+                    : geofence.Enabled ? $"Đang bật: {geofence.RadiusMeters:0} m" : "Đang tắt";
             }
 
             foreach (var item in pendingItems)
@@ -973,6 +1022,18 @@ public class ServerService : IDisposable, IAsyncDisposable
                     await HandleSubmitPrintJobAsync(packet);
                     break;
 
+                case MessageType.PrintStreamStart:
+                    await HandlePrintStreamStartAsync(packet);
+                    break;
+
+                case MessageType.PrintStreamChunk:
+                    await HandlePrintStreamChunkAsync(packet);
+                    break;
+
+                case MessageType.PrintStreamEnd:
+                    await HandlePrintStreamEndAsync(packet);
+                    break;
+
                 case MessageType.Heartbeat:
                     // Reply pong
                     await _relayClient.SendPacketAsync(new NetworkPacket
@@ -989,6 +1050,365 @@ public class ServerService : IDisposable, IAsyncDisposable
         {
             OnLog?.Invoke(this, $"[Lỗi xử lý gói tin] {ex.Message}");
         }
+    }
+
+    private async Task HandlePrintStreamStartAsync(NetworkPacket packet)
+    {
+        var sender = ConnectedClients.FirstOrDefault(client => client.DeviceId == packet.SenderId);
+        if (sender is null || !sender.IsApproved || sender.IsBlocked)
+        {
+            await SendStreamAckAsync(packet.SenderId, string.Empty, -1, "REJECTED", "Thiết bị chưa được cấp quyền in.");
+            return;
+        }
+
+        var payload = _relayClient.DecryptPayload<PrintStreamStartPayload>(packet, _settings.EncryptionSecret);
+        if (payload is null || string.IsNullOrWhiteSpace(payload.JobId) || payload.JobInfo is null ||
+            payload.TotalBytes <= 0 || payload.TotalBytes > PacketSecurity.MaxDirectPrintJobBytes ||
+            !string.Equals(payload.JobId, payload.JobInfo.JobId, StringComparison.Ordinal))
+        {
+            await SendStreamAckAsync(packet.SenderId, payload?.JobId ?? string.Empty, -1, "REJECTED", "Thông tin luồng in không hợp lệ.");
+            return;
+        }
+
+        if (!DirectPrintAuthorization.TryResolveTargetPrinter(
+                sender,
+                SharedPrinters,
+                payload.JobInfo.TargetPrinter,
+                out var targetPrinter,
+                out var authorizationError))
+        {
+            await SendStreamAckAsync(packet.SenderId, payload.JobId, -1, "REJECTED", authorizationError);
+            return;
+        }
+
+        if (!await ConsumeBackendPrintAuthorizationAsync(payload.AuthorizationId, payload.AuthorizationToken, payload.JobId, sender.DeviceId, payload.AuthorizationPrinterId, targetPrinter))
+        {
+            await SendStreamAckAsync(packet.SenderId, payload.JobId, -1, "REJECTED", "Lệnh in chưa được máy chủ từ xa cấp quyền hoặc quyền đã hết hạn.");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(payload.ContentSha256) || payload.ContentSha256.Length != 64 ||
+            !payload.ContentSha256.All(Uri.IsHexDigit))
+        {
+            await SendStreamAckAsync(packet.SenderId, payload.JobId, -1, "REJECTED", "Checksum tài liệu không hợp lệ.");
+            return;
+        }
+
+        await _queueLock.WaitAsync();
+        bool queueAvailable;
+        try { queueAvailable = _printQueue.Count < MaxQueuedJobs; }
+        finally { _queueLock.Release(); }
+        if (!queueAvailable)
+        {
+            await SendStreamAckAsync(packet.SenderId, payload.JobId, -1, "REJECTED", "Hàng đợi in đang đầy.");
+            return;
+        }
+
+        lock (_directStreamLock)
+        {
+            if (_directStreams.ContainsKey(payload.JobId) || PrintJobs.Any(job => job.JobId == payload.JobId))
+            {
+                _ = SendStreamAckAsync(packet.SenderId, payload.JobId, -1, "REJECTED", "Job đã tồn tại, không tạo bản in thứ hai.");
+                return;
+            }
+        }
+
+        string extension = payload.FileExtension?.ToLowerInvariant() switch
+        {
+            ".pdf" => ".pdf", ".ps" => ".ps", ".txt" => ".txt", ".prn" => ".prn", _ => ".bin"
+        };
+        string tempFile = Path.Combine(ConfigManager.GetTempJobsFolder(), $"direct-{Guid.NewGuid():N}{extension}");
+        try
+        {
+            var state = new DirectStreamState(
+                payload.JobInfo,
+                packet.SenderId,
+                payload.TotalBytes,
+                payload.ContentSha256,
+                new FileStream(tempFile, FileMode.CreateNew, FileAccess.Write, FileShare.None, 128 * 1024, useAsync: true),
+                tempFile);
+            state.Job.SenderDeviceId = sender.DeviceId;
+            state.Job.SenderDeviceName = sender.DeviceName;
+            state.Job.Department = sender.Department;
+            state.Job.TargetPrinter = targetPrinter;
+            state.Job.Status = PrintJobStatus.Pending;
+            state.Job.StatusMessage = "Đang nhận tài liệu trực tiếp...";
+
+            lock (_directStreamLock)
+            {
+                if (_directStreams.ContainsKey(payload.JobId) || PrintJobs.Any(job => job.JobId == payload.JobId))
+                {
+                    state.File.Dispose();
+                    File.Delete(tempFile);
+                    _ = SendStreamAckAsync(packet.SenderId, payload.JobId, -1, "REJECTED", "Job đã tồn tại, không tạo bản in thứ hai.");
+                    return;
+                }
+                _directStreams[payload.JobId] = state;
+            }
+            await SendStreamAckAsync(packet.SenderId, payload.JobId, -1, "RECEIVED", "Host đã sẵn sàng nhận tài liệu.");
+        }
+        catch (Exception ex)
+        {
+            try { File.Delete(tempFile); } catch { }
+            await SendStreamAckAsync(packet.SenderId, payload.JobId, -1, "REJECTED", $"Không thể mở bộ đệm truyền: {ex.Message}");
+        }
+    }
+
+    private async Task<bool> ConsumeBackendPrintAuthorizationAsync(
+        string authorizationId,
+        string authorizationToken,
+        string jobId,
+        string clientId,
+        string authorizationPrinterId,
+        string targetPrinter)
+    {
+        bool grantProvided = !string.IsNullOrWhiteSpace(authorizationId) || !string.IsNullOrWhiteSpace(authorizationToken);
+        if (!RequiresBackendPrintAuthorization && !grantProvided)
+            return true;
+        if (string.IsNullOrWhiteSpace(authorizationId) || string.IsNullOrWhiteSpace(authorizationToken) ||
+            _cloud.Client is null || !_cloud.IsOnline)
+            return false;
+        try
+        {
+            var result = await _cloud.Client.ConsumePrintAuthorizationAsync(authorizationId, authorizationToken);
+            return result is { Authorized: true } &&
+                string.Equals(result.JobId, jobId, StringComparison.Ordinal) &&
+                string.Equals(result.ClientId, clientId, StringComparison.Ordinal) &&
+                string.Equals(result.PrinterId, authorizationPrinterId, StringComparison.Ordinal) &&
+                string.Equals(result.PrinterId, CloudPrinterId(targetPrinter), StringComparison.Ordinal);
+        }
+        catch (Exception ex)
+        {
+            OnLog?.Invoke(this, $"[Cloud] Không xác minh được quyền lệnh in: {ex.Message}");
+            return false;
+        }
+    }
+
+    private async Task HandlePrintStreamChunkAsync(NetworkPacket packet)
+    {
+        var payload = _relayClient.DecryptPayload<PrintStreamChunkPayload>(packet, _settings.EncryptionSecret);
+        if (payload is null || string.IsNullOrWhiteSpace(payload.JobId)) return;
+
+        DirectStreamState? state;
+        lock (_directStreamLock) _directStreams.TryGetValue(payload.JobId, out state);
+        if (state is null)
+        {
+            await SendStreamAckAsync(packet.SenderId, payload.JobId, payload.Sequence, "REJECTED", "Phiên truyền không còn tồn tại.");
+            return;
+        }
+        if (!string.Equals(state.SenderDeviceId, packet.SenderId, StringComparison.Ordinal)) return;
+
+        string? failure = null;
+        await state.Gate.WaitAsync();
+        try
+        {
+            if (payload.Sequence != state.NextSequence || payload.Offset != state.BytesReceived)
+                throw new InvalidDataException("Thứ tự hoặc offset của chunk không hợp lệ.");
+
+            byte[] data = Convert.FromBase64String(payload.DataBase64);
+            if (data.Length == 0 || data.Length > PacketSecurity.DirectPrintChunkBytes || state.BytesReceived + data.LongLength > state.TotalBytes)
+                throw new InvalidDataException("Kích thước chunk không hợp lệ.");
+
+            await state.File.WriteAsync(data);
+            state.BytesReceived += data.LongLength;
+            state.NextSequence++;
+            state.LastActivityUtc = DateTime.UtcNow;
+            await SendStreamAckAsync(packet.SenderId, payload.JobId, payload.Sequence, "RECEIVED", string.Empty);
+        }
+        catch (Exception ex)
+        {
+            failure = ex.Message;
+        }
+        finally
+        {
+            state.Gate.Release();
+        }
+
+        if (failure is not null)
+            await RejectDirectStreamAsync(payload.JobId, packet.SenderId, failure);
+    }
+
+    private async Task HandlePrintStreamEndAsync(NetworkPacket packet)
+    {
+        var payload = _relayClient.DecryptPayload<PrintStreamEndPayload>(packet, _settings.EncryptionSecret);
+        if (payload is null || string.IsNullOrWhiteSpace(payload.JobId)) return;
+
+        DirectStreamState? state;
+        lock (_directStreamLock) _directStreams.TryGetValue(payload.JobId, out state);
+        if (state is null)
+        {
+            await SendStreamAckAsync(packet.SenderId, payload.JobId, -2, "REJECTED", "Phiên truyền không còn tồn tại.");
+            return;
+        }
+        if (!string.Equals(state.SenderDeviceId, packet.SenderId, StringComparison.Ordinal)) return;
+
+        string? failure = null;
+        await state.Gate.WaitAsync();
+        try
+        {
+            if (state.BytesReceived != state.TotalBytes || payload.TotalBytes != state.TotalBytes ||
+                !string.Equals(payload.ContentSha256, state.ContentSha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Kích thước hoặc checksum Job không khớp.");
+
+            await state.File.FlushAsync();
+            await state.File.DisposeAsync();
+            string hash = await ComputeFileSha256Async(state.TempFilePath);
+            if (!string.Equals(hash, state.ContentSha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Checksum dữ liệu nhận không khớp.");
+
+            state.Job.ContentSha256 = hash;
+            state.Job.FileSizeBytes = state.BytesReceived;
+            state.Job.LocalTempFilePath = state.TempFilePath;
+            await EnqueueDirectJobAsync(state.Job);
+            lock (_directStreamLock) _directStreams.Remove(payload.JobId);
+            await SendStreamAckAsync(packet.SenderId, payload.JobId, -2, "RECEIVED", "Host đã nhận đủ tài liệu.");
+        }
+        catch (Exception ex)
+        {
+            failure = ex.Message;
+        }
+        finally
+        {
+            state.Gate.Release();
+        }
+
+        if (failure is not null)
+            await RejectDirectStreamAsync(payload.JobId, packet.SenderId, failure);
+    }
+
+    private async Task EnqueueDirectJobAsync(PrintJob job)
+    {
+        var sender = ConnectedClients.FirstOrDefault(client => client.DeviceId == job.SenderDeviceId);
+        if (sender is null || !sender.IsApproved || sender.IsBlocked)
+            throw new InvalidOperationException("Thiết bị gửi không còn quyền in.");
+
+        if (!DirectPrintAuthorization.TryResolveTargetPrinter(
+                sender,
+                SharedPrinters,
+                job.TargetPrinter,
+                out var targetPrinter,
+                out var authorizationError))
+            throw new InvalidOperationException(authorizationError);
+
+        job.TargetPrinter = targetPrinter;
+        await _queueLock.WaitAsync();
+        try
+        {
+            if (_printQueue.Count >= MaxQueuedJobs) throw new InvalidOperationException("Hàng đợi in đang đầy.");
+            _printQueue.Enqueue(job);
+        }
+        finally { _queueLock.Release(); }
+
+        Application.Current?.Dispatcher.Invoke(() =>
+        {
+            PrintJobs.Insert(0, job);
+            _settings.PrintHistory.Insert(0, job);
+            if (_settings.PrintHistory.Count > 200) _settings.PrintHistory.RemoveAt(_settings.PrintHistory.Count - 1);
+            ConfigManager.Save(_settings);
+        });
+        _ = ProcessPrintQueueAsync();
+    }
+
+    private async Task DirectStreamCleanupLoopAsync()
+    {
+        while (!_cloudWorkerStop.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromMinutes(1), _cloudWorkerStop.Token);
+                var cutoff = DateTime.UtcNow - DirectStreamIdleTimeout;
+                List<DirectStreamState> abandoned;
+                lock (_directStreamLock)
+                {
+                    abandoned = _directStreams.Values
+                        .Where(state => state.LastActivityUtc < cutoff)
+                        .ToList();
+                    foreach (var state in abandoned)
+                        _directStreams.Remove(state.Job.JobId);
+                }
+
+                foreach (var state in abandoned)
+                {
+                    await DisposeDirectStreamFileAsync(state);
+                    OnLog?.Invoke(this, $"[Direct] Đã dọn phiên truyền bỏ dở Job {state.Job.JobId}.");
+                }
+            }
+            catch (OperationCanceledException) when (_cloudWorkerStop.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke(this, $"[Direct] Không thể dọn phiên truyền bỏ dở: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task RejectDirectStreamAsync(string jobId, string senderId, string message)
+    {
+        DirectStreamState? state;
+        lock (_directStreamLock)
+        {
+            _directStreams.Remove(jobId, out state);
+        }
+        if (state is not null)
+            await DisposeDirectStreamFileAsync(state);
+        await SendStreamAckAsync(senderId, jobId, -2, "REJECTED", message);
+    }
+
+    private static async Task DisposeDirectStreamFileAsync(DirectStreamState state)
+    {
+        await state.Gate.WaitAsync();
+        try
+        {
+            try { await state.File.DisposeAsync(); } catch { }
+            try { File.Delete(state.TempFilePath); } catch { }
+        }
+        finally
+        {
+            state.Gate.Release();
+        }
+    }
+
+    private Task<bool> SendStreamAckAsync(string targetId, string jobId, long sequence, string status, string message) =>
+        _relayClient.SendEncryptedPayloadAsync(
+            MessageType.PrintStreamAck,
+            _settings.DeviceId,
+            targetId,
+            _settings.PairingCode,
+            new PrintStreamAckPayload { JobId = jobId, Sequence = sequence, Status = status, Message = message },
+            _settings.EncryptionSecret);
+
+    private static async Task<string> ComputeFileSha256Async(string path)
+    {
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 128 * 1024, useAsync: true);
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        byte[] hash = await sha.ComputeHashAsync(stream);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private sealed class DirectStreamState
+    {
+        public DirectStreamState(PrintJob job, string senderDeviceId, long totalBytes, string contentSha256, FileStream file, string tempFilePath)
+        {
+            Job = job;
+            SenderDeviceId = senderDeviceId;
+            TotalBytes = totalBytes;
+            ContentSha256 = contentSha256;
+            File = file;
+            TempFilePath = tempFilePath;
+        }
+
+        public PrintJob Job { get; }
+        public string SenderDeviceId { get; }
+        public long TotalBytes { get; }
+        public string ContentSha256 { get; }
+        public FileStream File { get; }
+        public string TempFilePath { get; }
+        public long BytesReceived { get; set; }
+        public long NextSequence { get; set; }
+        public DateTime LastActivityUtc { get; set; } = DateTime.UtcNow;
+        public SemaphoreSlim Gate { get; } = new(1, 1);
     }
 
     private void HandleClientJoin(NetworkPacket packet)
@@ -1094,6 +1514,12 @@ public class ServerService : IDisposable, IAsyncDisposable
             ? job.TargetPrinter
             : (ActiveSharedPrinter?.Name ?? string.Empty);
         job.TargetPrinter = targetPrinterName;
+
+        if (!await ConsumeBackendPrintAuthorizationAsync(payload.AuthorizationId, payload.AuthorizationToken, job.JobId, senderDevice.DeviceId, payload.AuthorizationPrinterId, targetPrinterName))
+        {
+            OnLog?.Invoke(this, "[Từ chối] Lệnh in chưa được máy chủ từ xa cấp quyền hoặc quyền đã hết hạn.");
+            return;
+        }
 
         // Granular access control check per device
         if (senderDevice.AllowedPrinters != null && senderDevice.AllowedPrinters.Count > 0)
@@ -1430,6 +1856,8 @@ public class ServerService : IDisposable, IAsyncDisposable
             .Where(task => task is not null)
             .Cast<Task>()
             .ToArray();
+        if (_directStreamCleanupTask is not null)
+            workers = workers.Append(_directStreamCleanupTask).ToArray();
         if (workers.Length > 0)
         {
             try { await Task.WhenAll(workers).WaitAsync(TimeSpan.FromSeconds(5)); }
@@ -1437,6 +1865,15 @@ public class ServerService : IDisposable, IAsyncDisposable
             catch (TimeoutException) { }
             catch (Exception ex) { OnLog?.Invoke(this, $"[Shutdown] Worker dừng với cảnh báo: {ex.Message}"); }
         }
+
+        List<DirectStreamState> activeStreams;
+        lock (_directStreamLock)
+        {
+            activeStreams = _directStreams.Values.ToList();
+            _directStreams.Clear();
+        }
+        foreach (var state in activeStreams)
+            await DisposeDirectStreamFileAsync(state);
 
         try { await _relayClient.StopAsync(); } catch { }
         _relayClient.Dispose();

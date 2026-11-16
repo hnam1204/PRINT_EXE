@@ -144,7 +144,7 @@ public partial class MainDashboardView : UserControl
             BtnTabDevices.Visibility = Visibility.Collapsed;
 
             TxtClientCodeInput.Text = _settings.PairingCode;
-            TxtClientRelayAddress.Text = _settings.RelayServerUrl;
+            TxtClientRelayAddress.Text = GetClientRelayAddressDisplay();
 
             UpdateClientUI();
         }
@@ -302,6 +302,9 @@ public partial class MainDashboardView : UserControl
     {
         if (_clientService == null) return;
 
+        if (!TxtClientRelayAddress.IsKeyboardFocusWithin)
+            TxtClientRelayAddress.Text = GetClientRelayAddressDisplay();
+
         bool isApproved = _clientService.IsApproved;
         TxtClientGeofenceStatus.Text = _clientService.GeofenceStatusDisplay;
         TxtHeaderStatus.Text = isApproved ? _clientService.ConnectionStatusDisplay : _clientService.ConnectionStatus;
@@ -352,7 +355,9 @@ public partial class MainDashboardView : UserControl
         if (_clientService.RemotePrinter != null)
         {
             TxtClientPrinterName.Text = _clientService.RemotePrinter.Name;
-            TxtClientPrinterStatus.Text = "Máy in đã sẵn sàng";
+            TxtClientPrinterStatus.Text = _clientService.IsRemotePrinterInstalled
+                ? "Máy in đã sẵn sàng • Ctrl + P chọn 'Remote Print Manager'"
+                : "Chưa có hàng đợi Windows RPM • bấm 'Thiết lập Ctrl + P'";
             TxtActivePrinterSummary.Text = $"Máy in: {_clientService.RemotePrinter.Name}";
         }
         else
@@ -364,6 +369,28 @@ public partial class MainDashboardView : UserControl
 
         UpdateCloudEnrollmentUI();
         RefreshRecentJobs();
+    }
+
+    private async void BtnClientSetupPrinter_Click(object sender, RoutedEventArgs e)
+    {
+        if (_clientService == null) return;
+        BtnClientSetupPrinter.IsEnabled = false;
+        try
+        {
+            bool ready = await _clientService.PrepareWindowsPrintQueueAsync();
+            UpdateClientUI();
+            MessageBox.Show(
+                ready
+                    ? "Hàng đợi 'Remote Print Manager' đã sẵn sàng. Khi bấm Ctrl + P, hãy chọn đúng hàng đợi này."
+                    : "Chưa thiết lập được hàng đợi Remote Print Manager. Kiểm tra Windows IPP Class Driver và quyền quản trị.",
+                ready ? "Đã sẵn sàng" : "Chưa sẵn sàng",
+                MessageBoxButton.OK,
+                ready ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        }
+        finally
+        {
+            BtnClientSetupPrinter.IsEnabled = true;
+        }
     }
 
     private void RefreshRecentJobs()
@@ -437,6 +464,11 @@ public partial class MainDashboardView : UserControl
             ? _settings.CloudPairingCode
             : _settings.PairingCode;
 
+    private string GetClientRelayAddressDisplay() =>
+        RPM.Core.Networking.RelayEndpointPolicy.IsLoopback(_settings.RelayServerUrl)
+            ? string.Empty
+            : _settings.RelayServerUrl;
+
     private void UpdateServerPairingCodeUI()
     {
         TxtServerPairingCode.Text = GetDisplayedPairingCode();
@@ -468,7 +500,7 @@ public partial class MainDashboardView : UserControl
         else
         {
             TxtClientCodeInput.Text = _settings.PairingCode;
-            TxtClientRelayAddress.Text = _settings.RelayServerUrl;
+            TxtClientRelayAddress.Text = GetClientRelayAddressDisplay();
             UpdateClientUI();
         }
 
@@ -510,7 +542,9 @@ public partial class MainDashboardView : UserControl
         string devices = _settings.CloudActivationMaxDevices is int max
             ? $"{_settings.CloudActivationUsedDevices ?? 0}/{max} thiết bị"
             : "Không giới hạn thiết bị";
-        string radius = _settings.CloudActivationGeofenceRadiusMeters is int meters
+        string radius = string.Equals(_settings.CloudActivationGeofencePolicy, "UNLIMITED", StringComparison.OrdinalIgnoreCase)
+            ? " • Phạm vi: Không giới hạn"
+            : _settings.CloudActivationGeofenceRadiusMeters is int meters
             ? $" • Giới hạn khoảng cách: {meters} m"
             : string.Empty;
         return $"Thời hạn: {expiration} • {remaining} • Thiết bị: {devices}{radius}";
@@ -1340,7 +1374,17 @@ public partial class MainDashboardView : UserControl
             // an offline Cloud attempt can safely fall back to Relay.
             if (code.StartsWith("RPM-", StringComparison.OrdinalIgnoreCase))
                 _settings.PairingCode = code.ToUpperInvariant();
-            _settings.RelayServerUrl = TxtClientRelayAddress.Text.Trim();
+            string relayAddress = TxtClientRelayAddress.Text.Trim();
+            if (!string.IsNullOrWhiteSpace(relayAddress))
+            {
+                _settings.RelayServerUrl = relayAddress;
+                _settings.RelayServerAutoDiscovered = false;
+            }
+            else
+            {
+                _settings.RelayServerUrl = "ws://127.0.0.1:9090";
+                _settings.RelayServerAutoDiscovered = true;
+            }
             ConfigManager.Save(_settings);
             BtnClientConnectToggle.IsEnabled = false;
             TxtClientConnectBtnText.Text = "Đang tìm...";

@@ -2,6 +2,8 @@ import base64
 import hashlib
 import hmac
 import secrets
+import json
+import base64
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -20,6 +22,40 @@ def hash_token(token: str) -> str:
 
 def new_device_token() -> str:
     return secrets.token_urlsafe(32)
+
+
+def issue_realtime_session(device: Device, shared_secret: str, ttl_seconds: int = 300) -> tuple[str, datetime]:
+    if not shared_secret:
+        raise ValueError("Realtime gateway shared secret is not configured")
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+    payload = {
+        "deviceId": device.id,
+        "role": device.role,
+        "exp": int(expires_at.timestamp()),
+        "jti": secrets.token_urlsafe(12),
+    }
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).rstrip(b"=").decode("ascii")
+    signature = hmac.new(shared_secret.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).hexdigest()
+    return f"{encoded}.{signature}", expires_at
+
+
+def verify_realtime_session(token: str, shared_secret: str) -> dict | None:
+    try:
+        encoded, signature = token.split(".", 1)
+        expected = hmac.new(shared_secret.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return None
+        padded = encoded + "=" * (-len(encoded) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+        if int(payload["exp"]) <= int(datetime.now(timezone.utc).timestamp()):
+            return None
+        if not payload.get("deviceId") or payload.get("role") not in {"HOST", "CLIENT"}:
+            return None
+        return payload
+    except (ValueError, KeyError, TypeError, json.JSONDecodeError, base64.binascii.Error):
+        return None
 
 
 def tokens_match(candidate: str, stored_hash: str) -> bool:

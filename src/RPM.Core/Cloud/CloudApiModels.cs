@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace RPM.Core.Cloud;
@@ -19,6 +20,7 @@ public sealed record CloudDeviceRegistrationResponse(
     [property: JsonPropertyName("activationExpiresAt")] DateTime? ActivationExpiresAt = null,
     [property: JsonPropertyName("activationMaxDevices")] int? ActivationMaxDevices = null,
     [property: JsonPropertyName("activationUsedDevices")] int? ActivationUsedDevices = null,
+    [property: JsonPropertyName("activationGeofencePolicy")] string? ActivationGeofencePolicy = null,
     [property: JsonPropertyName("activationGeofenceRadiusMeters")] int? ActivationGeofenceRadiusMeters = null);
 
 public sealed record CloudDeviceProfile(
@@ -34,6 +36,7 @@ public sealed record CloudDeviceProfile(
     [property: JsonPropertyName("activationExpiresAt")] DateTime? ActivationExpiresAt = null,
     [property: JsonPropertyName("activationMaxDevices")] int? ActivationMaxDevices = null,
     [property: JsonPropertyName("activationUsedDevices")] int? ActivationUsedDevices = null,
+    [property: JsonPropertyName("activationGeofencePolicy")] string? ActivationGeofencePolicy = null,
     [property: JsonPropertyName("activationGeofenceRadiusMeters")] int? ActivationGeofenceRadiusMeters = null);
 
 public sealed record CloudActivationInfo(
@@ -41,7 +44,8 @@ public sealed record CloudActivationInfo(
     DateTime? ExpiresAt,
     int? MaxDevices,
     int? UsedDevices,
-    int? GeofenceRadiusMeters);
+    int? GeofenceRadiusMeters,
+    string? GeofencePolicy = null);
 
 public sealed record CloudHeartbeatResponse(
     [property: JsonPropertyName("deviceId")] string DeviceId,
@@ -73,7 +77,9 @@ public sealed record CloudGeofenceSettings(
     [property: JsonPropertyName("enabled")] bool Enabled,
     [property: JsonPropertyName("latitude")] double? Latitude,
     [property: JsonPropertyName("longitude")] double? Longitude,
-    [property: JsonPropertyName("radiusMeters")] double RadiusMeters);
+    [property: JsonPropertyName("radiusMeters")] double? RadiusMeters,
+    [property: JsonPropertyName("policy")] string Policy = "LIMITED",
+    [property: JsonPropertyName("maxRadiusMeters")] int? MaxRadiusMeters = null);
 
 public sealed record CloudPendingPairing(
     [property: JsonPropertyName("pairingId")] string PairingId,
@@ -128,6 +134,29 @@ public sealed record CloudPrintJobRequest(
     [property: JsonPropertyName("accuracyMeters")] double? AccuracyMeters = null,
     [property: JsonPropertyName("locationTimestamp")] DateTime? LocationTimestamp = null);
 
+public sealed record CloudPrintAuthorizationRequest(
+    [property: JsonPropertyName("jobId")] string JobId,
+    [property: JsonPropertyName("hostId")] string HostId,
+    [property: JsonPropertyName("printerId")] string PrinterId,
+    [property: JsonPropertyName("latitude")] double? Latitude = null,
+    [property: JsonPropertyName("longitude")] double? Longitude = null,
+    [property: JsonPropertyName("accuracyMeters")] double? AccuracyMeters = null,
+    [property: JsonPropertyName("locationTimestamp")] DateTime? LocationTimestamp = null);
+
+public sealed record CloudPrintAuthorization(
+    [property: JsonPropertyName("authorizationId")] string AuthorizationId,
+    [property: JsonPropertyName("authorizationToken")] string AuthorizationToken,
+    [property: JsonPropertyName("jobId")] string JobId,
+    [property: JsonPropertyName("printerId")] string PrinterId,
+    [property: JsonPropertyName("expiresAt")] DateTime ExpiresAt);
+
+public sealed record CloudPrintAuthorizationConsume(
+    [property: JsonPropertyName("authorized")] bool Authorized,
+    [property: JsonPropertyName("jobId")] string JobId,
+    [property: JsonPropertyName("clientId")] string ClientId,
+    [property: JsonPropertyName("hostId")] string HostId,
+    [property: JsonPropertyName("printerId")] string PrinterId);
+
 public sealed record CloudPrintJob(
     [property: JsonPropertyName("jobId")] string JobId,
     [property: JsonPropertyName("idempotencyKey")] string IdempotencyKey,
@@ -158,3 +187,23 @@ public sealed record CloudJobStatusUpdate(
     string? SpoolerJobId = null,
     string? FailureCode = null,
     string? FailureMessage = null);
+
+public sealed record CloudRealtimeSession(
+    [property: JsonPropertyName("sessionToken")] string SessionToken,
+    [property: JsonPropertyName("gatewayUrl")] string GatewayUrl,
+    [property: JsonPropertyName("expiresAt")] DateTime ExpiresAt);
+
+public sealed record CloudRealtimeEvent(
+    [property: JsonPropertyName("eventId")] long EventId,
+    [property: JsonPropertyName("eventType")] string EventType,
+    [property: JsonPropertyName("recipientDeviceId")] string RecipientDeviceId,
+    [property: JsonPropertyName("schemaVersion")] int SchemaVersion,
+    [property: JsonPropertyName("hostId")] string? HostId,
+    [property: JsonPropertyName("clientId")] string? ClientId,
+    [property: JsonPropertyName("pairingId")] string? PairingId,
+    [property: JsonPropertyName("jobId")] string? JobId,
+    [property: JsonPropertyName("serverTimestamp")] DateTime ServerTimestamp,
+    [property: JsonPropertyName("sequence")] long Sequence,
+    [property: JsonPropertyName("cursor")] long Cursor,
+    [property: JsonPropertyName("correlationId")] string CorrelationId,
+    [property: JsonPropertyName("payload")] Dictionary<string, JsonElement> Payload);

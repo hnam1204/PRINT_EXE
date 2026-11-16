@@ -76,7 +76,48 @@ public static class RawPrinterHelper
     public static bool SendFileToPrinter(string printerName, string filePath, string documentName = "RPM Document", string dataType = "RAW")
     {
         if (!File.Exists(filePath)) return false;
-        byte[] bytes = File.ReadAllBytes(filePath);
-        return SendBytesToPrinter(printerName, bytes, documentName, dataType);
+
+        IntPtr hPrinter = IntPtr.Zero;
+        var di = new DOCINFOA
+        {
+            pDocName = documentName,
+            pDataType = dataType
+        };
+
+        try
+        {
+            if (!OpenPrinter(printerName.Normalize(), out hPrinter, IntPtr.Zero) ||
+                !StartDocPrinter(hPrinter, 1, di) ||
+                !StartPagePrinter(hPrinter))
+            {
+                return false;
+            }
+
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 128 * 1024, useAsync: false);
+            byte[] buffer = new byte[128 * 1024];
+            IntPtr unmanaged = Marshal.AllocCoTaskMem(buffer.Length);
+            try
+            {
+                int read;
+                while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    Marshal.Copy(buffer, 0, unmanaged, read);
+                    if (!WritePrinter(hPrinter, unmanaged, read, out int written) || written != read)
+                        return false;
+                }
+                return true;
+            }
+            finally
+            {
+                Marshal.FreeCoTaskMem(unmanaged);
+                EndPagePrinter(hPrinter);
+                EndDocPrinter(hPrinter);
+            }
+        }
+        finally
+        {
+            if (hPrinter != IntPtr.Zero)
+                ClosePrinter(hPrinter);
+        }
     }
 }

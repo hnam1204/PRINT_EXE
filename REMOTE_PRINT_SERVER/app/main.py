@@ -4,6 +4,7 @@ import hashlib
 import json
 import time
 import asyncio
+import uuid
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,7 +13,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from .config import ConfigurationError, Settings
-from .database import ActivationCode, AuditEvent, Device, Pairing, PairingCode, PrintJob, PrintJobTombstone, Printer, as_utc, create_session_factory, utcnow
+from .database import ActivationCode, AuditEvent, Device, Pairing, PairingCode, PrintAuthorization, PrintJob, PrintJobTombstone, Printer, RealtimeEvent, as_utc, create_session_factory, utcnow
 from .schemas import (
     DeviceProfile,
     DeviceRegistration,
@@ -39,12 +40,19 @@ from .schemas import (
     JobStatusUpdateRequest,
     GeofenceSettings,
     GeofenceResponse,
+    PrintAuthorizationRequest,
+    PrintAuthorizationResponse,
+    PrintAuthorizationConsumeRequest,
+    PrintAuthorizationConsumeResponse,
+    RealtimeEventEnvelope,
+    RealtimeSessionResponse,
 )
 from .pairing_codes import decrypt_pairing_code, hash_pairing_code, issue_pairing_code
 from .cleanup import run_cleanup
 from .geofence import verify_location
+from .activation_policy import GEOFENCE_POLICY_LIMITED, GEOFENCE_POLICY_UNLIMITED
 from .storage import BlobStore, VercelBlobStore
-from .security import enforce_rate_limit, hash_token, new_device_token, require_device, require_role, verify_device_reactivation_signature
+from .security import enforce_rate_limit, hash_token, issue_realtime_session, new_device_token, require_device, require_role, verify_device_reactivation_signature
 from .telegram_bot import (
     create_activation_code,
     delete_message,
@@ -115,6 +123,45 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         blob_store = VercelBlobStore()
     app.state.blob_store = blob_store
 
+    def enqueue_realtime_event(
+        session,
+        event_type: str,
+        recipient_device_id: str,
+        *,
+        host_id: str | None = None,
+        client_id: str | None = None,
+        pairing_id: str | None = None,
+        job_id: str | None = None,
+        payload: dict | None = None,
+        correlation_id: str | None = None,
+    ) -> None:
+        session.add(RealtimeEvent(
+            event_type=event_type,
+            recipient_device_id=recipient_device_id,
+            host_id=host_id,
+            client_id=client_id,
+            pairing_id=pairing_id,
+            job_id=job_id,
+            correlation_id=correlation_id or str(uuid.uuid4()),
+            payload_json=payload or {},
+        ))
+
+    def event_envelope(event: RealtimeEvent) -> RealtimeEventEnvelope:
+        return RealtimeEventEnvelope(
+            eventId=event.id,
+            eventType=event.event_type,
+            recipientDeviceId=event.recipient_device_id,
+            hostId=event.host_id,
+            clientId=event.client_id,
+            pairingId=event.pairing_id,
+            jobId=event.job_id,
+            serverTimestamp=event.created_at,
+            sequence=event.id,
+            cursor=event.id,
+            correlationId=event.correlation_id,
+            payload=event.payload_json or {},
+        )
+
     def job_response(job: PrintJob, claim_token: str | None = None):
         payload = PrintJobResponse(
             jobId=job.id,
@@ -159,8 +206,10 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             locationStatus=pairing.location_status,
         )
 
-    def verify_pairing_location(host: Device, payload: PairingRequest, now: datetime):
-        if host.activation_code_id and not host.geofence_enabled:
+    def verify_pairing_location(host: Device, activation: ActivationCode | None, payload: PairingRequest, now: datetime):
+        if activation is not None and activation.geofence_policy == GEOFENCE_POLICY_UNLIMITED:
+            return None
+        if activation is not None and activation.geofence_policy == GEOFENCE_POLICY_LIMITED and not host.geofence_enabled:
             raise HTTPException(status_code=503, detail="Host geofence is not configured")
         if not host.geofence_enabled:
             return None
@@ -197,6 +246,21 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         pairing.client_accuracy_meters = payload.accuracyMeters
         pairing.client_location_at = payload.locationTimestamp
         pairing.location_status = result.status if result is not None else "NOT_REQUIRED"
+
+    def require_approved_printer_access(session, client: Device, host_id: str, printer_id: str) -> tuple[Pairing, Printer, Device, ActivationCode | None]:
+        pairing = session.scalar(select(Pairing).where(
+            Pairing.host_id == host_id,
+            Pairing.client_id == client.id,
+            Pairing.status == "APPROVED",
+        ))
+        printer = session.get(Printer, printer_id)
+        host = session.get(Device, host_id)
+        if pairing is None or printer is None or host is None or host.role != "HOST" or host.is_revoked or printer.host_id != host_id or not printer.is_shared:
+            raise HTTPException(status_code=403, detail="Approved shared printer access required")
+        if pairing.allowed_printers and printer.id not in pairing.allowed_printers:
+            raise HTTPException(status_code=403, detail="Printer is not allowed for this pairing")
+        activation = session.get(ActivationCode, host.activation_code_id) if host.activation_code_id else None
+        return pairing, printer, host, activation
 
     app.add_middleware(
         CORSMiddleware,
@@ -321,7 +385,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                     key_algorithm=payload.keyAlgorithm,
                     last_seen_at=utcnow(),
                 )
-                if activation_code is not None and payload.role == "HOST":
+                if activation_code is not None and payload.role == "HOST" and activation_code.geofence_radius_meters is not None:
                     device.geofence_radius_meters = activation_code.geofence_radius_meters
                 session.add(device)
             else:
@@ -336,7 +400,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 device.token_hash = hash_token(token)
                 if activation_code is not None and device.activation_code_id is None:
                     device.activation_code_id = activation_code.id
-                if activation_code is not None and payload.role == "HOST":
+                if activation_code is not None and payload.role == "HOST" and activation_code.geofence_radius_meters is not None:
                     device.geofence_radius_meters = activation_code.geofence_radius_meters
                 device.public_key = payload.publicKey
                 device.key_algorithm = payload.keyAlgorithm
@@ -354,6 +418,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 activationExpiresAt=activation.expires_at if activation else None,
                 activationMaxDevices=activation.max_devices if activation else None,
                 activationUsedDevices=activation.used_devices if activation else None,
+                activationGeofencePolicy=activation.geofence_policy if activation else None,
                 activationGeofenceRadiusMeters=activation.geofence_radius_meters if activation else None,
             )
 
@@ -374,7 +439,19 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             activationExpiresAt=activation.expires_at if activation else None,
             activationMaxDevices=activation.max_devices if activation else None,
             activationUsedDevices=activation.used_devices if activation else None,
+            activationGeofencePolicy=activation.geofence_policy if activation else None,
             activationGeofenceRadiusMeters=activation.geofence_radius_meters if activation else None,
+        )
+
+    @app.post("/api/v1/realtime/session", response_model=RealtimeSessionResponse, tags=["Realtime"])
+    def create_realtime_session(device: Device = Depends(require_device)):
+        if not settings.realtime_gateway_url or not settings.realtime_gateway_shared_secret:
+            raise HTTPException(status_code=503, detail="Realtime gateway is not configured")
+        token, expires_at = issue_realtime_session(device, settings.realtime_gateway_shared_secret)
+        return RealtimeSessionResponse(
+            sessionToken=token,
+            gatewayUrl=settings.realtime_gateway_url,
+            expiresAt=expires_at,
         )
 
     @app.post("/api/v1/devices/heartbeat", response_model=HeartbeatResponse, tags=["Devices"])
@@ -399,7 +476,8 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 raise HTTPException(status_code=404, detail="Host not found")
             if host.role != "HOST":
                 raise HTTPException(status_code=422, detail="Target device is not a Host")
-            location_result = verify_pairing_location(host, payload, now)
+            activation = session.get(ActivationCode, host.activation_code_id) if host.activation_code_id else None
+            location_result = verify_pairing_location(host, activation, payload, now)
             _close_expired_live_pairings(session, host.id, device.id, now)
             existing = session.scalar(
                 select(Pairing)
@@ -445,6 +523,15 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 session.commit()
                 return pairing_response(existing)
             session.add(AuditEvent(actor_id=device.id, action="PAIRING_REQUESTED", target_type="DEVICE", target_id=host.id))
+            enqueue_realtime_event(
+                session,
+                "PAIRING_REQUESTED",
+                host.id,
+                host_id=host.id,
+                client_id=device.id,
+                pairing_id=pairing.id,
+                payload={"pairingId": pairing.id, "clientId": device.id, "clientName": device.name, "status": pairing.status},
+            )
             session.commit()
             return pairing_response(pairing)
 
@@ -501,6 +588,15 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             pairing.allowed_printers = payload.allowedPrinters
             pairing.decided_at = now
             session.add(AuditEvent(actor_id=device.id, action="PAIRING_APPROVED" if payload.approve else "PAIRING_REJECTED", target_type="PAIRING", target_id=pairing.id))
+            enqueue_realtime_event(
+                session,
+                "PAIRING_APPROVED" if payload.approve else "PAIRING_REJECTED",
+                pairing.client_id,
+                host_id=pairing.host_id,
+                client_id=pairing.client_id,
+                pairing_id=pairing.id,
+                payload={"pairingId": pairing.id, "status": pairing.status, "allowedPrinters": pairing.allowed_printers or []},
+            )
             session.commit()
             return pairing_response(pairing)
 
@@ -524,18 +620,32 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             pairing.status = "REVOKED"
             pairing.decided_at = utcnow()
             session.add(AuditEvent(actor_id=device.id, action="PAIRING_REVOKED", target_type="PAIRING", target_id=pairing.id))
+            enqueue_realtime_event(
+                session,
+                "PAIRING_REVOKED",
+                pairing.client_id,
+                host_id=pairing.host_id,
+                client_id=pairing.client_id,
+                pairing_id=pairing.id,
+                payload={"pairingId": pairing.id, "status": pairing.status},
+            )
             session.commit()
             return pairing_response(pairing)
 
     @app.get("/api/v1/devices/geofence", response_model=GeofenceResponse, tags=["Devices"])
     def get_geofence(device: Device = Depends(require_device)):
         require_role(device, "HOST")
+        with session_factory() as session:
+            activation = session.get(ActivationCode, device.activation_code_id) if device.activation_code_id else None
+        policy = activation.geofence_policy if activation else (GEOFENCE_POLICY_LIMITED if device.geofence_enabled else "OPTIONAL")
         return GeofenceResponse(
             hostId=device.id,
-            enabled=device.geofence_enabled,
+            enabled=False if policy == GEOFENCE_POLICY_UNLIMITED else device.geofence_enabled,
             latitude=device.geofence_latitude,
             longitude=device.geofence_longitude,
-            radiusMeters=device.geofence_radius_meters,
+            radiusMeters=device.geofence_radius_meters or 1000,
+            policy=policy,
+            maxRadiusMeters=activation.geofence_radius_meters if activation and activation.geofence_policy == GEOFENCE_POLICY_LIMITED else None,
         )
 
     @app.get("/api/v1/devices/{device_id}", response_model=DeviceProfile, tags=["Devices"])
@@ -554,6 +664,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 )
                 if approved is None:
                     raise HTTPException(status_code=403, detail="Approved pairing required")
+            activation = session.get(ActivationCode, target.activation_code_id) if target.activation_code_id else None
             return DeviceProfile(
                 deviceId=target.id,
                 name=target.name,
@@ -563,22 +674,42 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 lastSeenAt=target.last_seen_at,
                 publicKey=target.public_key,
                 keyAlgorithm=target.key_algorithm,
+                activationLabel=activation.label if activation else "Quản trị viên",
+                activationExpiresAt=activation.expires_at if activation else None,
+                activationMaxDevices=activation.max_devices if activation else None,
+                activationUsedDevices=activation.used_devices if activation else None,
+                activationGeofencePolicy=activation.geofence_policy if activation else None,
+                activationGeofenceRadiusMeters=activation.geofence_radius_meters if activation else None,
             )
 
     @app.put("/api/v1/devices/geofence", response_model=GeofenceResponse, tags=["Devices"])
     def update_geofence(payload: GeofenceSettings, device: Device = Depends(require_device)):
         require_role(device, "HOST")
-        if payload.enabled and (payload.latitude is None or payload.longitude is None):
+        if payload.enabled and (payload.latitude is None or payload.longitude is None or payload.radiusMeters is None):
             raise HTTPException(status_code=422, detail="Latitude and longitude are required when geofence is enabled")
         with session_factory() as session:
             host = session.get(Device, device.id)
             activation = session.get(ActivationCode, host.activation_code_id) if host.activation_code_id else None
+            if activation is not None and payload.policy != activation.geofence_policy:
+                raise HTTPException(status_code=403, detail="Geofence policy is controlled by the activation code")
+            if activation is not None and activation.geofence_policy == GEOFENCE_POLICY_UNLIMITED:
+                if payload.enabled:
+                    raise HTTPException(status_code=403, detail="Geofence is not used by an unlimited activation policy")
+                host.geofence_enabled = False
+                host.geofence_latitude = None
+                host.geofence_longitude = None
+                host.geofence_radius_meters = 1000
+                session.add(AuditEvent(actor_id=device.id, action="GEOFENCE_POLICY_CONFIRMED_UNLIMITED", target_type="DEVICE", target_id=device.id))
+                session.commit()
+                return GeofenceResponse(hostId=host.id, enabled=False, latitude=None, longitude=None, radiusMeters=1000, policy=GEOFENCE_POLICY_UNLIMITED, maxRadiusMeters=None)
             if activation is not None and not payload.enabled:
                 raise HTTPException(status_code=403, detail="Geofence is required by the activation code")
-            if activation is not None and payload.radiusMeters > activation.geofence_radius_meters:
+            if activation is not None and activation.geofence_policy == GEOFENCE_POLICY_LIMITED and (
+                activation.geofence_radius_meters is None or payload.radiusMeters > activation.geofence_radius_meters
+            ):
                 raise HTTPException(
                     status_code=422,
-                    detail=f"Geofence radius cannot exceed the activation limit of {activation.geofence_radius_meters} meters",
+                    detail=f"Geofence radius cannot exceed the activation limit of {activation.geofence_radius_meters or 0} meters",
                 )
             host.geofence_enabled = payload.enabled
             host.geofence_latitude = payload.latitude
@@ -586,7 +717,15 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             host.geofence_radius_meters = payload.radiusMeters
             session.add(AuditEvent(actor_id=device.id, action="GEOFENCE_UPDATED", target_type="DEVICE", target_id=device.id))
             session.commit()
-            return GeofenceResponse(hostId=host.id, enabled=host.geofence_enabled, latitude=host.geofence_latitude, longitude=host.geofence_longitude, radiusMeters=host.geofence_radius_meters)
+            return GeofenceResponse(
+                hostId=host.id,
+                enabled=host.geofence_enabled,
+                latitude=host.geofence_latitude,
+                longitude=host.geofence_longitude,
+                radiusMeters=host.geofence_radius_meters,
+                policy=activation.geofence_policy if activation else GEOFENCE_POLICY_LIMITED,
+                maxRadiusMeters=activation.geofence_radius_meters if activation and activation.geofence_policy == GEOFENCE_POLICY_LIMITED else None,
+            )
 
     @app.post("/api/v1/pairing-codes/issue", response_model=PairingCodeResponse, status_code=201, tags=["Pairing codes"])
     def issue_code(payload: PairingCodeIssueRequest, device: Device = Depends(require_device)):
@@ -703,7 +842,8 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                     locationStatus=existing.location_status,
                 )
 
-            location_result = verify_pairing_location(host, location_payload(host.id, payload), utcnow())
+            activation = session.get(ActivationCode, host.activation_code_id) if host.activation_code_id else None
+            location_result = verify_pairing_location(host, activation, location_payload(host.id, payload), utcnow())
             pairing = Pairing(
                 host_id=host.id, client_id=device.id, code=payload.code,
                 status="PENDING", expires_at=record.expires_at,
@@ -734,6 +874,15 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                     locationStatus=existing.location_status,
                 )
             session.add(AuditEvent(actor_id=device.id, action="PAIRING_REQUESTED", target_type="DEVICE", target_id=host.id))
+            enqueue_realtime_event(
+                session,
+                "PAIRING_REQUESTED",
+                host.id,
+                host_id=host.id,
+                client_id=device.id,
+                pairing_id=pairing.id,
+                payload={"pairingId": pairing.id, "clientId": device.id, "clientName": device.name, "status": pairing.status},
+            )
             session.commit()
             return PairingCodeResolveResponse(
                 pairingId=pairing.id,
@@ -814,6 +963,81 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 for item in printers
             ]
 
+    @app.post("/api/v1/print-authorizations", response_model=PrintAuthorizationResponse, status_code=201, tags=["Print authorizations"])
+    def create_print_authorization(payload: PrintAuthorizationRequest, device: Device = Depends(require_device)):
+        require_role(device, "CLIENT")
+        now = utcnow()
+        with session_factory() as session:
+            _, _, host, activation = require_approved_printer_access(session, device, payload.hostId, payload.printerId)
+            verify_pairing_location(host, activation, location_payload(host.id, payload), now)
+            # A grant is single-use. Reissuing the same local job id invalidates
+            # any previous grant so a retry cannot replay an older transport token.
+            previous = session.scalars(select(PrintAuthorization).where(
+                PrintAuthorization.job_id == payload.jobId,
+                PrintAuthorization.client_id == device.id,
+                PrintAuthorization.host_id == host.id,
+                PrintAuthorization.used_at.is_(None),
+            )).all()
+            for item in previous:
+                item.used_at = now
+            token = secrets.token_urlsafe(32)
+            authorization = PrintAuthorization(
+                token_hash=hash_token(token),
+                job_id=payload.jobId,
+                client_id=device.id,
+                host_id=host.id,
+                printer_id=payload.printerId,
+                expires_at=now + timedelta(seconds=90),
+            )
+            session.add(authorization)
+            session.add(AuditEvent(actor_id=device.id, action="PRINT_AUTHORIZATION_ISSUED", target_type="PRINT_AUTHORIZATION", target_id=authorization.id, details={"jobId": payload.jobId, "geofencePolicy": activation.geofence_policy if activation else "OPTIONAL"}))
+            session.commit()
+            return PrintAuthorizationResponse(
+                authorizationId=authorization.id,
+                authorizationToken=token,
+                jobId=authorization.job_id,
+                printerId=authorization.printer_id,
+                expiresAt=authorization.expires_at,
+            )
+
+    @app.post("/api/v1/print-authorizations/{authorization_id}/consume", response_model=PrintAuthorizationConsumeResponse, tags=["Print authorizations"])
+    def consume_print_authorization(
+        authorization_id: str,
+        payload: PrintAuthorizationConsumeRequest,
+        device: Device = Depends(require_device),
+    ):
+        require_role(device, "HOST")
+        now = utcnow()
+        with session_factory() as session:
+            authorization = session.scalar(select(PrintAuthorization).where(PrintAuthorization.id == authorization_id).with_for_update())
+            if authorization is None or authorization.host_id != device.id:
+                raise HTTPException(status_code=404, detail="Print authorization not found")
+            if authorization.used_at is not None or as_utc(authorization.expires_at) <= now:
+                raise HTTPException(status_code=409, detail="Print authorization is expired or already used")
+            if not secrets.compare_digest(authorization.token_hash, hash_token(payload.authorizationToken)):
+                raise HTTPException(status_code=403, detail="Invalid print authorization")
+            pairing = session.scalar(select(Pairing).where(
+                Pairing.host_id == authorization.host_id,
+                Pairing.client_id == authorization.client_id,
+                Pairing.status == "APPROVED",
+            ))
+            printer = session.get(Printer, authorization.printer_id)
+            client = session.get(Device, authorization.client_id)
+            if pairing is None or printer is None or client is None or client.is_revoked or not printer.is_shared:
+                raise HTTPException(status_code=403, detail="Print permission is no longer valid")
+            if pairing.allowed_printers and printer.id not in pairing.allowed_printers:
+                raise HTTPException(status_code=403, detail="Printer is not allowed for this pairing")
+            authorization.used_at = now
+            session.add(AuditEvent(actor_id=device.id, action="PRINT_AUTHORIZATION_CONSUMED", target_type="PRINT_AUTHORIZATION", target_id=authorization.id, details={"jobId": authorization.job_id}))
+            session.commit()
+            return PrintAuthorizationConsumeResponse(
+                authorized=True,
+                jobId=authorization.job_id,
+                clientId=authorization.client_id,
+                hostId=authorization.host_id,
+                printerId=authorization.printer_id,
+            )
+
     @app.post("/api/v1/jobs", response_model=PrintJobResponse, status_code=201, tags=["Print jobs"])
     def create_print_job(
         payload: PrintJobRequest,
@@ -847,7 +1071,8 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             host = session.get(Device, payload.hostId)
             if host is None:
                 raise HTTPException(status_code=404, detail="Host not found")
-            verify_pairing_location(host, location_payload(host.id, payload), utcnow())
+            activation = session.get(ActivationCode, host.activation_code_id) if host.activation_code_id else None
+            verify_pairing_location(host, activation, location_payload(host.id, payload), utcnow())
             job = PrintJob(
                 idempotency_key=idempotency_key, client_id=device.id, host_id=payload.hostId,
                 printer_id=payload.printerId, request_hash=request_hash, metadata_json=payload.metadata,
@@ -865,6 +1090,16 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 session.rollback()
                 return job_response(existing)
             session.add(AuditEvent(actor_id=device.id, action="PRINT_JOB_CREATED", target_type="PRINT_JOB", target_id=job.id))
+            session.flush()
+            enqueue_realtime_event(
+                session,
+                "PRINT_JOB_CREATED",
+                job.host_id,
+                host_id=job.host_id,
+                client_id=job.client_id,
+                job_id=job.id,
+                payload={"jobId": job.id, "clientId": job.client_id, "hostId": job.host_id, "printerId": job.printer_id, "status": job.status},
+            )
             session.commit()
             return job_response(job)
 
@@ -1036,6 +1271,29 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             if payload.status in {"COMPLETED", "FAILED", "UNKNOWN"}:
                 job.claim_expires_at = None
             session.add(AuditEvent(actor_id=device.id, action=f"PRINT_JOB_{payload.status}", target_type="PRINT_JOB", target_id=job.id))
+            event_type = {
+                "DOWNLOADING": "PRINT_JOB_TRANSFER_STARTED",
+                "SPOOLING": "PRINT_JOB_SPOOLING",
+                "SPOOLER_ACCEPTED": "PRINT_JOB_SPOOLER_ACCEPTED",
+                "COMPLETED": "PRINT_JOB_COMPLETED",
+                "FAILED": "PRINT_JOB_FAILED",
+                "UNKNOWN": "PRINT_JOB_UNKNOWN",
+            }[payload.status]
+            enqueue_realtime_event(
+                session,
+                event_type,
+                job.client_id,
+                host_id=job.host_id,
+                client_id=job.client_id,
+                job_id=job.id,
+                payload={
+                    "jobId": job.id,
+                    "status": job.status,
+                    "spoolerJobId": job.spooler_job_id,
+                    "failureCode": job.failure_code,
+                    "failureMessage": job.failure_message,
+                },
+            )
             session.commit()
             return job_response(job)
 
@@ -1050,6 +1308,15 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             job.claim_expires_at = None
             job.updated_at = utcnow()
             session.add(AuditEvent(actor_id=device.id, action="PRINT_JOB_CANCELED", target_type="PRINT_JOB", target_id=job.id))
+            enqueue_realtime_event(
+                session,
+                "PRINT_JOB_CANCELED",
+                job.host_id,
+                host_id=job.host_id,
+                client_id=job.client_id,
+                job_id=job.id,
+                payload={"jobId": job.id, "status": job.status, "failureMessage": job.failure_message},
+            )
             session.commit()
             return job_response(job)
 
@@ -1060,6 +1327,20 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
         if not secrets.compare_digest(authorization.removeprefix("Bearer ").strip(), settings.cron_secret):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid cron authorization")
         return run_cleanup(session_factory, engine, app.state.blob_store, dry_run=dry_run)
+
+    @app.get("/api/v1/internal/realtime/events", response_model=list[RealtimeEventEnvelope], tags=["Internal"])
+    def internal_realtime_events(
+        after: int = 0,
+        limit: int = 100,
+        gateway_key: str | None = Header(default=None, alias="X-Realtime-Gateway-Key"),
+    ):
+        if not settings.realtime_gateway_shared_secret or not gateway_key or not secrets.compare_digest(gateway_key, settings.realtime_gateway_shared_secret):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Realtime gateway authorization required")
+        if after < 0 or limit < 1 or limit > 500:
+            raise HTTPException(status_code=422, detail="Invalid event cursor or limit")
+        with session_factory() as session:
+            events = session.scalars(select(RealtimeEvent).where(RealtimeEvent.id > after).order_by(RealtimeEvent.id).limit(limit)).all()
+            return [event_envelope(event) for event in events]
 
     @app.post("/api/v1/internal/telegram/webhook", tags=["Internal"])
     async def telegram_webhook(request: Request):
@@ -1116,14 +1397,14 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             reply = (
                 "Remote Print Manager - Bot quản trị\n\n"
                 "Lệnh quản lý:\n"
-                "/create [ten_khach_hang] [so_ngay|forever] [so_thiet_bi|unlimited] [pham_vi_met]\n"
+                 "/create [ten_khach_hang] [so_ngay|forever] [so_thiet_bi|unlimited] [100..5000|unlimited]\n"
                 "/list - Xem toàn bộ thông tin mã\n"
                 "/reissue [id] - Cấp lại mã khi khách hàng làm mất mã\n"
                 "/revoke [id|ma] - Thu hồi mã\n"
                 "/clear-chat - Xóa tin nhắn bot và người dùng đã ghi nhận\n\n"
                 "Ví dụ:\n"
                 "/create CongTyABC 30 1 500\n"
-                "/create CongTyABC forever unlimited 1000\n"
+                 "/create CongTyABC forever unlimited 5000\n"
                 "/reissue 38dddc98-b95a-48c9-b1b2-571df9c0f4ab"
             )
         elif command.name == "/create":
@@ -1133,12 +1414,20 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             radius_arg = command.args[3].lower() if len(command.args) > 3 else ""
             days = None if days_arg in {"forever", "permanent", "vĩnhviễn", "vinhvien"} else int(days_arg) if days_arg.isdigit() else -1
             max_devices = None if devices_arg in {"unlimited", "unlimited-devices", "vohan", "vôhạn"} else int(devices_arg) if devices_arg.isdigit() else -1
-            radius = int(radius_arg) if radius_arg.isdigit() else -1
-            if len(command.args) != 4 or (days is not None and not 1 <= days <= 365) or (max_devices is not None and not 1 <= max_devices <= 15) or not 1 <= radius <= 1000:
-                reply = "Cú pháp: /create [tên] [số_ngày|forever] [số_thiết_bị|unlimited] [phạm_vi_mét]. Phạm vi từ 1 đến 1000 mét."
+            unlimited_geofence = radius_arg in {"unlimited", "vohan", "vôhạn", "no-limit", "nolimit"}
+            radius = None if unlimited_geofence else int(radius_arg) if radius_arg.isdigit() else -1
+            if len(command.args) != 4 or (days is not None and not 1 <= days <= 365) or (max_devices is not None and not 1 <= max_devices <= 15) or (
+                not unlimited_geofence and not 100 <= radius <= 5000
+            ):
+                reply = "Cú pháp: /create [tên] [số_ngày|forever] [số_thiết_bị|unlimited] [100..5000|unlimited]. Ví dụ: /create CongTyABC forever unlimited 5000"
             else:
                 with session_factory() as session:
-                    code = create_activation_code(session, label=label, days=days, max_devices=max_devices, geofence_radius_meters=radius, created_by=actor)
+                    code = create_activation_code(
+                        session, label=label, days=days, max_devices=max_devices,
+                        geofence_policy=GEOFENCE_POLICY_UNLIMITED if unlimited_geofence else GEOFENCE_POLICY_LIMITED,
+                        geofence_radius_meters=radius,
+                        created_by=actor,
+                    )
                     session.flush()
                     record = session.query(ActivationCode).filter(ActivationCode.code_hash == hash_token(code)).one()
                     record_id = record.id
@@ -1154,7 +1443,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                     f"Khách hàng: {label}\n"
                     f"Thời hạn: {'Vĩnh viễn' if days is None else f'{days} ngày'}\n"
                     f"Thiết bị tối đa: {'Không giới hạn' if max_devices is None else max_devices}\n"
-                    f"Phạm vi: {radius} mét từ máy chủ\n"
+                    f"Phạm vi: {'Không giới hạn khoảng cách' if unlimited_geofence else f'{radius} mét từ máy chủ'}\n"
                     f"Tạo lúc: {format_vietnam_datetime(created_at)}\n"
                     f"Hết hạn: {format_vietnam_datetime(expires_at)}\n"
                     f"Đếm ngược: {format_remaining(expires_at)}\n"
@@ -1176,7 +1465,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                         f"   Khách hàng: {record.label}\n"
                         f"   Trạng thái: {'HẾT HẠN' if expired else 'ĐANG HOẠT ĐỘNG'}\n"
                         f"   Thiết bị: {record.used_devices}/{record.max_devices if record.max_devices is not None else 'Không giới hạn'}\n"
-                        f"   Phạm vi: {record.geofence_radius_meters} mét\n"
+                        f"   Phạm vi: {'Không giới hạn khoảng cách' if record.geofence_policy == GEOFENCE_POLICY_UNLIMITED else f'{record.geofence_radius_meters} mét'}\n"
                         f"   Tạo lúc: {format_vietnam_datetime(record.created_at)}\n"
                         f"   Hết hạn: {format_vietnam_datetime(record.expires_at)}\n"
                         f"   Đếm ngược: {format_remaining(record.expires_at, now)}"
@@ -1197,7 +1486,7 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                         f"Khách hàng: {record.label}\n"
                         f"Thời hạn: {format_vietnam_datetime(record.expires_at)}\n"
                         f"Thiết bị tối đa: {'Không giới hạn' if record.max_devices is None else record.max_devices}\n"
-                        f"Phạm vi: {record.geofence_radius_meters} mét từ máy chủ\n"
+                        f"Phạm vi: {'Không giới hạn khoảng cách' if record.geofence_policy == GEOFENCE_POLICY_UNLIMITED else f'{record.geofence_radius_meters} mét từ máy chủ'}\n"
                         f"Đếm ngược: {format_remaining(record.expires_at)}\n\n"
                         "Mã cũ đã vô hiệu hóa và thiết bị cũ phải kích hoạt lại. "
                         "Mã đầy đủ chỉ hiển thị trong tin nhắn này."

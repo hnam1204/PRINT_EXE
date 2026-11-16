@@ -262,8 +262,10 @@ public class PrinterService
 
         try
         {
-            byte[] bytes = File.ReadAllBytes(filePath);
-            return PrintRawBytes(printerName, bytes, documentName, out errorMessage);
+            bool success = RawPrinterHelper.SendFileToPrinter(printerName, filePath, documentName, "RAW");
+            if (!success)
+                errorMessage = "Không thể gửi dữ liệu RAW theo luồng tới Spooler máy in.";
+            return success;
         }
         catch (Exception ex)
         {

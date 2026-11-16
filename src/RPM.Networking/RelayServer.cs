@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -29,6 +30,8 @@ public class Room
 public class RelayServer
 {
     private HttpListener? _listener;
+    private UdpClient? _discoverySocket;
+    private CancellationTokenSource? _discoveryCts;
     private readonly ConcurrentDictionary<string, Room> _rooms = new(StringComparer.OrdinalIgnoreCase);
     private bool _isRunning;
     public bool IsLanAvailable { get; private set; }
@@ -65,6 +68,8 @@ public class RelayServer
 
         _isRunning = true;
         Console.WriteLine($"[RPM Relay] Server listening on port {port}...");
+        if (IsLanAvailable)
+            StartDiscoveryResponder(port);
         Task.Run(AcceptLoopAsync);
     }
 
@@ -73,12 +78,59 @@ public class RelayServer
         _isRunning = false;
         IsLanAvailable = false;
         LanBindingStatus = "Relay LAN đã dừng";
+        _discoveryCts?.Cancel();
+        _discoverySocket?.Dispose();
+        _discoveryCts = null;
+        _discoverySocket = null;
         try
         {
             _listener?.Stop();
             _listener?.Close();
         }
         catch { }
+    }
+
+    private void StartDiscoveryResponder(int relayPort)
+    {
+        int discoveryPort = relayPort + 1;
+        if (discoveryPort > 65535) return;
+
+        try
+        {
+            _discoverySocket = new UdpClient(new IPEndPoint(IPAddress.Any, discoveryPort));
+            _discoveryCts = new CancellationTokenSource();
+            _ = Task.Run(() => DiscoveryLoopAsync(relayPort, _discoveryCts.Token));
+            Console.WriteLine($"[RPM Relay] LAN discovery listening on UDP {discoveryPort}.");
+        }
+        catch (SocketException ex)
+        {
+            Console.WriteLine($"[RPM Relay] LAN discovery unavailable on UDP {discoveryPort}: {ex.Message}");
+        }
+    }
+
+    private async Task DiscoveryLoopAsync(int relayPort, CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested && _discoverySocket is not null)
+        {
+            try
+            {
+                UdpReceiveResult request = await _discoverySocket.ReceiveAsync(cancellationToken);
+                if (!LanRelayDiscovery.IsDiscoveryRequest(request.Buffer)) continue;
+
+                foreach (var address in LanRelayDiscovery.GetPrivateIpv4Addresses().Distinct())
+                {
+                    byte[] response = LanRelayDiscovery.CreateAdvertisement(address.ToString(), relayPort);
+                    await _discoverySocket.SendAsync(response, response.Length, request.RemoteEndPoint);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
+            catch (ObjectDisposedException) { break; }
+            catch (SocketException) when (cancellationToken.IsCancellationRequested) { break; }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[RPM Relay] LAN discovery error: {ex.Message}");
+            }
+        }
     }
 
     private async Task AcceptLoopAsync()
@@ -366,6 +418,12 @@ public class RelayServer
                                 {
                                     await SendToSocketAsync(client.Socket, packet);
                                 }
+                            }
+                            else if (room.ServerSocket != null)
+                            {
+                                // Client-originated packets without a target are
+                                // commands for the Host in this room.
+                                await SendToSocketAsync(room.ServerSocket, packet);
                             }
                         }
                         break;

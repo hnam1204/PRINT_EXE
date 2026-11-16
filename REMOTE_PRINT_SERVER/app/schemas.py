@@ -23,7 +23,30 @@ class DeviceRegistrationResponse(BaseModel):
     activationExpiresAt: datetime | None = None
     activationMaxDevices: int | None = None
     activationUsedDevices: int | None = None
+    activationGeofencePolicy: Literal["LIMITED", "UNLIMITED"] | None = None
     activationGeofenceRadiusMeters: int | None = None
+
+
+class RealtimeSessionResponse(BaseModel):
+    sessionToken: str
+    gatewayUrl: str
+    expiresAt: datetime
+
+
+class RealtimeEventEnvelope(BaseModel):
+    eventId: int
+    eventType: str
+    recipientDeviceId: str
+    schemaVersion: int = 1
+    hostId: str | None = None
+    clientId: str | None = None
+    pairingId: str | None = None
+    jobId: str | None = None
+    serverTimestamp: datetime
+    sequence: int
+    cursor: int
+    correlationId: str
+    payload: dict = Field(default_factory=dict)
 
 
 class DeviceProfile(BaseModel):
@@ -39,6 +62,7 @@ class DeviceProfile(BaseModel):
     activationExpiresAt: datetime | None = None
     activationMaxDevices: int | None = None
     activationUsedDevices: int | None = None
+    activationGeofencePolicy: Literal["LIMITED", "UNLIMITED"] | None = None
     activationGeofenceRadiusMeters: int | None = None
 
 
@@ -92,11 +116,14 @@ class GeofenceSettings(BaseModel):
     enabled: bool = False
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
-    radiusMeters: FiniteFloat = Field(default=1000, gt=0, le=100000)
+    # Keep legacy 1..1000 m activation policies valid while allowing new 5 km policies.
+    radiusMeters: FiniteFloat | None = Field(default=1000, gt=0, le=5000)
+    policy: Literal["LIMITED", "UNLIMITED", "OPTIONAL"] = "LIMITED"
 
 
 class GeofenceResponse(GeofenceSettings):
     hostId: str
+    maxRadiusMeters: int | None = None
 
 
 class PrinterRegistration(BaseModel):
@@ -147,6 +174,36 @@ class PrintJobResponse(BaseModel):
     failureCode: str | None = None
     failureMessage: str | None = None
     completedAt: datetime | None = None
+
+
+class PrintAuthorizationRequest(BaseModel):
+    jobId: str = Field(min_length=1, max_length=200)
+    hostId: str = Field(min_length=1, max_length=128)
+    printerId: str = Field(min_length=1, max_length=128)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    accuracyMeters: float | None = Field(default=None, ge=0, le=100000)
+    locationTimestamp: datetime | None = None
+
+
+class PrintAuthorizationResponse(BaseModel):
+    authorizationId: str
+    authorizationToken: str
+    jobId: str
+    printerId: str
+    expiresAt: datetime
+
+
+class PrintAuthorizationConsumeRequest(BaseModel):
+    authorizationToken: str = Field(min_length=20, max_length=256)
+
+
+class PrintAuthorizationConsumeResponse(BaseModel):
+    authorized: bool
+    jobId: str
+    clientId: str
+    hostId: str
+    printerId: str
 
 
 class JobClaimRequest(BaseModel):

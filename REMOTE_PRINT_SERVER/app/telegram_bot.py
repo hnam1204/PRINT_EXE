@@ -6,11 +6,16 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from .database import ActivationCode, AuditEvent, Device, TelegramMessage, utcnow
+from .activation_policy import (
+    GEOFENCE_POLICY_LIMITED,
+    GEOFENCE_POLICY_UNLIMITED,
+    MAX_GEOFENCE_RADIUS_METERS,
+    MIN_GEOFENCE_RADIUS_METERS,
+    normalize_geofence_policy,
+)
 from .security import hash_token
 
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-MIN_GEOFENCE_RADIUS_METERS = 1
-MAX_GEOFENCE_RADIUS_METERS = 1000
 VIETNAM_TIMEZONE = ZoneInfo("Asia/Ho_Chi_Minh")
 
 
@@ -57,16 +62,25 @@ def format_remaining(expires_at: datetime | None, now: datetime | None = None) -
     return f"Còn lại: {days} ngày {hours:02d} giờ {minutes:02d} phút {seconds:02d} giây"
 
 
-def create_activation_code(session, *, label: str, days: int | None, max_devices: int | None, created_by: str, geofence_radius_meters: int = MAX_GEOFENCE_RADIUS_METERS) -> str:
-    if not MIN_GEOFENCE_RADIUS_METERS <= geofence_radius_meters <= MAX_GEOFENCE_RADIUS_METERS:
-        raise ValueError(f"Phạm vi phải từ {MIN_GEOFENCE_RADIUS_METERS} đến {MAX_GEOFENCE_RADIUS_METERS} mét.")
+def create_activation_code(
+    session,
+    *,
+    label: str,
+    days: int | None,
+    max_devices: int | None,
+    created_by: str,
+    geofence_radius_meters: int | None = 1000,
+    geofence_policy: str = GEOFENCE_POLICY_LIMITED,
+) -> str:
+    policy, radius = normalize_geofence_policy(geofence_policy, geofence_radius_meters)
     code = generate_activation_code()
     session.add(ActivationCode(
         code_hash=hash_token(code),
         code_hint=code[:5],
         label=label[:160] or "customer",
         max_devices=max_devices,
-        geofence_radius_meters=geofence_radius_meters,
+        geofence_policy=policy,
+        geofence_radius_meters=radius,
         expires_at=utcnow() + timedelta(days=days) if days is not None else None,
         created_by=created_by,
     ))
@@ -74,7 +88,10 @@ def create_activation_code(session, *, label: str, days: int | None, max_devices
         actor_id=created_by,
         action="CUSTOMER_ACTIVATION_CODE_CREATED",
         target_type="ACTIVATION_CODE",
-        details={"label": label[:160], "days": days, "maxDevices": max_devices, "geofenceRadiusMeters": geofence_radius_meters, "codeHint": code[:5]},
+        details={
+            "label": label[:160], "days": days, "maxDevices": max_devices,
+            "geofencePolicy": policy, "geofenceRadiusMeters": radius, "codeHint": code[:5],
+        },
     ))
     return code
 
@@ -119,6 +136,7 @@ def reissue_activation_code(session, identifier: str, actor_id: str) -> tuple[st
         code_hint=code[:5],
         label=record.label,
         max_devices=record.max_devices,
+        geofence_policy=record.geofence_policy,
         geofence_radius_meters=record.geofence_radius_meters,
         expires_at=record.expires_at,
         created_by=actor_id,

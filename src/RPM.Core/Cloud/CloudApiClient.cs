@@ -68,6 +68,9 @@ public sealed class CloudApiClient : IDisposable
     public Task<CloudHeartbeatResponse?> HeartbeatAsync(CancellationToken cancellationToken = default) =>
         PostAsync<CloudHeartbeatResponse>("api/v1/devices/heartbeat", null, cancellationToken);
 
+    public Task<CloudRealtimeSession?> CreateRealtimeSessionAsync(CancellationToken cancellationToken = default) =>
+        PostAsync<CloudRealtimeSession>("api/v1/realtime/session", null, cancellationToken);
+
     public Task<CloudPairingCodeResponse?> IssuePairingCodeAsync(string sessionId, CancellationToken cancellationToken = default) =>
         PostAsync<CloudPairingCodeResponse>("api/v1/pairing-codes/issue", new { sessionId }, cancellationToken);
 
@@ -92,6 +95,14 @@ public sealed class CloudApiClient : IDisposable
 
     public Task<CloudGeofenceSettings?> UpdateGeofenceAsync(CloudGeofenceSettings payload, CancellationToken cancellationToken = default) =>
         PutAsync<CloudGeofenceSettings>("api/v1/devices/geofence", payload, cancellationToken);
+
+    public Task<CloudPrintAuthorization?> IssuePrintAuthorizationAsync(CloudPrintAuthorizationRequest payload, CancellationToken cancellationToken = default) =>
+        PostAsync<CloudPrintAuthorization>("api/v1/print-authorizations", payload, cancellationToken);
+
+    public Task<CloudPrintAuthorizationConsume?> ConsumePrintAuthorizationAsync(string authorizationId, string authorizationToken, CancellationToken cancellationToken = default) =>
+        PostAsync<CloudPrintAuthorizationConsume>(
+            $"api/v1/print-authorizations/{Uri.EscapeDataString(authorizationId)}/consume",
+            new { authorizationToken }, cancellationToken);
 
     public Task<IReadOnlyList<CloudPendingPairing>?> ListPendingPairingsAsync(CancellationToken cancellationToken = default) =>
         GetAsync<IReadOnlyList<CloudPendingPairing>>("api/v1/pairings/pending", cancellationToken);

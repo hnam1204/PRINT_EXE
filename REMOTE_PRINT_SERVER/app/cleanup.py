@@ -4,7 +4,7 @@ import uuid
 
 from sqlalchemy import delete, func, select, text
 
-from .database import AuditEvent, CleanupRun, Pairing, PrintJob, PrintJobTombstone, RateLimitEvent
+from .database import AuditEvent, CleanupRun, Pairing, PrintAuthorization, PrintJob, PrintJobTombstone, RateLimitEvent
 
 CLEANUP_AFTER_HOURS = 72
 BATCH_SIZE = 250
@@ -56,8 +56,8 @@ def run_cleanup(session_factory, engine, blob_store=None, now: datetime | None =
         "startedAt": started_at.isoformat(),
         "finishedAt": None,
         "cutoff": cutoff.isoformat(),
-        "inspected": {"pairings": 0, "printJobs": 0, "auditEvents": 0, "rateLimitEvents": 0},
-        "deleted": {"pairings": 0, "printJobs": 0, "auditEvents": 0, "rateLimitEvents": 0},
+        "inspected": {"pairings": 0, "printJobs": 0, "printAuthorizations": 0, "auditEvents": 0, "rateLimitEvents": 0},
+        "deleted": {"pairings": 0, "printJobs": 0, "printAuthorizations": 0, "auditEvents": 0, "rateLimitEvents": 0},
         "retained": {"activePairings": 0, "unfinishedPrintJobs": 0, "blobFailures": 0},
         "errors": [],
         "errorCode": None,
@@ -76,6 +76,14 @@ def run_cleanup(session_factory, engine, blob_store=None, now: datetime | None =
             pairing_inspected = session.scalar(select(func.count(Pairing.id)).where(pairing_condition)) or 0
         else:
             pairing_deleted, pairing_inspected = _delete_in_batches(session, Pairing, pairing_condition, started_at)
+        authorization_condition = (PrintAuthorization.expires_at <= started_at) | (
+            PrintAuthorization.used_at.is_not(None) & (PrintAuthorization.used_at <= cutoff)
+        )
+        if dry_run:
+            authorization_deleted = 0
+            authorization_inspected = session.scalar(select(func.count(PrintAuthorization.id)).where(authorization_condition)) or 0
+        else:
+            authorization_deleted, authorization_inspected = _delete_in_batches(session, PrintAuthorization, authorization_condition, started_at)
         job_deleted = 0
         job_inspected = 0
         while True:
@@ -139,12 +147,14 @@ def run_cleanup(session_factory, engine, blob_store=None, now: datetime | None =
         result["inspected"].update(
             pairings=pairing_inspected,
             printJobs=job_inspected,
+            printAuthorizations=authorization_inspected,
             auditEvents=audit_inspected,
             rateLimitEvents=rate_inspected,
         )
         result["deleted"].update(
             pairings=pairing_deleted,
             printJobs=job_deleted,
+            printAuthorizations=authorization_deleted,
             auditEvents=audit_deleted,
             rateLimitEvents=rate_deleted,
         )

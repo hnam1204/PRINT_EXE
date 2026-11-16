@@ -1,0 +1,14 @@
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+WORKDIR /src
+COPY ["src/RPM.RealtimeGateway/RPM.RealtimeGateway.csproj", "src/RPM.RealtimeGateway/"]
+RUN dotnet restore "src/RPM.RealtimeGateway/RPM.RealtimeGateway.csproj"
+COPY ["src/RPM.RealtimeGateway/", "src/RPM.RealtimeGateway/"]
+WORKDIR "/src/src/RPM.RealtimeGateway"
+RUN dotnet publish "RPM.RealtimeGateway.csproj" -c Release -o /app/publish --no-restore
+
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
+WORKDIR /app
+COPY --from=build /app/publish .
+EXPOSE 9191
+ENV PORT=9191
+ENTRYPOINT ["dotnet", "RPM.RealtimeGateway.dll"]

@@ -7,6 +7,10 @@ namespace RPM.Core.Security;
 public static class PacketSecurity
 {
     public const int MaxNetworkPacketBytes = 16 * 1024 * 1024;
+    // Direct streaming uses bounded chunks and a configurable 100 MiB safety
+    // ceiling. Cloud/blob paths may keep their stricter server-side limit.
+    public const long MaxDirectPrintJobBytes = 100L * 1024 * 1024;
+    public const int DirectPrintChunkBytes = 128 * 1024;
     public const int MaxPrintJobBytes = 32 * 1024 * 1024;
     public static readonly TimeSpan MaximumClockSkew = TimeSpan.FromMinutes(5);
 

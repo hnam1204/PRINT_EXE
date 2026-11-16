@@ -105,7 +105,26 @@ def test_activation_code_geofence_radius_is_bounded(tmp_path):
         session.flush()
         assert session.query(ActivationCode).one().geofence_radius_meters == 500
         with pytest.raises(ValueError):
-            create_activation_code(session, label="Invalid", days=30, max_devices=1, geofence_radius_meters=1001, created_by="admin")
+            create_activation_code(session, label="Invalid", days=30, max_devices=1, geofence_radius_meters=5001, created_by="admin")
+
+
+def test_activation_code_supports_five_kilometers_and_unlimited_policy(tmp_path):
+    _, session_factory = create_session_factory(f"sqlite:///{tmp_path / 'policy.db'}")
+    with session_factory() as session:
+        create_activation_code(
+            session, label="Five km", days=30, max_devices=1,
+            geofence_radius_meters=5000, created_by="admin",
+        )
+        create_activation_code(
+            session, label="Unlimited", days=None, max_devices=None,
+            geofence_policy="UNLIMITED", geofence_radius_meters=None, created_by="admin",
+        )
+        session.flush()
+        records = {record.label: record for record in session.query(ActivationCode).all()}
+        assert records["Unlimited"].geofence_policy == "UNLIMITED"
+        assert records["Unlimited"].geofence_radius_meters is None
+        assert records["Five km"].geofence_policy == "LIMITED"
+        assert records["Five km"].geofence_radius_meters == 5000
 
 
 def test_telegram_message_tracking_supports_chat_cleanup(tmp_path):
