@@ -113,13 +113,47 @@ public class RPMTests
         }
     }
 
+    [Fact]
+    public async Task CloudApiClient_PairingDecision_DoesNotSendPrinterIdsForNonSelectedMode()
+    {
+        string tokenPath = Path.Combine(Path.GetTempPath(), $"rpm-test-token-{Guid.NewGuid():N}.bin");
+        var handler = new RecordingHandler(
+            "{\"pairingId\":\"pairing-01\",\"hostId\":\"host-01\",\"clientId\":\"client-01\",\"code\":\"123456\",\"status\":\"APPROVED\",\"expiresAt\":\"2026-11-16T00:00:00Z\"}");
+
+        try
+        {
+            var tokenStore = new CloudDeviceTokenStore(tokenPath);
+            tokenStore.Save("test-token");
+            using var api = new CloudApiClient(
+                new Uri("https://example.test/"),
+                tokenStore: tokenStore,
+                handler: handler);
+
+            await api.DecidePairingAsync(
+                "pairing-01",
+                approve: true,
+                allowedPrinters: new[] { "printer-a" },
+                printerAccessMode: "ALL_SHARED");
+
+            using var body = JsonDocument.Parse(handler.RequestBody!);
+            Assert.Equal("ALL_SHARED", body.RootElement.GetProperty("printerAccessMode").GetString());
+            Assert.Empty(body.RootElement.GetProperty("allowedPrinters").EnumerateArray());
+        }
+        finally
+        {
+            try { File.Delete(tokenPath); } catch { }
+        }
+    }
+
     private sealed class RecordingHandler(string responseJson) : HttpMessageHandler
     {
         public HttpRequestMessage? Request { get; private set; }
+        public string? RequestBody { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Request = request;
+            RequestBody = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult();
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(responseJson, Encoding.UTF8, "application/json")

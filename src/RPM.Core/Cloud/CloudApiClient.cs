@@ -119,19 +119,36 @@ public sealed class CloudApiClient : IDisposable
         DecidePairingAsync(pairingId, approve, allowedPrinters, "ALL_SHARED", cancellationToken);
 
     public Task<CloudPairingResult?> DecidePairingAsync(string pairingId, bool approve, IReadOnlyList<string> allowedPrinters, string printerAccessMode, CancellationToken cancellationToken = default) =>
-        PostAsync<CloudPairingResult>($"api/v1/pairings/{Uri.EscapeDataString(pairingId)}/decision", new CloudPairingDecision(approve, allowedPrinters, printerAccessMode), cancellationToken);
+        PostAsync<CloudPairingResult>(
+            $"api/v1/pairings/{Uri.EscapeDataString(pairingId)}/decision",
+            new CloudPairingDecision(approve, NormalizeAllowedPrinters(printerAccessMode, allowedPrinters), printerAccessMode),
+            cancellationToken);
 
     public Task<CloudPairingResult?> RevokePairingAsync(string pairingId, CancellationToken cancellationToken = default) =>
         PostAsync<CloudPairingResult>($"api/v1/pairings/{Uri.EscapeDataString(pairingId)}/revoke", null, cancellationToken);
 
     public Task<CloudPairingResult?> UpdatePairingPrinterPermissionsAsync(string pairingId, string printerAccessMode, IReadOnlyList<string> allowedPrinters, CancellationToken cancellationToken = default) =>
-        PutAsync<CloudPairingResult>($"api/v1/pairings/{Uri.EscapeDataString(pairingId)}/printer-permissions", new CloudPairingDecision(true, allowedPrinters, printerAccessMode), cancellationToken);
+        PutAsync<CloudPairingResult>(
+            $"api/v1/pairings/{Uri.EscapeDataString(pairingId)}/printer-permissions",
+            new CloudPairingDecision(true, NormalizeAllowedPrinters(printerAccessMode, allowedPrinters), printerAccessMode),
+            cancellationToken);
 
     public Task<CloudPairingResult?> GetPairingAsync(string pairingId, CancellationToken cancellationToken = default) =>
         GetAsync<CloudPairingResult>($"api/v1/pairings/{Uri.EscapeDataString(pairingId)}", cancellationToken);
 
     public Task<CloudPairingResult?> GetApprovedPairingForClientAsync(string clientId, CancellationToken cancellationToken = default) =>
         GetAsync<CloudPairingResult>($"api/v1/pairings/approved/{Uri.EscapeDataString(clientId)}", cancellationToken);
+
+    private static IReadOnlyList<string> NormalizeAllowedPrinters(string? printerAccessMode, IReadOnlyList<string>? allowedPrinters)
+    {
+        if (!string.Equals(printerAccessMode, "SELECTED_ONLY", StringComparison.OrdinalIgnoreCase))
+            return Array.Empty<string>();
+
+        return (allowedPrinters ?? Array.Empty<string>())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
 
     public Task<IReadOnlyList<CloudPrinter>?> ListPrintersAsync(string hostId, CancellationToken cancellationToken = default) =>
         GetAsync<IReadOnlyList<CloudPrinter>>($"api/v1/printers?hostId={Uri.EscapeDataString(hostId)}", cancellationToken);
