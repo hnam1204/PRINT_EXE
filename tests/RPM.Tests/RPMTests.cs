@@ -21,6 +21,21 @@ namespace RPM.Tests;
 public class RPMTests
 {
     [Fact]
+    public void QueueReadOnlyBindings_AreOneWayForReadOnlyProperties()
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "RemotePrintManager.sln")))
+            root = root.Parent;
+
+        Assert.NotNull(root);
+        string xamlPath = Path.Combine(root!.FullName, "src", "RPM.App", "Views", "MainDashboardView.xaml");
+        string xaml = File.ReadAllText(xamlPath);
+
+        Assert.Contains("Binding=\"{Binding ClientDeviceName, Mode=OneWay}\"", xaml);
+        Assert.Contains("Binding=\"{Binding FormattedFileSize, Mode=OneWay}\"", xaml);
+    }
+
+    [Fact]
     public void DeviceInfo_IsRemoteDevice_ExcludesCurrentHost()
     {
         var host = new DeviceInfo { DeviceId = "host-01" };
