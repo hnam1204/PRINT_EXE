@@ -3,6 +3,11 @@ using System.Drawing.Printing;
 using System.IO;
 using System.Management;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.WindowsRuntime;
+using System.Reflection;
+using Windows.Data.Pdf;
+using Windows.Storage;
+using Windows.Storage.Streams;
 using RPM.Core.Models;
 
 namespace RPM.Printing;
@@ -148,6 +153,15 @@ public class PrinterService
                 return false;
             }
 
+            printDoc.DefaultPageSettings.Landscape = false;
+            PaperSize? a4Paper = printDoc.PrinterSettings.PaperSizes
+                .Cast<PaperSize>()
+                .FirstOrDefault(paper => paper.Kind == PaperKind.A4);
+            if (a4Paper is not null)
+            {
+                printDoc.DefaultPageSettings.PaperSize = a4Paper;
+            }
+
             printDoc.DocumentName = $"RPM Test Page - {DateTime.Now:yyyyMMdd_HHmmss}";
 
             printDoc.PrintPage += (sender, e) =>
@@ -155,71 +169,75 @@ public class PrinterService
                 if (e.Graphics == null) return;
 
                 var g = e.Graphics;
-                using var titleFont = new Font("Be Vietnam Pro", 18, FontStyle.Bold);
-                using var subtitleFont = new Font("Be Vietnam Pro", 12, FontStyle.Bold);
-                using var bodyFont = new Font("Be Vietnam Pro", 10, FontStyle.Regular);
-                using var smallFont = new Font("Be Vietnam Pro", 8, FontStyle.Italic);
-                using var pen = new Pen(Color.FromArgb(0, 120, 215), 2);
-                using var linePen = new Pen(Color.LightGray, 1);
-                using var blueBrush = new SolidBrush(Color.FromArgb(0, 120, 215));
-                using var textBrush = new SolidBrush(Color.FromArgb(30, 30, 30));
-                using var grayBrush = new SolidBrush(Color.Gray);
+                using var titleFont = new Font("Segoe UI", 19, FontStyle.Bold);
+                using var headingFont = new Font("Segoe UI", 11, FontStyle.Bold);
+                using var bodyFont = new Font("Segoe UI", 10, FontStyle.Regular);
+                using var resultFont = new Font("Segoe UI", 11, FontStyle.Bold);
+                using var accentPen = new Pen(Color.FromArgb(0, 120, 215), 2);
+                using var dividerPen = new Pen(Color.LightGray, 1);
+                using var accentBrush = new SolidBrush(Color.FromArgb(0, 120, 215));
+                using var textBrush = new SolidBrush(Color.FromArgb(35, 35, 35));
+                using var resultBrush = new SolidBrush(Color.FromArgb(0, 105, 70));
+                using var format = new StringFormat
+                {
+                    Alignment = StringAlignment.Near,
+                    LineAlignment = StringAlignment.Near,
+                    Trimming = StringTrimming.EllipsisCharacter
+                };
 
-                int margin = 50;
-                int y = margin;
+                Rectangle bounds = e.MarginBounds;
+                int left = bounds.Left;
+                int width = bounds.Width;
+                int y = bounds.Top;
+                int labelWidth = Math.Min(170, width / 3);
+                int valueLeft = left + labelWidth;
+                int valueWidth = Math.Max(100, width - labelWidth);
 
-                // Header box
-                g.DrawRectangle(pen, margin, y, 700, 70);
-                g.DrawString("REMOTE PRINT MANAGER (RPM)", titleFont, blueBrush, margin + 20, y + 10);
-                g.DrawString("TRANG IN KIỂM TRA HỆ THỐNG / SYSTEM TEST PAGE", smallFont, grayBrush, margin + 22, y + 42);
+                g.DrawRectangle(accentPen, left, y, width, 72);
+                using (var titleFormat = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+                {
+                    g.DrawString("REMOTE PRINT MANAGER (RPM)", titleFont, accentBrush,
+                        new RectangleF(left + 12, y + 8, width - 24, 55), titleFormat);
+                }
 
-                y += 90;
+                y += 98;
+                g.DrawString(
+                    "Phần mềm quản lý và in ấn từ xa qua Internet, giúp kết nối máy Client với máy in tại Host.",
+                    bodyFont,
+                    textBrush,
+                    new RectangleF(left, y, width, 48),
+                    format);
+                y += 68;
 
-                g.DrawString("XÁC NHẬN KẾT NỐI VÀ IN ẤN THÀNH CÔNG", subtitleFont, textBrush, margin, y);
+                g.DrawString("Thông tin kiểm tra", headingFont, accentBrush, left, y);
                 y += 28;
-                g.DrawLine(linePen, margin, y, margin + 700, y);
-                y += 15;
+                g.DrawLine(dividerPen, left, y, left + width, y);
+                y += 16;
 
-                // Info rows
                 void DrawRow(string label, string value)
                 {
-                    g.DrawString(label, subtitleFont, blueBrush, margin, y);
-                    g.DrawString(value, bodyFont, textBrush, margin + 220, y);
-                    y += 25;
+                    g.DrawString(label, headingFont, textBrush, new RectangleF(left, y, labelWidth - 10, 25), format);
+                    g.DrawString(value, bodyFont, textBrush, new RectangleF(valueLeft, y, valueWidth, 25), format);
+                    y += 31;
                 }
 
-                DrawRow("Thời gian in:", DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss"));
-                DrawRow("Máy chủ (Server):", serverName);
-                DrawRow("Máy in đích (Physical):", printerName);
-                DrawRow("Máy con gửi yêu cầu:", clientName);
-                DrawRow("Khoảng cách kết nối:", "Khu vực bán kính văn phòng công ty (<= 1 km)");
-                DrawRow("Phương thức truyền dẫn:", "Internet độc lập qua Relay Broker (AES-256 E2EE)");
-                DrawRow("Trạng thái bảo mật:", "Mã hóa đầu cuối đã xác thực thành công");
+                DrawRow("Tên máy in", printerName);
+                DrawRow("Tên máy chủ", serverName);
+                DrawRow("Thời gian in", DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss"));
+                DrawRow("Phát triển bởi", "Nguyễn Hải Nam");
+                DrawRow("Phiên bản", GetCurrentApplicationVersion());
 
-                y += 20;
-                g.DrawLine(linePen, margin, y, margin + 700, y);
-                y += 20;
-
-                // Test blocks (color / gray test)
-                g.DrawString("Kiểm tra dải màu & độ sắc nét:", subtitleFont, textBrush, margin, y);
-                y += 25;
-
-                int blockW = 60;
-                int blockH = 30;
-                Color[] testColors = [Color.Black, Color.DarkGray, Color.LightGray, Color.Red, Color.Green, Color.Blue, Color.Cyan, Color.Magenta, Color.Yellow];
-                int bx = margin;
-                foreach (var c in testColors)
-                {
-                    using var brush = new SolidBrush(c);
-                    g.FillRectangle(brush, bx, y, blockW, blockH);
-                    g.DrawRectangle(Pens.Black, bx, y, blockW, blockH);
-                    bx += blockW + 10;
-                }
-
-                y += 50;
-                g.DrawString("Trang này xác nhận máy con đã kết nối hoàn chỉnh với máy in thông qua Remote Print Manager.", smallFont, grayBrush, margin, y);
                 y += 18;
-                g.DrawString("Bạn có thể in trực tiếp từ bất kỳ ứng dụng nào (Word, Excel, Chrome...) bằng phím Ctrl + P.", smallFont, grayBrush, margin, y);
+                g.DrawLine(dividerPen, left, y, left + width, y);
+                y += 24;
+                g.DrawString("KẾT QUẢ", headingFont, accentBrush, left, y);
+                y += 30;
+                g.DrawString(
+                    "Trang kiểm tra đã được gửi đến máy in thành công.",
+                    resultFont,
+                    resultBrush,
+                    new RectangleF(left, y, width, 30),
+                    format);
             };
 
             printDoc.Print();
@@ -230,6 +248,13 @@ public class PrinterService
             errorMessage = ex.Message;
             return false;
         }
+    }
+
+    private static string GetCurrentApplicationVersion()
+    {
+        Assembly assembly = Assembly.GetEntryAssembly() ?? typeof(PrinterService).Assembly;
+        Version? version = assembly.GetName().Version;
+        return version is null ? "Không xác định" : $"{version.Major}.{version.Minor}.{version.Build}";
     }
 
     public bool PrintRawBytes(string printerName, byte[] data, string documentName, out string errorMessage)
@@ -262,14 +287,88 @@ public class PrinterService
 
         try
         {
-            bool success = RawPrinterHelper.SendFileToPrinter(printerName, filePath, documentName, "RAW");
+            bool success = string.Equals(Path.GetExtension(filePath), ".pdf", StringComparison.OrdinalIgnoreCase)
+                ? PrintPdfFile(printerName, filePath, documentName, out errorMessage)
+                : RawPrinterHelper.SendFileToPrinter(printerName, filePath, documentName, "RAW");
             if (!success)
-                errorMessage = "Không thể gửi dữ liệu RAW theo luồng tới Spooler máy in.";
+                errorMessage = string.IsNullOrWhiteSpace(errorMessage)
+                    ? "Không thể gửi tài liệu tới Spooler máy in."
+                    : errorMessage;
             return success;
         }
         catch (Exception ex)
         {
             errorMessage = ex.Message;
+            return false;
+        }
+    }
+
+    private static bool PrintPdfFile(string printerName, string filePath, string documentName, out string errorMessage)
+    {
+        errorMessage = string.Empty;
+        try
+        {
+            StorageFile file = StorageFile.GetFileFromPathAsync(filePath).AsTask().GetAwaiter().GetResult();
+            PdfDocument pdf = PdfDocument.LoadFromFileAsync(file).AsTask().GetAwaiter().GetResult();
+            if (pdf.PageCount == 0)
+            {
+                errorMessage = "Tài liệu PDF không có trang để in.";
+                return false;
+            }
+
+            var pages = new List<Bitmap>((int)pdf.PageCount);
+            try
+            {
+                for (uint index = 0; index < pdf.PageCount; index++)
+                {
+                    PdfPage page = pdf.GetPage(index);
+                    if (page is null) throw new InvalidDataException($"Không thể đọc trang PDF {index + 1}.");
+                    using var rendered = new InMemoryRandomAccessStream();
+                    page.RenderToStreamAsync(rendered).AsTask().GetAwaiter().GetResult();
+                    rendered.Seek(0);
+                    using Stream imageStream = rendered.AsStreamForRead();
+                    using var loaded = new Bitmap(imageStream);
+                    pages.Add(new Bitmap(loaded));
+                }
+
+                using var printDocument = new PrintDocument
+                {
+                    PrinterSettings = new PrinterSettings { PrinterName = printerName },
+                    DocumentName = documentName
+                };
+                if (!printDocument.PrinterSettings.IsValid)
+                {
+                    errorMessage = $"Máy in '{printerName}' không hợp lệ hoặc không thể truy cập.";
+                    return false;
+                }
+
+                int pageIndex = 0;
+                printDocument.PrintPage += (_, args) =>
+                {
+                    Bitmap page = pages[pageIndex++];
+                    if (args.Graphics is null) throw new InvalidOperationException("Windows không cung cấp Graphics context cho trang PDF.");
+                    Rectangle bounds = args.MarginBounds;
+                    float scale = Math.Min(
+                        (float)bounds.Width / page.Width,
+                        (float)bounds.Height / page.Height);
+                    int width = Math.Max(1, (int)(page.Width * scale));
+                    int height = Math.Max(1, (int)(page.Height * scale));
+                    int left = bounds.Left + (bounds.Width - width) / 2;
+                    int top = bounds.Top + (bounds.Height - height) / 2;
+                    args.Graphics.DrawImage(page, new Rectangle(left, top, width, height));
+                    args.HasMorePages = pageIndex < pages.Count;
+                };
+                printDocument.Print();
+                return true;
+            }
+            finally
+            {
+                foreach (Bitmap page in pages) page.Dispose();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Không thể render PDF trước khi gửi tới Spooler: {ex.Message}";
             return false;
         }
     }

@@ -44,6 +44,28 @@ public static class PacketSecurity
         }
     }
 
+    public static string ComputeAuthTagWithSecret(NetworkPacket packet, string secret)
+    {
+        if (string.IsNullOrWhiteSpace(secret)) throw new ArgumentException("Authentication secret is required.", nameof(secret));
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        return Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes(Canonicalize(packet))));
+    }
+
+    public static bool VerifyAuthTagWithSecret(NetworkPacket packet, string secret)
+    {
+        if (string.IsNullOrWhiteSpace(packet.AuthTagBase64) || string.IsNullOrWhiteSpace(secret)) return false;
+        try
+        {
+            byte[] actual = Convert.FromBase64String(packet.AuthTagBase64);
+            byte[] expected = Convert.FromBase64String(ComputeAuthTagWithSecret(packet, secret));
+            return CryptographicOperations.FixedTimeEquals(actual, expected);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
     public static bool IsFresh(NetworkPacket packet, DateTime nowUtc) =>
         Math.Abs((nowUtc - packet.Timestamp.ToUniversalTime()).TotalSeconds) <= MaximumClockSkew.TotalSeconds;
 

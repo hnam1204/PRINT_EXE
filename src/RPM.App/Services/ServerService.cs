@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http;
 using System.Net.NetworkInformation;
@@ -21,6 +22,9 @@ public class ServerService : IDisposable, IAsyncDisposable
 {
     private readonly AppSettings _settings;
     private readonly RelayClient _relayClient = new();
+    private readonly ConcurrentDictionary<string, CloudRelayClient> _cloudRelays = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, CloudRelayClient> _jobCloudRelays = new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _cloudRelayLock = new(1, 1);
     private readonly PrinterService _printerService = new();
     private readonly CloudConnectionService _cloud;
     private readonly CancellationTokenSource _cloudWorkerStop = new();
@@ -796,6 +800,8 @@ public class ServerService : IDisposable, IAsyncDisposable
 
         if (localStateChanged)
             SaveClientList();
+
+        await EnsureCloudRelaysForApprovedClientsAsync(cancellationToken);
     }
 
     private static DateTime NormalizeUtc(DateTime value) => value.Kind switch
@@ -804,6 +810,95 @@ public class ServerService : IDisposable, IAsyncDisposable
         DateTimeKind.Local => value.ToUniversalTime(),
         _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
     };
+
+    private async Task EnsureCloudRelaysForApprovedClientsAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_settings.CloudTransportEnabled || !_cloud.IsOnline || _cloud.Client is null)
+            return;
+
+        var approvedClients = ConnectedClients
+            .Where(client => DeviceInfoPolicy.IsRemoteDevice(client, _settings.DeviceId))
+            .Where(client => client.IsApproved && !client.IsBlocked)
+            .ToList();
+        var activePairings = CloudPairingResolver.ResolveActivePairingIds(
+            approvedClients,
+            _cloudPairingIds,
+            _settings.DeviceId);
+
+        await _cloudRelayLock.WaitAsync(cancellationToken);
+        try
+        {
+            foreach (var stale in _cloudRelays.Keys.Where(pairingId => !activePairings.Contains(pairingId)).ToList())
+            {
+                if (_cloudRelays.TryRemove(stale, out var relay))
+                {
+                    try { await relay.DisposeAsync(); } catch (Exception ex) { OnLog?.Invoke(this, $"[Relay Cloud] Dừng phiên cũ thất bại: {ex.Message}"); }
+                }
+            }
+
+            foreach (var client in approvedClients)
+            {
+                string pairingId = client.PairingId;
+                if (string.IsNullOrWhiteSpace(pairingId) && _cloudPairingIds.TryGetValue(client.DeviceId, out var mappedPairingId))
+                    pairingId = mappedPairingId;
+                if (string.IsNullOrWhiteSpace(pairingId)) continue;
+
+                client.PairingId = pairingId;
+                if (_cloudRelays.ContainsKey(pairingId)) continue;
+
+                var relay = new CloudRelayClient(isHost: true);
+                relay.OnConnected += (_, _) => OnLog?.Invoke(this, $"[Relay Cloud] Host đã kết nối pairing {ShortId(pairingId)}.");
+                relay.OnReady += (_, _) => OnLog?.Invoke(this, $"[Relay Cloud] Host đã xác thực phiên truyền pairing {ShortId(pairingId)}.");
+                relay.OnDisconnected += (_, reason) => OnLog?.Invoke(this, $"[Relay Cloud] Host mất phiên pairing {ShortId(pairingId)}: {reason}");
+                relay.OnLog += (_, message) => OnLog?.Invoke(this, message);
+                relay.OnPacketReceived += (_, packet) => _ = HandleCloudRelayPacketAsync(relay, packet);
+
+                if (!_cloudRelays.TryAdd(pairingId, relay))
+                {
+                    await relay.DisposeAsync();
+                    continue;
+                }
+
+                try
+                {
+                    await relay.StartWithSessionFactoryAsync(
+                        token => _cloud.CreateRealtimeSessionAsync(token),
+                        pairingId,
+                        _settings.DeviceId,
+                        client.DeviceId,
+                        _settings.DeviceId);
+                    OnLog?.Invoke(this, $"[Relay Cloud] Đã khởi tạo phiên Host cho máy con '{client.DeviceName}' ({ShortId(pairingId)}).");
+                }
+                catch (Exception ex)
+                {
+                    _cloudRelays.TryRemove(pairingId, out _);
+                    await relay.DisposeAsync();
+                    OnLog?.Invoke(this, $"[Relay Cloud] Không thể khởi tạo phiên Host cho '{client.DeviceName}': {ex.Message}");
+                }
+            }
+        }
+        finally
+        {
+            _cloudRelayLock.Release();
+        }
+    }
+
+    private async Task StopCloudRelayForPairingAsync(string? pairingId)
+    {
+        if (string.IsNullOrWhiteSpace(pairingId)) return;
+        await _cloudRelayLock.WaitAsync();
+        try
+        {
+            if (_cloudRelays.TryRemove(pairingId, out var relay))
+                await relay.DisposeAsync();
+        }
+        finally
+        {
+            _cloudRelayLock.Release();
+        }
+    }
+
+    private static string ShortId(string value) => value[..Math.Min(8, value.Length)];
 
     public void LoadPrinters()
     {
@@ -1264,8 +1359,31 @@ public class ServerService : IDisposable, IAsyncDisposable
     {
         try
         {
-            switch (packet.Type)
-            {
+            await HandleIncomingPacketAsync(packet, null);
+        }
+        catch (Exception ex)
+        {
+            OnLog?.Invoke(this, $"[Lỗi xử lý gói tin] {ex.Message}");
+        }
+    }
+
+    private async Task HandleCloudRelayPacketAsync(CloudRelayClient relay, NetworkPacket packet)
+    {
+        try
+        {
+            OnLog?.Invoke(this, $"[Stage] Host received job={GetPacketJobId(packet)} transport=cloud-relay type={packet.Type}");
+            await HandleIncomingPacketAsync(packet, relay);
+        }
+        catch (Exception ex)
+        {
+            OnLog?.Invoke(this, $"[Relay Cloud] Lỗi xử lý packet Host: {ex.Message}");
+        }
+    }
+
+    private async Task HandleIncomingPacketAsync(NetworkPacket packet, CloudRelayClient? cloudRelay)
+    {
+        switch (packet.Type)
+        {
                 case MessageType.RegisterServerAck:
                     OnLog?.Invoke(this, $"[Máy Chủ] Sẵn sàng nhận lệnh in với mã kết nối: {_settings.PairingCode}");
                     break;
@@ -1275,24 +1393,24 @@ public class ServerService : IDisposable, IAsyncDisposable
                     break;
 
                 case MessageType.SubmitPrintJob:
-                    await HandleSubmitPrintJobAsync(packet);
+                    await HandleSubmitPrintJobAsync(packet, cloudRelay);
                     break;
 
                 case MessageType.PrintStreamStart:
-                    await HandlePrintStreamStartAsync(packet);
+                    await HandlePrintStreamStartAsync(packet, cloudRelay);
                     break;
 
                 case MessageType.PrintStreamChunk:
-                    await HandlePrintStreamChunkAsync(packet);
+                    await HandlePrintStreamChunkAsync(packet, cloudRelay);
                     break;
 
                 case MessageType.PrintStreamEnd:
-                    await HandlePrintStreamEndAsync(packet);
+                    await HandlePrintStreamEndAsync(packet, cloudRelay);
                     break;
 
                 case MessageType.Heartbeat:
                     // Reply pong
-                    await _relayClient.SendPacketAsync(new NetworkPacket
+                    await SendPacketAsync(cloudRelay, new NetworkPacket
                     {
                         Type = MessageType.HeartbeatAck,
                         SenderId = _settings.DeviceId,
@@ -1300,29 +1418,31 @@ public class ServerService : IDisposable, IAsyncDisposable
                         PairingCode = _settings.PairingCode
                     });
                     break;
-            }
-        }
-        catch (Exception ex)
-        {
-            OnLog?.Invoke(this, $"[Lỗi xử lý gói tin] {ex.Message}");
         }
     }
 
-    private async Task HandlePrintStreamStartAsync(NetworkPacket packet)
+    private async Task HandlePrintStreamStartAsync(NetworkPacket packet, CloudRelayClient? cloudRelay = null)
     {
         var sender = ConnectedClients.FirstOrDefault(client => client.DeviceId == packet.SenderId);
         if (sender is null || !sender.IsApproved || sender.IsBlocked)
         {
-            await SendStreamAckAsync(packet.SenderId, string.Empty, -1, "REJECTED", "Thiết bị chưa được cấp quyền in.");
+            await SendStreamAckAsync(cloudRelay, packet.SenderId, string.Empty, -1, "REJECTED", "Thiết bị chưa được cấp quyền in.");
             return;
         }
 
-        var payload = _relayClient.DecryptPayload<PrintStreamStartPayload>(packet, _settings.EncryptionSecret);
+        var payload = DecryptPayload<PrintStreamStartPayload>(packet, cloudRelay);
         if (payload is null || string.IsNullOrWhiteSpace(payload.JobId) || payload.JobInfo is null ||
             payload.TotalBytes <= 0 || payload.TotalBytes > PacketSecurity.MaxDirectPrintJobBytes ||
             !string.Equals(payload.JobId, payload.JobInfo.JobId, StringComparison.Ordinal))
         {
-            await SendStreamAckAsync(packet.SenderId, payload?.JobId ?? string.Empty, -1, "REJECTED", "Thông tin luồng in không hợp lệ.");
+            await SendStreamAckAsync(cloudRelay, packet.SenderId, payload?.JobId ?? string.Empty, -1, "REJECTED", "Thông tin luồng in không hợp lệ.");
+            return;
+        }
+
+        if (!IsSupportedDirectDocumentFormat(payload.JobInfo.DocumentFormat))
+        {
+            await SendStreamAckAsync(cloudRelay, packet.SenderId, payload.JobId, -1, "REJECTED",
+                $"Định dạng '{payload.JobInfo.DocumentFormat}' chưa được Host hỗ trợ an toàn.");
             return;
         }
 
@@ -1333,20 +1453,47 @@ public class ServerService : IDisposable, IAsyncDisposable
                 out var targetPrinter,
                 out var authorizationError))
         {
-            await SendStreamAckAsync(packet.SenderId, payload.JobId, -1, "REJECTED", authorizationError);
+            await SendStreamAckAsync(cloudRelay, packet.SenderId, payload.JobId, -1, "REJECTED", authorizationError);
+            return;
+        }
+
+        DirectStreamState? existingStream;
+        PrintJob? existingJob;
+        lock (_directStreamLock)
+        {
+            _directStreams.TryGetValue(payload.JobId, out existingStream);
+            existingJob = PrintJobs.FirstOrDefault(job => job.JobId == payload.JobId);
+        }
+        if (existingStream is not null)
+        {
+            bool sameStream = string.Equals(existingStream.SenderDeviceId, packet.SenderId, StringComparison.Ordinal) &&
+                              existingStream.TotalBytes == payload.TotalBytes &&
+                              string.Equals(existingStream.ContentSha256, payload.ContentSha256, StringComparison.OrdinalIgnoreCase);
+            await SendStreamAckAsync(cloudRelay, packet.SenderId, payload.JobId, -1,
+                sameStream ? "RECEIVED" : "REJECTED",
+                sameStream ? "Host đã nhận yêu cầu bắt đầu trước đó." : "Job ID đã được dùng cho một tài liệu khác.");
+            return;
+        }
+        if (existingJob is not null)
+        {
+            bool sameJob = string.Equals(existingJob.SenderDeviceId, packet.SenderId, StringComparison.Ordinal) &&
+                           string.Equals(existingJob.ContentSha256, payload.ContentSha256, StringComparison.OrdinalIgnoreCase);
+            await SendStreamAckAsync(cloudRelay, packet.SenderId, payload.JobId, -1,
+                sameJob ? "RECEIVED" : "REJECTED",
+                sameJob ? "Job đã được Host nhận trước đó." : "Job ID đã được dùng cho một tài liệu khác.");
             return;
         }
 
         if (!await ConsumeBackendPrintAuthorizationAsync(payload.AuthorizationId, payload.AuthorizationToken, payload.JobId, sender.DeviceId, payload.AuthorizationPrinterId, targetPrinter))
         {
-            await SendStreamAckAsync(packet.SenderId, payload.JobId, -1, "REJECTED", "Lệnh in chưa được máy chủ từ xa cấp quyền hoặc quyền đã hết hạn.");
+            await SendStreamAckAsync(cloudRelay, packet.SenderId, payload.JobId, -1, "REJECTED", "Lệnh in chưa được máy chủ từ xa cấp quyền hoặc quyền đã hết hạn.");
             return;
         }
 
         if (string.IsNullOrWhiteSpace(payload.ContentSha256) || payload.ContentSha256.Length != 64 ||
             !payload.ContentSha256.All(Uri.IsHexDigit))
         {
-            await SendStreamAckAsync(packet.SenderId, payload.JobId, -1, "REJECTED", "Checksum tài liệu không hợp lệ.");
+            await SendStreamAckAsync(cloudRelay, packet.SenderId, payload.JobId, -1, "REJECTED", "Checksum tài liệu không hợp lệ.");
             return;
         }
 
@@ -1356,23 +1503,11 @@ public class ServerService : IDisposable, IAsyncDisposable
         finally { _queueLock.Release(); }
         if (!queueAvailable)
         {
-            await SendStreamAckAsync(packet.SenderId, payload.JobId, -1, "REJECTED", "Hàng đợi in đang đầy.");
+            await SendStreamAckAsync(cloudRelay, packet.SenderId, payload.JobId, -1, "REJECTED", "Hàng đợi in đang đầy.");
             return;
         }
 
-        lock (_directStreamLock)
-        {
-            if (_directStreams.ContainsKey(payload.JobId) || PrintJobs.Any(job => job.JobId == payload.JobId))
-            {
-                _ = SendStreamAckAsync(packet.SenderId, payload.JobId, -1, "REJECTED", "Job đã tồn tại, không tạo bản in thứ hai.");
-                return;
-            }
-        }
-
-        string extension = payload.FileExtension?.ToLowerInvariant() switch
-        {
-            ".pdf" => ".pdf", ".ps" => ".ps", ".txt" => ".txt", ".prn" => ".prn", _ => ".bin"
-        };
+        string extension = GetSafeDocumentExtension(payload.FileExtension, payload.JobInfo.DocumentFormat);
         string tempFile = Path.Combine(ConfigManager.GetTempJobsFolder(), $"direct-{Guid.NewGuid():N}{extension}");
         try
         {
@@ -1396,17 +1531,18 @@ public class ServerService : IDisposable, IAsyncDisposable
                 {
                     state.File.Dispose();
                     File.Delete(tempFile);
-                    _ = SendStreamAckAsync(packet.SenderId, payload.JobId, -1, "REJECTED", "Job đã tồn tại, không tạo bản in thứ hai.");
+                    _ = SendStreamAckAsync(cloudRelay, packet.SenderId, payload.JobId, -1, "RECEIVED", "Host đã nhận yêu cầu trước đó.");
                     return;
                 }
                 _directStreams[payload.JobId] = state;
             }
-            await SendStreamAckAsync(packet.SenderId, payload.JobId, -1, "RECEIVED", "Host đã sẵn sàng nhận tài liệu.");
+            if (cloudRelay is not null) _jobCloudRelays[payload.JobId] = cloudRelay;
+            await SendStreamAckAsync(cloudRelay, packet.SenderId, payload.JobId, -1, "RECEIVED", "Host đã sẵn sàng nhận tài liệu.");
         }
         catch (Exception ex)
         {
             try { File.Delete(tempFile); } catch { }
-            await SendStreamAckAsync(packet.SenderId, payload.JobId, -1, "REJECTED", $"Không thể mở bộ đệm truyền: {ex.Message}");
+            await SendStreamAckAsync(cloudRelay, packet.SenderId, payload.JobId, -1, "REJECTED", $"Không thể mở bộ đệm truyền: {ex.Message}");
         }
     }
 
@@ -1440,16 +1576,16 @@ public class ServerService : IDisposable, IAsyncDisposable
         }
     }
 
-    private async Task HandlePrintStreamChunkAsync(NetworkPacket packet)
+    private async Task HandlePrintStreamChunkAsync(NetworkPacket packet, CloudRelayClient? cloudRelay = null)
     {
-        var payload = _relayClient.DecryptPayload<PrintStreamChunkPayload>(packet, _settings.EncryptionSecret);
+        var payload = DecryptPayload<PrintStreamChunkPayload>(packet, cloudRelay);
         if (payload is null || string.IsNullOrWhiteSpace(payload.JobId)) return;
 
         DirectStreamState? state;
         lock (_directStreamLock) _directStreams.TryGetValue(payload.JobId, out state);
         if (state is null)
         {
-            await SendStreamAckAsync(packet.SenderId, payload.JobId, payload.Sequence, "REJECTED", "Phiên truyền không còn tồn tại.");
+            await SendStreamAckAsync(cloudRelay, packet.SenderId, payload.JobId, payload.Sequence, "REJECTED", "Phiên truyền không còn tồn tại.");
             return;
         }
         if (!string.Equals(state.SenderDeviceId, packet.SenderId, StringComparison.Ordinal)) return;
@@ -1458,18 +1594,30 @@ public class ServerService : IDisposable, IAsyncDisposable
         await state.Gate.WaitAsync();
         try
         {
-            if (payload.Sequence != state.NextSequence || payload.Offset != state.BytesReceived)
-                throw new InvalidDataException("Thứ tự hoặc offset của chunk không hợp lệ.");
-
             byte[] data = Convert.FromBase64String(payload.DataBase64);
             if (data.Length == 0 || data.Length > PacketSecurity.DirectPrintChunkBytes || state.BytesReceived + data.LongLength > state.TotalBytes)
                 throw new InvalidDataException("Kích thước chunk không hợp lệ.");
 
+            string chunkHash = RPMCrypto.ComputeSha256(data);
+            if (payload.Sequence == state.NextSequence - 1 &&
+                payload.Offset + data.LongLength == state.BytesReceived &&
+                string.Equals(state.LastChunkSha256, chunkHash, StringComparison.OrdinalIgnoreCase))
+            {
+                state.LastActivityUtc = DateTime.UtcNow;
+                await SendStreamAckAsync(cloudRelay, packet.SenderId, payload.JobId, payload.Sequence, "RECEIVED", "Chunk đã được nhận trước đó.");
+                return;
+            }
+
+            if (payload.Sequence != state.NextSequence || payload.Offset != state.BytesReceived)
+                throw new InvalidDataException("Thứ tự hoặc offset của chunk không hợp lệ.");
+
             await state.File.WriteAsync(data);
             state.BytesReceived += data.LongLength;
             state.NextSequence++;
+            state.LastChunkSha256 = chunkHash;
+            state.LastChunkLength = data.LongLength;
             state.LastActivityUtc = DateTime.UtcNow;
-            await SendStreamAckAsync(packet.SenderId, payload.JobId, payload.Sequence, "RECEIVED", string.Empty);
+            await SendStreamAckAsync(cloudRelay, packet.SenderId, payload.JobId, payload.Sequence, "RECEIVED", string.Empty);
         }
         catch (Exception ex)
         {
@@ -1481,19 +1629,22 @@ public class ServerService : IDisposable, IAsyncDisposable
         }
 
         if (failure is not null)
-            await RejectDirectStreamAsync(payload.JobId, packet.SenderId, failure);
+            await RejectDirectStreamAsync(cloudRelay, payload.JobId, packet.SenderId, failure);
     }
 
-    private async Task HandlePrintStreamEndAsync(NetworkPacket packet)
+    private async Task HandlePrintStreamEndAsync(NetworkPacket packet, CloudRelayClient? cloudRelay = null)
     {
-        var payload = _relayClient.DecryptPayload<PrintStreamEndPayload>(packet, _settings.EncryptionSecret);
+        var payload = DecryptPayload<PrintStreamEndPayload>(packet, cloudRelay);
         if (payload is null || string.IsNullOrWhiteSpace(payload.JobId)) return;
 
         DirectStreamState? state;
         lock (_directStreamLock) _directStreams.TryGetValue(payload.JobId, out state);
         if (state is null)
         {
-            await SendStreamAckAsync(packet.SenderId, payload.JobId, -2, "REJECTED", "Phiên truyền không còn tồn tại.");
+            var completedJob = PrintJobs.FirstOrDefault(job => job.JobId == payload.JobId && job.SenderDeviceId == packet.SenderId);
+            await SendStreamAckAsync(cloudRelay, packet.SenderId, payload.JobId, -2,
+                completedJob is not null ? "RECEIVED" : "REJECTED",
+                completedJob is not null ? "Host đã nhận đủ tài liệu trước đó." : "Phiên truyền không còn tồn tại.");
             return;
         }
         if (!string.Equals(state.SenderDeviceId, packet.SenderId, StringComparison.Ordinal)) return;
@@ -1517,7 +1668,8 @@ public class ServerService : IDisposable, IAsyncDisposable
             state.Job.LocalTempFilePath = state.TempFilePath;
             await EnqueueDirectJobAsync(state.Job);
             lock (_directStreamLock) _directStreams.Remove(payload.JobId);
-            await SendStreamAckAsync(packet.SenderId, payload.JobId, -2, "RECEIVED", "Host đã nhận đủ tài liệu.");
+            OnLog?.Invoke(this, $"[Stage] Host received complete job={payload.JobId} bytes={state.BytesReceived}");
+            await SendStreamAckAsync(cloudRelay, packet.SenderId, payload.JobId, -2, "RECEIVED", "Host đã nhận đủ tài liệu.");
         }
         catch (Exception ex)
         {
@@ -1529,7 +1681,7 @@ public class ServerService : IDisposable, IAsyncDisposable
         }
 
         if (failure is not null)
-            await RejectDirectStreamAsync(payload.JobId, packet.SenderId, failure);
+            await RejectDirectStreamAsync(cloudRelay, payload.JobId, packet.SenderId, failure);
     }
 
     private async Task EnqueueDirectJobAsync(PrintJob job)
@@ -1600,7 +1752,7 @@ public class ServerService : IDisposable, IAsyncDisposable
         }
     }
 
-    private async Task RejectDirectStreamAsync(string jobId, string senderId, string message)
+    private async Task RejectDirectStreamAsync(CloudRelayClient? cloudRelay, string jobId, string senderId, string message)
     {
         DirectStreamState? state;
         lock (_directStreamLock)
@@ -1609,7 +1761,8 @@ public class ServerService : IDisposable, IAsyncDisposable
         }
         if (state is not null)
             await DisposeDirectStreamFileAsync(state);
-        await SendStreamAckAsync(senderId, jobId, -2, "REJECTED", message);
+        _jobCloudRelays.TryRemove(jobId, out _);
+        await SendStreamAckAsync(cloudRelay, senderId, jobId, -2, "REJECTED", message);
     }
 
     private static async Task DisposeDirectStreamFileAsync(DirectStreamState state)
@@ -1626,14 +1779,43 @@ public class ServerService : IDisposable, IAsyncDisposable
         }
     }
 
-    private Task<bool> SendStreamAckAsync(string targetId, string jobId, long sequence, string status, string message) =>
-        _relayClient.SendEncryptedPayloadAsync(
-            MessageType.PrintStreamAck,
-            _settings.DeviceId,
-            targetId,
-            _settings.PairingCode,
-            new PrintStreamAckPayload { JobId = jobId, Sequence = sequence, Status = status, Message = message },
-            _settings.EncryptionSecret);
+    private Task<bool> SendStreamAckAsync(
+        CloudRelayClient? cloudRelay,
+        string targetId,
+        string jobId,
+        long sequence,
+        string status,
+        string message)
+    {
+        var payload = new PrintStreamAckPayload { JobId = jobId, Sequence = sequence, Status = status, Message = message };
+        return cloudRelay is not null
+            ? cloudRelay.SendEncryptedPayloadAsync(MessageType.PrintStreamAck, _settings.DeviceId, targetId, _settings.PairingCode, payload)
+            : _relayClient.SendEncryptedPayloadAsync(MessageType.PrintStreamAck, _settings.DeviceId, targetId, _settings.PairingCode, payload, _settings.EncryptionSecret);
+    }
+
+    private Task<bool> SendPacketAsync(CloudRelayClient? cloudRelay, NetworkPacket packet)
+    {
+        return cloudRelay is not null
+            ? cloudRelay.SendPacketAsync(packet)
+            : _relayClient.SendPacketAsync(packet);
+    }
+
+    private T? DecryptPayload<T>(NetworkPacket packet, CloudRelayClient? cloudRelay)
+    {
+        return cloudRelay is not null
+            ? cloudRelay.DecryptPayload<T>(packet)
+            : _relayClient.DecryptPayload<T>(packet, _settings.EncryptionSecret);
+    }
+
+    private static string GetPacketJobId(NetworkPacket packet)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(packet.PayloadJson);
+            return document.RootElement.TryGetProperty("jobId", out var jobId) ? jobId.GetString() ?? "unknown" : "unknown";
+        }
+        catch { return "unknown"; }
+    }
 
     private static async Task<string> ComputeFileSha256Async(string path)
     {
@@ -1664,6 +1846,8 @@ public class ServerService : IDisposable, IAsyncDisposable
         public long BytesReceived { get; set; }
         public long NextSequence { get; set; }
         public DateTime LastActivityUtc { get; set; } = DateTime.UtcNow;
+        public string LastChunkSha256 { get; set; } = string.Empty;
+        public long LastChunkLength { get; set; }
         public SemaphoreSlim Gate { get; } = new(1, 1);
     }
 
@@ -1739,7 +1923,7 @@ public class ServerService : IDisposable, IAsyncDisposable
             throw new InvalidOperationException("Không thể quản lý chính máy chủ trong danh sách máy con.");
     }
 
-    private async Task HandleSubmitPrintJobAsync(NetworkPacket packet)
+    private async Task HandleSubmitPrintJobAsync(NetworkPacket packet, CloudRelayClient? cloudRelay = null)
     {
         // Find sender
         var senderDevice = ConnectedClients.FirstOrDefault(c => c.DeviceId == packet.SenderId);
@@ -1752,7 +1936,7 @@ public class ServerService : IDisposable, IAsyncDisposable
         PrintJobPayload? payload = null;
         if (!string.IsNullOrEmpty(packet.EncryptedPayloadBase64))
         {
-            payload = _relayClient.DecryptPayload<PrintJobPayload>(packet, _settings.EncryptionSecret);
+            payload = DecryptPayload<PrintJobPayload>(packet, cloudRelay);
         }
         else if (!string.IsNullOrEmpty(packet.PayloadJson))
         {
@@ -1773,6 +1957,7 @@ public class ServerService : IDisposable, IAsyncDisposable
         }
 
         var job = payload.JobInfo;
+        OnLog?.Invoke(this, $"[Stage] Host received job={job.JobId} bytes=legacy-payload");
         job.SenderDeviceId = senderDevice.DeviceId;
         job.SenderDeviceName = senderDevice.DeviceName;
         job.Department = senderDevice.Department;
@@ -1833,14 +2018,7 @@ public class ServerService : IDisposable, IAsyncDisposable
             }
 
             // Never derive a filesystem path from a client-controlled document name.
-            string safeExtension = payload.FileExtension?.ToLowerInvariant() switch
-            {
-                ".pdf" => ".pdf",
-                ".ps" => ".ps",
-                ".txt" => ".txt",
-                ".prn" => ".prn",
-                _ => ".bin"
-            };
+            string safeExtension = GetSafeDocumentExtension(payload.FileExtension, job.DocumentFormat);
             string tempFile = Path.Combine(ConfigManager.GetTempJobsFolder(), $"{Guid.NewGuid():N}{safeExtension}");
             await File.WriteAllBytesAsync(tempFile, rawBytes);
             job.LocalTempFilePath = tempFile;
@@ -1873,6 +2051,7 @@ public class ServerService : IDisposable, IAsyncDisposable
             OnLog?.Invoke(this, $"[Cảnh báo tải cao] Đang có {queueCount} lệnh in trong hàng đợi. Hệ thống đang tự động điều phối theo thứ tự FIFO.");
         }
 
+        OnLog?.Invoke(this, $"[Stage] Relay submitted job={job.JobId} target={job.TargetPrinter}");
         _ = ProcessPrintQueueAsync();
     }
 
@@ -1916,6 +2095,7 @@ public class ServerService : IDisposable, IAsyncDisposable
 
             job.Status = PrintJobStatus.Printing;
             job.StatusMessage = $"Đang gửi đến máy in ({destPrinter})...";
+            OnLog?.Invoke(this, $"[Stage] Printer spool submitted job={job.JobId} printer={destPrinter}");
             await NotifyJobProgressAsync(job);
 
             bool printed = false;
@@ -1936,6 +2116,7 @@ public class ServerService : IDisposable, IAsyncDisposable
                 job.Status = PrintJobStatus.Completed;
                 job.CompletedAt = DateTime.UtcNow;
                 job.StatusMessage = "Đã gửi đến máy in. Chưa xác minh được việc in ra giấy.";
+                OnLog?.Invoke(this, $"[Stage] Printer spool accepted job={job.JobId} printer={destPrinter}");
                 if (!string.IsNullOrEmpty(job.ContentSha256))
                 {
                     _recentlyPrintedHashes.Add(job.ContentSha256);
@@ -1955,6 +2136,7 @@ public class ServerService : IDisposable, IAsyncDisposable
             {
                 job.Status = PrintJobStatus.Failed;
                 job.StatusMessage = $"Lỗi máy in: {errMsg}";
+                OnLog?.Invoke(this, $"[Stage] Print result job={job.JobId} result=FAILED");
                 OnLog?.Invoke(this, $"[Lỗi in] {job.DocumentName}: {errMsg}");
             }
 
@@ -2067,22 +2249,38 @@ public class ServerService : IDisposable, IAsyncDisposable
     }
 
     private static string GetSafeCloudExtension(IReadOnlyDictionary<string, object?> metadata) =>
-        GetMetadataString(metadata, "fileExtension")?.ToLowerInvariant() switch
+        GetSafeDocumentExtension(
+            GetMetadataString(metadata, "fileExtension"),
+            GetMetadataString(metadata, "documentFormat"));
+
+    private static string GetSafeDocumentExtension(string? fileExtension, string? documentFormat) =>
+        documentFormat?.ToLowerInvariant() switch
         {
-            ".pdf" => ".pdf", ".txt" => ".txt", ".ps" => ".ps", ".prn" => ".prn", _ => ".bin"
+            "application/pdf" => ".pdf",
+            "application/postscript" => ".ps",
+            "application/vnd.hp-pcl" => ".pcl",
+            "application/vnd.hp-pclxl" => ".pclxl",
+            _ => fileExtension?.ToLowerInvariant() switch
+            {
+                ".pdf" => ".pdf",
+                ".ps" => ".ps",
+                ".pcl" => ".pcl",
+                ".pclxl" => ".pclxl",
+                ".txt" => ".txt",
+                ".prn" => ".prn",
+                _ => ".bin"
+            }
         };
 
     private static bool IsRawPrinterFormat(string documentFormat) => documentFormat switch
     {
         "application/octet-stream" => true,
-        // Microsoft IPP Class Driver emits PDF for this queue. Host forwards
-        // the bounded PDF payload through the same spooler adapter.
         "application/pdf" => true,
-        "application/postscript" => true,
-        "application/vnd.hp-pcl" => true,
-        "application/vnd.hp-pclxl" => true,
         _ => false
     };
+
+    private static bool IsSupportedDirectDocumentFormat(string? documentFormat) =>
+        !string.IsNullOrWhiteSpace(documentFormat) && IsRawPrinterFormat(documentFormat.ToLowerInvariant());
 
     private async Task NotifyJobProgressAsync(PrintJob job)
     {
@@ -2102,7 +2300,22 @@ public class ServerService : IDisposable, IAsyncDisposable
             PayloadJson = JsonSerializer.Serialize(progress)
         };
 
+        if (_jobCloudRelays.TryGetValue(job.JobId, out var cloudRelay))
+        {
+            await cloudRelay.SendEncryptedPayloadAsync(
+                MessageType.PrintJobProgress,
+                _settings.DeviceId,
+                job.SenderDeviceId,
+                _settings.PairingCode,
+                progress);
+            if (job.Status is PrintJobStatus.Completed or PrintJobStatus.Failed or PrintJobStatus.Cancelled)
+                _jobCloudRelays.TryRemove(job.JobId, out _);
+            OnLog?.Invoke(this, $"[Stage] Print result job={job.JobId} result={job.Status}");
+            return;
+        }
+
         await _relayClient.SendPacketAsync(packet);
+        OnLog?.Invoke(this, $"[Stage] Print result job={job.JobId} result={job.Status}");
     }
 
     public void ClearCompletedJobs()
@@ -2142,6 +2355,13 @@ public class ServerService : IDisposable, IAsyncDisposable
         }
         foreach (var state in activeStreams)
             await DisposeDirectStreamFileAsync(state);
+
+        foreach (var relay in _cloudRelays.Values.Concat(_jobCloudRelays.Values).Distinct())
+        {
+            try { await relay.DisposeAsync(); } catch { }
+        }
+        _cloudRelays.Clear();
+        _jobCloudRelays.Clear();
 
         try { await _relayClient.StopAsync(); } catch { }
         _relayClient.Dispose();

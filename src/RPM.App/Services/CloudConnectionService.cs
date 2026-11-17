@@ -41,6 +41,9 @@ public sealed class CloudConnectionService : IAsyncDisposable
         _settings.CloudActivationLastVerifiedAtUtc);
     public bool IsCustomerActivation => _settings.CloudUsesCustomerActivation || _activationSecretStore.HasSecret;
     public bool HasStoredToken => _tokenStore.HasToken;
+    public Task<CloudRealtimeSession?> CreateRealtimeSessionAsync(CancellationToken cancellationToken = default) =>
+        Client?.CreateRealtimeSessionAsync(cancellationToken)
+        ?? Task.FromResult<CloudRealtimeSession?>(null);
     public event EventHandler<string>? OnLog;
     public event EventHandler? OnStateChanged;
     public event EventHandler? OnEnrollmentRevoked;

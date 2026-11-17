@@ -477,6 +477,78 @@ public class RPMTests
     }
 
     [Fact]
+    public void CloudRelayProtocol_WrapsSessionKeyAndAuthenticatesPackets()
+    {
+        string folder = Path.Combine(Path.GetTempPath(), $"rpm_relay_crypto_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var hostStore = new CloudDeviceKeyStore(Path.Combine(folder, "host.key"));
+            byte[] expectedKey = RandomNumberGenerator.GetBytes(32);
+            string wrapped = CloudRelayProtocol.WrapSessionKey(hostStore.GetOrCreatePublicKey(), expectedKey);
+            using var privateKey = hostStore.LoadOrCreate();
+            byte[] actualKey = CloudRelayProtocol.UnwrapSessionKey(wrapped, privateKey);
+            Assert.Equal(expectedKey, actualKey);
+
+            string secret = Convert.ToBase64String(expectedKey);
+            string packetJson = "{\"packetId\":\"packet-1\"}";
+            var message = new CloudRelayPacketMessage(
+                CloudRelayProtocol.PacketType,
+                "pairing-1",
+                "client-1",
+                "host-1",
+                packetJson,
+                CloudRelayProtocol.ComputePacketMac(secret, "pairing-1", "client-1", packetJson));
+            Assert.True(CloudRelayProtocol.VerifyPacketMac(message, secret));
+            Assert.False(CloudRelayProtocol.VerifyPacketMac(message with { PacketJson = "tampered" }, secret));
+        }
+        finally
+        {
+            if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        }
+    }
+
+    [Fact]
+    public void CloudPairingResolver_UsesRefreshedPairingIdWhenDeviceStateIsStale()
+    {
+        var clients = new[]
+        {
+            new DeviceInfo
+            {
+                DeviceId = "client-01",
+                PairingId = string.Empty,
+                IsApproved = true,
+                IsBlocked = false
+            }
+        };
+
+        var active = CloudPairingResolver.ResolveActivePairingIds(
+            clients,
+            new Dictionary<string, string> { ["client-01"] = "pairing-01" },
+            "host-01");
+
+        Assert.Contains("pairing-01", active);
+    }
+
+    [Fact]
+    public void CloudPairingResolver_ExcludesBlockedAndLocalDevices()
+    {
+        var clients = new[]
+        {
+            new DeviceInfo { DeviceId = "host-01", PairingId = "local", IsApproved = true },
+            new DeviceInfo { DeviceId = "client-01", PairingId = "blocked", IsApproved = true, IsBlocked = true },
+            new DeviceInfo { DeviceId = "client-02", PairingId = "active", IsApproved = true }
+        };
+
+        var active = CloudPairingResolver.ResolveActivePairingIds(
+            clients,
+            new Dictionary<string, string>(),
+            "host-01");
+
+        Assert.Equal(new[] { "active" }, active);
+    }
+
+    [Fact]
     public void CloudCredentials_PersistAcrossRoleChanges()
     {
         string folder = Path.Combine(Path.GetTempPath(), $"rpm_cloud_credentials_{Guid.NewGuid():N}");
@@ -952,7 +1024,7 @@ public class RPMTests
             packet.WriteByte(0x01);
             WriteIppAttribute(packet, 0x47, "attributes-charset", "utf-8");
             WriteIppAttribute(packet, 0x48, "attributes-natural-language", "en-us");
-            WriteIppAttribute(packet, 0x49, "document-format", "application/postscript");
+        WriteIppAttribute(packet, 0x49, "document-format", "application/pdf");
             WriteIppAttribute(packet, 0x42, "job-name", "raw-test.prn");
             packet.WriteByte(0x03);
             packet.Write(payload);
@@ -969,8 +1041,48 @@ public class RPMTests
             var completed = await Task.WhenAny(received.Task, Task.Delay(3000));
             Assert.Same(received.Task, completed);
             var captured = await received.Task;
-            Assert.Equal("application/postscript", captured.Job.DocumentFormat);
+        Assert.Equal("application/pdf", captured.Job.DocumentFormat);
             Assert.Equal(payload, captured.Data);
+        }
+        finally
+        {
+            ippServer.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task IppServer_RejectsUndeclaredDocumentFormat()
+    {
+        int ippPort = 9889;
+        using var ippServer = new LocalIppServer();
+        var received = new TaskCompletionSource<PrintJobReceivedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ippServer.OnJobReceived += (_, args) => received.TrySetResult(args);
+        ippServer.Start(ippPort);
+
+        try
+        {
+            using var packet = new MemoryStream();
+            packet.Write([1, 1, 0, 2, 0, 0, 0, 9]);
+            packet.WriteByte(0x01);
+            WriteIppAttribute(packet, 0x47, "attributes-charset", "utf-8");
+            WriteIppAttribute(packet, 0x48, "attributes-natural-language", "en-us");
+            WriteIppAttribute(packet, 0x49, "document-format", "application/postscript");
+            packet.WriteByte(0x03);
+            packet.Write(Encoding.ASCII.GetBytes("UNSUPPORTED"));
+
+            using var http = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{ippPort}/printers/rpm")
+            {
+                Content = new ByteArrayContent(packet.ToArray())
+            };
+            request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/ipp");
+            using var response = await http.SendAsync(request);
+            var ipp = ParseIppResponse(await response.Content.ReadAsByteArrayAsync());
+
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(0x040B, ipp.StatusCode);
+            var receivedResult = await Task.WhenAny(received.Task, Task.Delay(250));
+            Assert.NotSame(received.Task, receivedResult);
         }
         finally
         {
@@ -1585,7 +1697,7 @@ public class RPMTests
             packet.WriteByte(0x01);
             WriteIppAttribute(packet, 0x47, "attributes-charset", "utf-8");
             WriteIppAttribute(packet, 0x48, "attributes-natural-language", "en-us");
-            WriteIppAttribute(packet, 0x49, "document-format", "application/postscript");
+        WriteIppAttribute(packet, 0x49, "document-format", "application/pdf");
             WriteIppAttribute(packet, 0x42, "job-name", "name\u0003with-delimiter-byte");
             packet.WriteByte(0x03);
             int documentOffset = (int)packet.Position;
@@ -1631,7 +1743,7 @@ public class RPMTests
             packet.WriteByte(0x01);
             WriteIppAttribute(packet, 0x47, "attributes-charset", "utf-8");
             WriteIppAttribute(packet, 0x48, "attributes-natural-language", "en-us");
-            WriteIppAttribute(packet, 0x49, "document-format", "application/postscript");
+        WriteIppAttribute(packet, 0x49, "document-format", "application/pdf");
             WriteIppAttribute(packet, 0x42, "job-name", "large-test.prn");
             packet.WriteByte(0x03);
             int documentOffset = (int)packet.Position;

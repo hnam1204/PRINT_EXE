@@ -79,3 +79,43 @@ def test_realtime_authorization_endpoint_tracks_device_revocation(tmp_path):
     revoked = client.get("/api/v1/internal/realtime/authorize/client-revocation", headers=headers)
     assert revoked.status_code == 200
     assert revoked.json() == {"authorized": False}
+
+
+def test_realtime_pairing_authorization_requires_approved_exact_tuple(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'relay-pairing-auth.db'}")
+    client = TestClient(app)
+    host_token = register(client, "host-relay-auth", "HOST")
+    client_token = register(client, "client-relay-auth", "CLIENT")
+    headers = {"X-Realtime-Gateway-Key": "realtime-test-secret"}
+
+    pending = client.post(
+        "/api/v1/pairings",
+        headers={"Authorization": f"Bearer {client_token}"},
+        json={"hostId": "host-relay-auth"},
+    ).json()
+    pairing_id = pending["pairingId"]
+
+    path = (
+        f"/api/v1/internal/realtime/authorize-pairing?host_id=host-relay-auth"
+        f"&client_id=client-relay-auth&pairing_id={pairing_id}&device_id=client-relay-auth"
+    )
+    assert client.get(path, headers=headers).json() == {"authorized": False}
+
+    approved = client.post(
+        f"/api/v1/pairings/{pairing_id}/decision",
+        headers={"Authorization": f"Bearer {host_token}"},
+        json={"approve": True},
+    )
+    assert approved.status_code == 200
+
+    authorized = client.get(path, headers=headers)
+    assert authorized.status_code == 200
+    assert authorized.json()["authorized"] is True
+    assert authorized.json()["role"] == "CLIENT"
+    assert authorized.json()["pairingId"] == pairing_id
+
+    wrong_client = client.get(
+        path.replace("client-relay-auth", "other-client"),
+        headers=headers,
+    )
+    assert wrong_client.json() == {"authorized": False}

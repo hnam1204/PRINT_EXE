@@ -5,6 +5,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+const int MaxRelayMessageBytes = 16 * 1024 * 1024;
+
 var builder = WebApplication.CreateBuilder(args);
 int port = ReadPositiveInt("PORT", 9191);
 string apiBaseUrl = (Environment.GetEnvironmentVariable("REALTIME_API_BASE_URL") ?? "http://127.0.0.1:8000").TrimEnd('/');
@@ -16,6 +18,7 @@ if (string.IsNullOrWhiteSpace(sharedSecret))
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 builder.Services.AddSingleton(new GatewayOptions(apiBaseUrl, sharedSecret, databaseConnectionString));
 builder.Services.AddSingleton<RealtimeConnectionRegistry>();
+builder.Services.AddSingleton<RelayConnectionRegistry>();
 builder.Services.AddSingleton<PostgresEventNotifier>(sp => new PostgresEventNotifier(sp.GetRequiredService<GatewayOptions>().DatabaseConnectionString));
 builder.Services.AddHttpClient<RealtimeEventPump>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RealtimeEventPump>());
@@ -64,6 +67,18 @@ app.Map("/ws", async (HttpContext context) =>
     }
 
     var connection = new RealtimeConnection(claims.DeviceId, claims.Role, socket, Math.Max(0, auth.Cursor));
+    if (string.Equals(auth.Channel, CloudRelayChannel.Name, StringComparison.OrdinalIgnoreCase))
+    {
+        await HandleRelayConnectionAsync(
+            context,
+            connection,
+            context.RequestServices.GetRequiredService<RelayConnectionRegistry>(),
+            context.RequestServices.GetRequiredService<IHttpClientFactory>().CreateClient(),
+            registry.Options,
+            context.RequestAborted);
+        return;
+    }
+
     using var registration = await registry.RegisterAsync(connection, context.RequestAborted);
     await connection.SendJsonAsync(new GatewayMessage("WELCOME", connection.Cursor, null), context.RequestAborted);
     using var authorizationCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
@@ -115,7 +130,94 @@ static async Task<AuthRequest?> ReceiveAuthAsync(WebSocket socket, CancellationT
     if (json is not { } document || !document.TryGetProperty("type", out var type) || type.GetString() != "AUTH") return null;
     if (!document.TryGetProperty("token", out var token) || string.IsNullOrWhiteSpace(token.GetString())) return null;
     long cursor = document.TryGetProperty("cursor", out var cursorNode) && cursorNode.TryGetInt64(out var parsed) ? parsed : 0;
-    return new AuthRequest(token.GetString()!, cursor);
+    string channel = document.TryGetProperty("channel", out var channelNode) ? channelNode.GetString() ?? "realtime" : "realtime";
+    return new AuthRequest(token.GetString()!, cursor, channel);
+}
+
+static async Task HandleRelayConnectionAsync(
+    HttpContext context,
+    RealtimeConnection connection,
+    RelayConnectionRegistry registry,
+    HttpClient http,
+    GatewayOptions options,
+    CancellationToken cancellationToken)
+{
+    RelayBinding? binding = null;
+    using var authorizationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    try
+    {
+        var bindDocument = await ReceiveTextAsync(context.WebSockets.IsWebSocketRequest ? connection.Socket : connection.Socket, cancellationToken);
+        if (bindDocument is null || !string.Equals(bindDocument.Value.GetProperty("type").GetString(), CloudRelayChannel.BindType, StringComparison.Ordinal))
+        {
+            await CloseAsync(connection.Socket, WebSocketCloseStatus.PolicyViolation, "Relay binding required");
+            return;
+        }
+
+        binding = bindDocument.Value.Deserialize<RelayBinding>(new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        if (binding is null || !string.Equals(binding.DeviceId, connection.DeviceId, StringComparison.Ordinal) ||
+            !string.Equals(binding.Role, connection.Role, StringComparison.Ordinal))
+        {
+            await CloseAsync(connection.Socket, WebSocketCloseStatus.PolicyViolation, "Invalid relay binding");
+            return;
+        }
+
+        if (!await registry.BindAsync(connection, binding, http, options, cancellationToken))
+        {
+            await CloseAsync(connection.Socket, WebSocketCloseStatus.PolicyViolation, "Relay pairing is not authorized");
+            return;
+        }
+
+        await connection.SendJsonAsync(new { type = CloudRelayChannel.ReadyType, pairingId = binding.PairingId }, cancellationToken);
+        var authorizationMonitor = MonitorRelayAuthorizationAsync(connection, binding, registry, http, options, authorizationCts.Token);
+        try
+        {
+            while (connection.Socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
+            {
+                var message = await ReceiveTextAsync(connection.Socket, cancellationToken);
+                if (message is not { } document) break;
+                await registry.RouteAsync(connection, binding, document, cancellationToken);
+            }
+        }
+        finally
+        {
+            authorizationCts.Cancel();
+            try { await authorizationMonitor; } catch (OperationCanceledException) { }
+        }
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+    catch (WebSocketException) { }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[Relay] session failed: {ex.Message}");
+    }
+    finally
+    {
+        if (binding is not null) registry.Remove(connection, binding);
+        await CloseAsync(connection.Socket, WebSocketCloseStatus.NormalClosure, "Relay disconnected");
+    }
+}
+
+static async Task MonitorRelayAuthorizationAsync(
+    RealtimeConnection connection,
+    RelayBinding binding,
+    RelayConnectionRegistry registry,
+    HttpClient http,
+    GatewayOptions options,
+    CancellationToken cancellationToken)
+{
+    try
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken);
+            if (!await registry.IsAuthorizedAsync(connection, binding, http, options, cancellationToken))
+            {
+                await CloseAsync(connection.Socket, WebSocketCloseStatus.PolicyViolation, "Relay pairing authorization revoked");
+                return;
+            }
+        }
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
 }
 
 static async Task<JsonElement?> ReceiveTextAsync(WebSocket socket, CancellationToken cancellationToken)
@@ -126,7 +228,10 @@ static async Task<JsonElement?> ReceiveTextAsync(WebSocket socket, CancellationT
     {
         var result = await socket.ReceiveAsync(buffer, cancellationToken);
         if (result.MessageType == WebSocketMessageType.Close) return null;
-        if (result.MessageType != WebSocketMessageType.Text || stream.Length + result.Count > 16 * 1024) return null;
+        // A 128 KiB encrypted print chunk expands to roughly 175 KiB as JSON
+        // and Base64. Keep frame reads small, but bound the complete message
+        // at the same 16 MiB ceiling used by the desktop packet receiver.
+        if (result.MessageType != WebSocketMessageType.Text || stream.Length + result.Count > MaxRelayMessageBytes) return null;
         stream.Write(buffer, 0, result.Count);
         if (result.EndOfMessage) break;
     }
@@ -176,8 +281,113 @@ static async Task MonitorAuthorizationAsync(
 }
 
 internal sealed record GatewayOptions(string ApiBaseUrl, string SharedSecret, string DatabaseConnectionString);
-internal sealed record AuthRequest(string Token, long Cursor);
+internal sealed record AuthRequest(string Token, long Cursor, string Channel);
 internal sealed record GatewayMessage(string Type, long Cursor, RealtimeEventEnvelope? Event);
+internal static class CloudRelayChannel
+{
+    public const string Name = "relay";
+    public const string BindType = "RELAY_BIND";
+    public const string ReadyType = "RELAY_READY";
+    public const string KeyType = "RELAY_KEY";
+    public const string KeyAckType = "RELAY_KEY_ACK";
+    public const string PacketType = "RELAY_PACKET";
+}
+
+internal sealed record RelayBinding(
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("pairingId")] string PairingId,
+    [property: JsonPropertyName("hostId")] string HostId,
+    [property: JsonPropertyName("clientId")] string ClientId,
+    [property: JsonPropertyName("deviceId")] string DeviceId,
+    [property: JsonPropertyName("wrappedSessionKey")] string? WrappedSessionKey,
+    [property: JsonPropertyName("role")] string Role = "");
+
+internal sealed class RelayConnectionRegistry
+{
+    private readonly ConcurrentDictionary<string, RelayRoom> _rooms = new(StringComparer.Ordinal);
+
+    public int Count => _rooms.Values.Sum(room => (room.Host is null ? 0 : 1) + (room.Client is null ? 0 : 1));
+
+    public async Task<bool> BindAsync(
+        RealtimeConnection connection,
+        RelayBinding binding,
+        HttpClient http,
+        GatewayOptions options,
+        CancellationToken cancellationToken)
+    {
+        if (binding.Role is not ("HOST" or "CLIENT") ||
+            (binding.Role == "HOST" && binding.DeviceId != binding.HostId) ||
+            (binding.Role == "CLIENT" && binding.DeviceId != binding.ClientId))
+            return false;
+
+        if (!await AuthorizeAsync(connection.DeviceId, binding, http, options, cancellationToken)) return false;
+        var room = _rooms.GetOrAdd(binding.PairingId, _ => new RelayRoom(binding.PairingId, binding.HostId, binding.ClientId));
+        if (!room.Matches(binding)) return false;
+
+        if (binding.Role == "HOST")
+        {
+            room.Host = connection;
+            if (!string.IsNullOrWhiteSpace(room.WrappedSessionKey) && room.Client is not null)
+                await room.Host.SendJsonAsync(new { type = CloudRelayChannel.KeyType, pairingId = room.PairingId, wrappedSessionKey = room.WrappedSessionKey }, cancellationToken);
+        }
+        else
+        {
+            room.Client = connection;
+            room.WrappedSessionKey = binding.WrappedSessionKey;
+            if (room.Host is not null && !string.IsNullOrWhiteSpace(binding.WrappedSessionKey))
+                await room.Host.SendJsonAsync(new { type = CloudRelayChannel.KeyType, pairingId = room.PairingId, wrappedSessionKey = binding.WrappedSessionKey }, cancellationToken);
+        }
+        return true;
+    }
+
+    public async Task<bool> IsAuthorizedAsync(RealtimeConnection connection, RelayBinding binding, HttpClient http, GatewayOptions options, CancellationToken cancellationToken) =>
+        await AuthorizeAsync(connection.DeviceId, binding, http, options, cancellationToken);
+
+    private static async Task<bool> AuthorizeAsync(string deviceId, RelayBinding binding, HttpClient http, GatewayOptions options, CancellationToken cancellationToken)
+    {
+        string path = $"{options.ApiBaseUrl}/api/v1/internal/realtime/authorize-pairing?host_id={Uri.EscapeDataString(binding.HostId)}&client_id={Uri.EscapeDataString(binding.ClientId)}&pairing_id={Uri.EscapeDataString(binding.PairingId)}&device_id={Uri.EscapeDataString(deviceId)}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        request.Headers.Add("X-Realtime-Gateway-Key", options.SharedSecret);
+        using var response = await http.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode) return false;
+        using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+        return body.RootElement.TryGetProperty("authorized", out var authorized) && authorized.GetBoolean();
+    }
+
+    public async Task RouteAsync(RealtimeConnection sender, RelayBinding binding, JsonElement message, CancellationToken cancellationToken)
+    {
+        if (!message.TryGetProperty("type", out var typeNode)) return;
+        string type = typeNode.GetString() ?? string.Empty;
+        if (type is not (CloudRelayChannel.PacketType or CloudRelayChannel.KeyAckType)) return;
+        if (!_rooms.TryGetValue(binding.PairingId, out var room) || !room.Matches(binding)) return;
+        var peer = ReferenceEquals(sender, room.Host) ? room.Client : ReferenceEquals(sender, room.Client) ? room.Host : null;
+        if (peer is null || peer.Socket.State != WebSocketState.Open) return;
+        Console.WriteLine($"[Relay] route pairing={ShortId(binding.PairingId)} type={type} sender={ShortId(sender.DeviceId)}");
+        await peer.SendJsonAsync(message, cancellationToken);
+    }
+
+    private static string ShortId(string value) => value.Length <= 8 ? value : value[..8];
+
+    public void Remove(RealtimeConnection connection, RelayBinding binding)
+    {
+        if (!_rooms.TryGetValue(binding.PairingId, out var room)) return;
+        if (ReferenceEquals(room.Host, connection)) room.Host = null;
+        if (ReferenceEquals(room.Client, connection)) room.Client = null;
+        if (room.Host is null && room.Client is null) _rooms.TryRemove(binding.PairingId, out _);
+    }
+
+    private sealed class RelayRoom
+    {
+        public RelayRoom(string pairingId, string hostId, string clientId) { PairingId = pairingId; HostId = hostId; ClientId = clientId; }
+        public string PairingId { get; }
+        public string HostId { get; }
+        public string ClientId { get; }
+        public string? WrappedSessionKey { get; set; }
+        public RealtimeConnection? Host { get; set; }
+        public RealtimeConnection? Client { get; set; }
+        public bool Matches(RelayBinding binding) => PairingId == binding.PairingId && HostId == binding.HostId && ClientId == binding.ClientId;
+    }
+}
 
 internal sealed record RealtimeEventEnvelope(
     [property: JsonPropertyName("eventId")] long EventId,

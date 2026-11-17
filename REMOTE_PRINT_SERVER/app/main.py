@@ -1560,6 +1560,56 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                     return {"authorized": False}
             return {"authorized": True, "role": device.role}
 
+    @app.get("/api/v1/internal/realtime/authorize-pairing", tags=["Internal"])
+    def authorize_realtime_pairing(
+        host_id: str,
+        client_id: str,
+        pairing_id: str,
+        device_id: str,
+        gateway_key: str | None = Header(default=None, alias="X-Realtime-Gateway-Key"),
+    ):
+        """Authorize a WSS data-plane binding without exposing device tokens."""
+        if not settings.realtime_gateway_shared_secret or not gateway_key or not secrets.compare_digest(gateway_key, settings.realtime_gateway_shared_secret):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Realtime gateway authorization required")
+        with session_factory() as session:
+            host = session.get(Device, host_id)
+            client = session.get(Device, client_id)
+            pairing = session.get(Pairing, pairing_id)
+            if (
+                host is None
+                or client is None
+                or pairing is None
+                or host.role != "HOST"
+                or client.role != "CLIENT"
+                or host.is_revoked
+                or client.is_revoked
+                or pairing.host_id != host_id
+                or pairing.client_id != client_id
+                or pairing.status != "APPROVED"
+            ):
+                return {"authorized": False}
+
+            now = utcnow()
+            for device in (host, client):
+                if device.activation_code_id:
+                    activation = session.get(ActivationCode, device.activation_code_id)
+                    if activation is None or activation.revoked_at is not None or (
+                        activation.expires_at is not None and as_utc(activation.expires_at) <= now
+                    ):
+                        return {"authorized": False}
+
+            if device_id not in {host_id, client_id}:
+                return {"authorized": False}
+            return {
+                "authorized": True,
+                "role": "HOST" if device_id == host_id else "CLIENT",
+                "hostId": host_id,
+                "clientId": client_id,
+                "pairingId": pairing_id,
+                "printerAccessMode": pairing.printer_access_mode,
+                "allowedPrinters": pairing.allowed_printers or [],
+            }
+
     @app.post("/api/v1/internal/telegram/webhook", tags=["Internal"])
     async def telegram_webhook(request: Request):
         webhook_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")

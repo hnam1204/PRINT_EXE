@@ -31,6 +31,7 @@ public class LocalIppServer : IDisposable
     private const ushort GetPrinterAttributesOperation = 0x000B;
     private const ushort SuccessfulOk = 0x0000;
     private const ushort ClientErrorBadRequest = 0x0400;
+    private const ushort ClientErrorDocumentFormatNotSupported = 0x040B;
     private const ushort ClientErrorNotFound = 0x0406;
     private const ushort ServerErrorOperationNotSupported = 0x0501;
     private const int MaxIppHeaderBytes = 1024 * 1024;
@@ -449,6 +450,12 @@ public class LocalIppServer : IDisposable
         {
             string docName = "RemoteDocument_" + DateTime.Now.ToString("HHmmss");
             string documentFormat = GetAttributeValue(data, endTagIndex, "document-format") ?? "application/octet-stream";
+            if (!IsSupportedDocumentFormat(documentFormat))
+            {
+                parseError = $"unsupported-document-format-{documentFormat}";
+                ippStatus = ClientErrorDocumentFormatNotSupported;
+                return CreateSimpleIppResponse(major, minor, ippStatus, requestId);
+            }
 
             string? requestedJobName = GetAttributeValue(data, endTagIndex, "job-name");
             if (!string.IsNullOrWhiteSpace(requestedJobName))
@@ -816,6 +823,10 @@ public class LocalIppServer : IDisposable
 
     private static bool IsSupportedIppVersion(byte major, byte minor) =>
         (major == 1 && minor <= 1) || (major == 2 && minor == 0);
+
+    private static bool IsSupportedDocumentFormat(string value) =>
+        value.Equals("application/pdf", StringComparison.OrdinalIgnoreCase) ||
+        value.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase);
 
     private static string SanitizeDocumentName(string value)
     {
