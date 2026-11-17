@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Diagnostics;
 using RPM.Core.Security;
 using RPM.Core.Config;
 using System.IO;
@@ -18,11 +19,22 @@ public class PrintJobReceivedEventArgs : EventArgs
 
 public class LocalIppServer : IDisposable
 {
+    private const ushort PrintJobOperation = 0x0002;
+    private const ushort ValidateJobOperation = 0x0004;
+    private const ushort CreateJobOperation = 0x0005;
+    private const ushort SendDocumentOperation = 0x0006;
+    private const ushort GetPrinterAttributesOperation = 0x000B;
+    private const ushort SuccessfulOk = 0x0000;
+    private const ushort ClientErrorBadRequest = 0x0400;
+    private const ushort ClientErrorNotFound = 0x0406;
+    private const ushort ServerErrorOperationNotSupported = 0x0501;
+    private const int MaxIppHeaderBytes = 1024 * 1024;
+
     private HttpListener? _listener;
     private CancellationTokenSource? _cts;
     private bool _isRunning;
     public int Port { get; private set; }
-    public string PrinterName { get; set; } = "Remote Office Printer";
+    public string PrinterName { get; set; } = "Remote Print Manager";
 
     public event EventHandler<PrintJobReceivedEventArgs>? OnJobReceived;
     public event EventHandler<string>? OnLog;
@@ -87,21 +99,52 @@ public class LocalIppServer : IDisposable
 
     private void HandleRequest(HttpListenerContext ctx)
     {
+        var startedAt = Stopwatch.GetTimestamp();
+        string method = string.Empty;
+        string endpoint = string.Empty;
+        ushort operationId = 0;
+        int requestId = 0;
+        ushort ippStatus = ClientErrorBadRequest;
+        string? parseError = null;
+        int httpStatus = 500;
+
         try
         {
             var req = ctx.Request;
             var res = ctx.Response;
+            method = req.HttpMethod;
+            endpoint = GetSafeEndpoint(req);
 
             res.Headers.Add("Server", "RPM-IPP/1.0");
 
             if (req.HttpMethod.Equals("POST", StringComparison.OrdinalIgnoreCase))
             {
+                if (!IsPrinterResource(req.Url))
+                {
+                    httpStatus = 404;
+                    res.StatusCode = httpStatus;
+                    res.Close();
+                    parseError = "resource-path-not-found";
+                    return;
+                }
+
+                if (!IsIppContentType(req.ContentType))
+                {
+                    httpStatus = 415;
+                    res.StatusCode = httpStatus;
+                    res.Close();
+                    parseError = "content-type-must-be-application-ipp";
+                    return;
+                }
+
                 // Windows IPP clients may use chunked transfer, where ContentLength64
                 // is -1. The streaming guard below still enforces the hard limit.
                 if (req.ContentLength64 > PacketSecurity.MaxDirectPrintJobBytes + 256 * 1024)
                 {
+                    httpStatus = 413;
                     res.StatusCode = 413;
                     res.Close();
+                    parseError = "request-too-large";
                     return;
                 }
 
@@ -116,9 +159,11 @@ public class LocalIppServer : IDisposable
                         requestLength += read;
                         if (requestLength > PacketSecurity.MaxDirectPrintJobBytes + 256 * 1024)
                         {
+                            httpStatus = 413;
                             res.StatusCode = 413;
                             res.Close();
                             TryDelete(tempFilePath);
+                            parseError = "request-too-large";
                             return;
                         }
                         output.Write(buffer, 0, read);
@@ -128,7 +173,16 @@ public class LocalIppServer : IDisposable
                 int prefixLength = (int)Math.Min(requestLength, 1024 * 1024);
                 byte[] requestBytes = ReadFileSegment(tempFilePath, 0, prefixLength);
 
-                byte[] responseBytes = ProcessIppPacket(requestBytes, out var capturedJob, out var documentData);
+                byte[] responseBytes = ProcessIppPacket(
+                    requestBytes,
+                    out var capturedJob,
+                    out var documentData,
+                    out operationId,
+                    out requestId,
+                    out ippStatus,
+                    out parseError,
+                    req.Url);
+                httpStatus = 200;
 
                 int documentOffset = FindDocumentOffset(requestBytes);
                 long documentLength = documentOffset >= 0 ? requestLength - documentOffset : 0;
@@ -152,7 +206,7 @@ public class LocalIppServer : IDisposable
                         args.TempFilePath = tempFilePath;
                     }
 
-                    OnLog?.Invoke(this, $"[IPP] Nhận lệnh in: {capturedJob.DocumentName} ({documentLength} bytes)");
+                    OnLog?.Invoke(this, $"[IPP] Nhận lệnh in: operation=0x{operationId:X4}, requestId={requestId}, bytes={documentLength}");
                     OnJobReceived?.Invoke(this, args);
                 }
                 else
@@ -169,8 +223,31 @@ public class LocalIppServer : IDisposable
                 return;
             }
 
-            // Simple GET status probe
-            res.StatusCode = 200;
+            if (req.HttpMethod.Equals("OPTIONS", StringComparison.OrdinalIgnoreCase))
+            {
+                httpStatus = 200;
+                res.StatusCode = httpStatus;
+                res.Headers["Allow"] = "GET, POST, OPTIONS";
+                res.Headers["Accept-Post"] = "application/ipp";
+                res.Close();
+                return;
+            }
+
+            if (!req.HttpMethod.Equals("GET", StringComparison.OrdinalIgnoreCase) || !IsStatusProbeResource(req.Url))
+            {
+                httpStatus = 404;
+                res.StatusCode = httpStatus;
+                res.Close();
+                parseError = "resource-path-not-found";
+                return;
+            }
+
+            // Keep a human-readable status probe, while IPP clients use POST with
+            // application/ipp for the actual directed discovery exchange.
+            httpStatus = 200;
+            res.StatusCode = httpStatus;
+            res.Headers["Allow"] = "GET, POST, OPTIONS";
+            res.Headers["Accept-Post"] = "application/ipp";
             res.ContentType = "text/html; charset=utf-8";
             byte[] statusHtml = Encoding.UTF8.GetBytes($"<html><body><h2>Remote Print Manager (RPM) IPP Service</h2><p>Printer: {PrinterName} is Online</p></body></html>");
             res.ContentLength64 = statusHtml.Length;
@@ -179,6 +256,7 @@ public class LocalIppServer : IDisposable
         }
         catch (Exception ex)
         {
+            parseError = "exception";
             try
             {
                 ctx.Response.StatusCode = 500;
@@ -187,6 +265,32 @@ public class LocalIppServer : IDisposable
             catch { }
             OnLog?.Invoke(this, $"[IPP] Xử lý lỗi: {ex.Message}");
         }
+        finally
+        {
+            long elapsedMs = (long)(Stopwatch.GetTimestamp() - startedAt) * 1000 / Stopwatch.Frequency;
+            OnLog?.Invoke(this,
+                $"[IPP Discovery] method={method}, endpoint={endpoint}, operation=0x{operationId:X4}, " +
+                $"requestId={requestId}, httpStatus={httpStatus}, ippStatus=0x{ippStatus:X4}, " +
+                $"parseError={parseError ?? "none"}, elapsedMs={elapsedMs}");
+        }
+    }
+
+    private static bool IsIppContentType(string? contentType) =>
+        !string.IsNullOrWhiteSpace(contentType) &&
+        contentType.Split(';', 2)[0].Trim().Equals("application/ipp", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPrinterResource(Uri? uri) =>
+        uri is not null &&
+        string.Equals(uri.AbsolutePath.TrimEnd('/'), "/printers/rpm", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsStatusProbeResource(Uri? uri) =>
+        uri is not null &&
+        (string.IsNullOrEmpty(uri.AbsolutePath.Trim('/')) || IsPrinterResource(uri));
+
+    private static string GetSafeEndpoint(HttpListenerRequest request)
+    {
+        if (request.Url is null) return "unknown";
+        return $"{request.Url.Scheme}://{request.Url.Host}:{request.Url.Port}{request.Url.AbsolutePath}";
     }
 
     private static int FindDocumentOffset(byte[] data) =>
@@ -213,29 +317,53 @@ public class LocalIppServer : IDisposable
         try { File.Delete(path); } catch { }
     }
 
-    private byte[] ProcessIppPacket(byte[] data, out PrintJob? capturedJob, out byte[]? documentData)
+    private byte[] ProcessIppPacket(
+        byte[] data,
+        out PrintJob? capturedJob,
+        out byte[]? documentData,
+        out ushort operationId,
+        out int requestId,
+        out ushort ippStatus,
+        out string? parseError,
+        Uri? requestUri)
     {
         capturedJob = null;
         documentData = null;
+        operationId = 0;
+        requestId = 0;
+        ippStatus = ClientErrorBadRequest;
+        parseError = null;
 
         if (data.Length < 8)
         {
-            return CreateSimpleIppResponse(0x01, 0x01, 0x0500, 1); // client-error-bad-request
+            parseError = "header-too-short";
+            return CreateSimpleIppResponse(0x01, 0x01, ClientErrorBadRequest, 1);
         }
 
         byte major = data[0];
         byte minor = data[1];
-        short opCode = (short)((data[2] << 8) | data[3]);
-        int reqId = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
+        operationId = (ushort)((data[2] << 8) | data[3]);
+        requestId = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
+
+        if (major != 1 || minor > 1)
+        {
+            parseError = "unsupported-ipp-version";
+            ippStatus = ClientErrorBadRequest;
+            return CreateSimpleIppResponse(major, minor, ippStatus, requestId);
+        }
 
         bool hasValidAttributes = TryFindAttributesEnd(data, out int endTagIndex);
         if (!hasValidAttributes)
-            return CreateSimpleIppResponse(major, minor, 0x0400, reqId); // client-error-bad-request
+        {
+            parseError = "malformed-attributes";
+            ippStatus = ClientErrorBadRequest;
+            return CreateSimpleIppResponse(major, minor, ippStatus, requestId);
+        }
 
         // Operation 0x0002 = Print-Job, 0x0006 = Send-Document.
         // Some Windows IPP clients split Create-Job and Send-Document instead
         // of using one Print-Job request, so both paths must capture the payload.
-        if (opCode == 0x0002 || opCode == 0x0006)
+        if (operationId == PrintJobOperation || operationId == SendDocumentOperation)
         {
             string docName = "RemoteDocument_" + DateTime.Now.ToString("HHmmss");
             string documentFormat = GetAttributeValue(data, endTagIndex, "document-format") ?? "application/octet-stream";
@@ -262,18 +390,33 @@ public class LocalIppServer : IDisposable
                 };
             }
 
-            return CreatePrintJobResponse(major, minor, reqId, 1);
+            ippStatus = SuccessfulOk;
+            return CreatePrintJobResponse(major, minor, requestId, 1);
         }
 
         // Operation 0x0005 = Create-Job. The following Send-Document carries
         // the actual bytes and is handled above.
-        if (opCode == 0x0005)
+        if (operationId == CreateJobOperation)
         {
-            return CreatePrintJobResponse(major, minor, reqId, 1);
+            ippStatus = SuccessfulOk;
+            return CreatePrintJobResponse(major, minor, requestId, 1);
         }
 
-        // Operation 0x000B = Get-Printer-Attributes, 0x0004 = Validate-Job
-        return CreatePrinterAttributesResponse(major, minor, reqId);
+        if (operationId == GetPrinterAttributesOperation)
+        {
+            ippStatus = SuccessfulOk;
+            return CreatePrinterAttributesResponse(major, minor, requestId, requestUri);
+        }
+
+        if (operationId == ValidateJobOperation)
+        {
+            ippStatus = SuccessfulOk;
+            return CreateOperationSuccessResponse(major, minor, requestId);
+        }
+
+        parseError = "operation-not-supported";
+        ippStatus = ServerErrorOperationNotSupported;
+        return CreateSimpleIppResponse(major, minor, ippStatus, requestId);
     }
 
     private static string? GetAttributeValue(byte[] data, int endTagIndex, string attributeName)
@@ -356,7 +499,28 @@ public class LocalIppServer : IDisposable
         return ms.ToArray();
     }
 
-    private byte[] CreatePrinterAttributesResponse(byte major, byte minor, int reqId)
+    private byte[] CreateSimpleIppResponse(byte major, byte minor, ushort statusCode, int reqId) =>
+        CreateSimpleIppResponse(major, minor, unchecked((short)statusCode), reqId);
+
+    private static byte[] CreateOperationSuccessResponse(byte major, byte minor, int reqId)
+    {
+        using var ms = new MemoryStream();
+        ms.WriteByte(major);
+        ms.WriteByte(minor);
+        ms.WriteByte(0x00);
+        ms.WriteByte(0x00);
+        ms.WriteByte((byte)(reqId >> 24));
+        ms.WriteByte((byte)(reqId >> 16));
+        ms.WriteByte((byte)(reqId >> 8));
+        ms.WriteByte((byte)reqId);
+        ms.WriteByte(0x01);
+        WriteAttribute(ms, 0x47, "attributes-charset", "utf-8");
+        WriteAttribute(ms, 0x48, "attributes-natural-language", "en-us");
+        ms.WriteByte(0x03);
+        return ms.ToArray();
+    }
+
+    private byte[] CreatePrinterAttributesResponse(byte major, byte minor, int reqId, Uri? requestUri)
     {
         using var ms = new MemoryStream();
         ms.WriteByte(major);
@@ -375,7 +539,7 @@ public class LocalIppServer : IDisposable
 
         // Printer attributes group
         ms.WriteByte(0x02);
-        WriteAttribute(ms, 0x45, "printer-uri-supported", GetPrinterUri());
+        WriteAttribute(ms, 0x45, "printer-uri-supported", GetPrinterUri(requestUri));
         WriteAttribute(ms, 0x44, "uri-authentication-supported", "none");
         WriteAttribute(ms, 0x44, "uri-security-supported", "none");
         WriteAttribute(ms, 0x44, "ipp-versions-supported", "1.1");
@@ -403,7 +567,12 @@ public class LocalIppServer : IDisposable
         return ms.ToArray();
     }
 
-    private string GetPrinterUri() => $"http://127.0.0.1:{Port}/printers/rpm";
+    private string GetPrinterUri(Uri? requestUri)
+    {
+        if (requestUri is not null && IsPrinterResource(requestUri))
+            return $"{requestUri.Scheme}://{requestUri.Host}:{requestUri.Port}/printers/rpm";
+        return $"http://127.0.0.1:{Port}/printers/rpm";
+    }
 
     private byte[] CreatePrintJobResponse(byte major, byte minor, int reqId, int jobId)
     {
@@ -430,7 +599,7 @@ public class LocalIppServer : IDisposable
         return ms.ToArray();
     }
 
-    private void WriteAttribute(MemoryStream ms, byte tag, string name, string value)
+    private static void WriteAttribute(MemoryStream ms, byte tag, string name, string value)
     {
         ms.WriteByte(tag);
         byte[] nameBytes = Encoding.ASCII.GetBytes(name);

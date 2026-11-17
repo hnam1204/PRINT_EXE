@@ -958,7 +958,7 @@ public class RPMTests
             packet.Write(payload);
 
             using var http = new HttpClient();
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{ippPort}/")
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{ippPort}/printers/rpm")
             {
                 Content = new ByteArrayContent(packet.ToArray())
             };
@@ -987,6 +987,9 @@ public class RPMTests
         Assert.Contains("http://127.0.0.1:9199/printers/rpm", script, StringComparison.Ordinal);
         Assert.DoesNotContain("Add-PrinterPort", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Get-Printer -Name", script, StringComparison.Ordinal);
+        Assert.Contains("Write-InstallResult $true 'existing'", script, StringComparison.Ordinal);
+        Assert.Contains("ContentType", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("Remove-Printer", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("FullyQualifiedErrorId", script, StringComparison.Ordinal);
     }
 
@@ -1074,6 +1077,154 @@ public class RPMTests
     }
 
     [Fact]
+    public async Task IndependentIppClient_ValidatesGetPrinterAttributesFramingAndRequiredMetadata()
+    {
+        int ippPort = 9890;
+        string ippUrl = $"http://127.0.0.1:{ippPort}/printers/rpm";
+        using var ippServer = new LocalIppServer();
+        var logs = new System.Collections.Concurrent.ConcurrentBag<string>();
+        ippServer.OnLog += (_, message) => logs.Add(message);
+        ippServer.Start(ippPort);
+
+        try
+        {
+            const int requestId = 0x10203040;
+            byte[] packet = BuildGetPrinterAttributesPacket(ippUrl, requestId);
+            using var http = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, ippUrl)
+            {
+                Content = new ByteArrayContent(packet)
+            };
+            request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/ipp");
+
+            using var response = await http.SendAsync(request);
+            byte[] body = await response.Content.ReadAsByteArrayAsync();
+
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal("application/ipp", response.Content.Headers.ContentType?.MediaType);
+            var parsed = ParseIppResponse(body);
+            Assert.Equal((byte)1, parsed.Major);
+            Assert.Equal((byte)1, parsed.Minor);
+            Assert.Equal(0x0000, parsed.StatusCode);
+            Assert.Equal(requestId, parsed.RequestId);
+
+            Assert.Equal(0x45, parsed.Attributes["printer-uri-supported"].Single().Tag);
+            Assert.Contains(ippUrl, parsed.TextValues("printer-uri-supported"));
+            Assert.Equal(0x42, parsed.Attributes["printer-name"].Single().Tag);
+            Assert.NotEmpty(parsed.TextValues("printer-name"));
+            Assert.Equal(0x23, parsed.Attributes["printer-state"].Single().Tag);
+            Assert.Contains(3, parsed.IntegerValues("printer-state"));
+            Assert.Contains(0x000B, parsed.IntegerValues("operations-supported"));
+            Assert.Contains("1.1", parsed.TextValues("ipp-versions-supported"));
+            Assert.Contains("utf-8", parsed.TextValues("charset-supported"));
+            Assert.Contains("none", parsed.TextValues("uri-authentication-supported"));
+            Assert.Contains("none", parsed.TextValues("uri-security-supported"));
+            Assert.Contains("application/octet-stream", parsed.TextValues("document-format-supported"));
+            Assert.Contains("application/pdf", parsed.TextValues("document-format-supported"));
+            Assert.Contains("application/postscript", parsed.TextValues("document-format-supported"));
+            Assert.Contains(logs, log => log.Contains("method=POST", StringComparison.Ordinal));
+            Assert.Contains(logs, log => log.Contains("operation=0x000B", StringComparison.Ordinal));
+            Assert.Contains(logs, log => log.Contains($"requestId={requestId}", StringComparison.Ordinal));
+            Assert.Contains(logs, log => log.Contains("httpStatus=200", StringComparison.Ordinal));
+            Assert.Contains(logs, log => log.Contains("parseError=none", StringComparison.Ordinal));
+        }
+        finally
+        {
+            ippServer.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task VirtualPrinter_IppProbeUsesRealBinaryGetPrinterAttributesRequest()
+    {
+        int ippPort = 9891;
+        using var ippServer = new LocalIppServer();
+        ippServer.Start(ippPort);
+
+        try
+        {
+            var result = await VirtualPrinterManager.ProbeIppEndpointAsync(ippPort);
+            Assert.True(result.Success, result.Message);
+            Assert.Contains("Get-Printer-Attributes", result.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            ippServer.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task IppServer_ReturnsClientErrorForMalformedPacketAndLogsSafeDiagnostics()
+    {
+        int ippPort = 9892;
+        using var ippServer = new LocalIppServer();
+        var logs = new System.Collections.Concurrent.ConcurrentBag<string>();
+        ippServer.OnLog += (_, message) => logs.Add(message);
+        ippServer.Start(ippPort);
+
+        try
+        {
+            byte[] malformed = [1, 1, 0, 11, 0, 0, 0, 9, 1, 0];
+            using var http = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{ippPort}/printers/rpm")
+            {
+                Content = new ByteArrayContent(malformed)
+            };
+            request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/ipp");
+
+            using var response = await http.SendAsync(request);
+            var parsed = ParseIppResponse(await response.Content.ReadAsByteArrayAsync());
+
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(0x0400, parsed.StatusCode);
+            Assert.Equal(9, parsed.RequestId);
+            await Task.Delay(50);
+            Assert.Contains(logs, log => log.Contains("parseError=malformed-attributes", StringComparison.Ordinal));
+            Assert.DoesNotContain(logs, log => log.Contains("PAYLOAD", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            ippServer.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task IppServer_RejectsUnsupportedOperationAndWrongResourcePath()
+    {
+        int ippPort = 9893;
+        string ippUrl = $"http://127.0.0.1:{ippPort}/printers/rpm";
+        using var ippServer = new LocalIppServer();
+        ippServer.Start(ippPort);
+
+        try
+        {
+            byte[] unsupported = BuildIppPacket(0x0099, 11, ippUrl);
+            using var http = new HttpClient();
+            using var unsupportedRequest = new HttpRequestMessage(HttpMethod.Post, ippUrl)
+            {
+                Content = new ByteArrayContent(unsupported)
+            };
+            unsupportedRequest.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/ipp");
+            using var unsupportedResponse = await http.SendAsync(unsupportedRequest);
+            var unsupportedBody = ParseIppResponse(await unsupportedResponse.Content.ReadAsByteArrayAsync());
+            Assert.Equal(0x0501, unsupportedBody.StatusCode);
+            Assert.Equal(11, unsupportedBody.RequestId);
+
+            using var wrongPathRequest = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{ippPort}/")
+            {
+                Content = new ByteArrayContent(BuildGetPrinterAttributesPacket(ippUrl, 12))
+            };
+            wrongPathRequest.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/ipp");
+            using var wrongPathResponse = await http.SendAsync(wrongPathRequest);
+            Assert.Equal(System.Net.HttpStatusCode.NotFound, wrongPathResponse.StatusCode);
+        }
+        finally
+        {
+            ippServer.Stop();
+        }
+    }
+
+    [Fact]
     public async Task IppServer_DoesNotTreatDelimiterByteInsideAttributeValueAsDocumentStart()
     {
         int ippPort = 9888;
@@ -1143,7 +1294,7 @@ public class RPMTests
             packet.Write(payload);
 
             using var http = new HttpClient();
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{ippPort}/")
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{ippPort}/printers/rpm")
             {
                 Content = new ByteArrayContent(packet.ToArray())
             };
@@ -1180,6 +1331,81 @@ public class RPMTests
         stream.WriteByte((byte)(valueBytes.Length >> 8));
         stream.WriteByte((byte)valueBytes.Length);
         stream.Write(valueBytes);
+    }
+
+    private static byte[] BuildGetPrinterAttributesPacket(string ippUrl, int requestId) =>
+        BuildIppPacket(0x000B, requestId, ippUrl);
+
+    private static byte[] BuildIppPacket(ushort operationId, int requestId, string ippUrl)
+    {
+        using var packet = new MemoryStream();
+        packet.Write([1, 1, (byte)(operationId >> 8), (byte)operationId,
+            (byte)(requestId >> 24), (byte)(requestId >> 16), (byte)(requestId >> 8), (byte)requestId]);
+        packet.WriteByte(0x01);
+        WriteIppAttribute(packet, 0x47, "attributes-charset", "utf-8");
+        WriteIppAttribute(packet, 0x48, "attributes-natural-language", "en-us");
+        WriteIppAttribute(packet, 0x45, "printer-uri", ippUrl);
+        packet.WriteByte(0x03);
+        return packet.ToArray();
+    }
+
+    private static IppResponse ParseIppResponse(byte[] data)
+    {
+        Assert.True(data.Length >= 9, "IPP response header is truncated.");
+        int index = 8;
+        var attributes = new Dictionary<string, List<IppValue>>(StringComparer.OrdinalIgnoreCase);
+        while (index < data.Length)
+        {
+            byte tag = data[index++];
+            if (tag == 0x03) break;
+            if (tag is >= 0x01 and <= 0x02 or >= 0x04 and <= 0x07) continue;
+            int nameLength = ReadU16(data, ref index);
+            Assert.InRange(nameLength, 0, data.Length - index);
+            string name = Encoding.UTF8.GetString(data, index, nameLength);
+            index += nameLength;
+            int valueLength = ReadU16(data, ref index);
+            Assert.InRange(valueLength, 0, data.Length - index);
+            byte[] value = data[index..(index + valueLength)];
+            index += valueLength;
+            if (!attributes.TryGetValue(name, out var values))
+            {
+                values = new List<IppValue>();
+                attributes[name] = values;
+            }
+            values.Add(new IppValue(tag, value));
+        }
+
+        return new IppResponse(
+            data[0],
+            data[1],
+            (data[2] << 8) | data[3],
+            (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7],
+            attributes);
+    }
+
+    private static int ReadU16(byte[] data, ref int index)
+    {
+        Assert.True(index + 2 <= data.Length, "IPP length field is truncated.");
+        int value = (data[index] << 8) | data[index + 1];
+        index += 2;
+        return value;
+    }
+
+    private sealed record IppValue(byte Tag, byte[] Bytes);
+
+    private sealed record IppResponse(
+        byte Major,
+        byte Minor,
+        int StatusCode,
+        int RequestId,
+        Dictionary<string, List<IppValue>> Attributes)
+    {
+        public IEnumerable<string> TextValues(string name) =>
+            Attributes[name].Select(value => Encoding.UTF8.GetString(value.Bytes));
+
+        public IEnumerable<int> IntegerValues(string name) =>
+            Attributes[name].Where(value => value.Bytes.Length == 4).Select(value =>
+                (value.Bytes[0] << 24) | (value.Bytes[1] << 16) | (value.Bytes[2] << 8) | value.Bytes[3]);
     }
 
     [Fact]
