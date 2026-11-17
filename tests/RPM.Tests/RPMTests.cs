@@ -1005,13 +1005,20 @@ public class RPMTests
     [InlineData("http://127.0.0.1:9199/printers/rpm", 9199, true)]
     [InlineData("http://localhost:9199/printers/rpm/", 9199, true)]
     [InlineData("ipp://127.0.0.1:9199/printers/rpm", 9199, true)]
-    [InlineData("ipp://MSI:9199/printers/rpm", 9199, true)]
     [InlineData("http://192.0.2.1:9199/printers/rpm", 9199, false)]
     [InlineData("http://127.0.0.1:9199/other", 9199, false)]
     [InlineData("https://127.0.0.1:9199/printers/rpm", 9199, false)]
     public void VirtualPrinter_RecognizesOnlyConfiguredLocalIppPort(string portName, int port, bool expected)
     {
         Assert.Equal(expected, VirtualPrinterManager.IsMatchingIppPort(portName, port));
+    }
+
+    [Fact]
+    public void VirtualPrinter_RecognizesConfiguredMachineNameIppPort()
+    {
+        string portName = $"ipp://{Environment.MachineName}:9199/printers/rpm";
+
+        Assert.True(VirtualPrinterManager.IsMatchingIppPort(portName, 9199));
     }
 
     [Fact]
