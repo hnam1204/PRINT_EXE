@@ -984,19 +984,29 @@ public class RPMTests
         string script = VirtualPrinterManager.BuildNativeIppInstallScript("Remote Print Manager", 9199);
 
         Assert.Contains("-IppURL", script, StringComparison.Ordinal);
-        Assert.Contains("http://127.0.0.1:9199/printers/rpm", script, StringComparison.Ordinal);
+        Assert.Contains("ipp://", script, StringComparison.Ordinal);
+        Assert.Contains(":9199/printers/rpm", script, StringComparison.Ordinal);
         Assert.DoesNotContain("Add-PrinterPort", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Get-Printer -Name", script, StringComparison.Ordinal);
         Assert.Contains("Write-InstallResult $true 'existing'", script, StringComparison.Ordinal);
         Assert.Contains("ContentType", script, StringComparison.Ordinal);
         Assert.DoesNotContain("Remove-Printer", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("FullyQualifiedErrorId", script, StringComparison.Ordinal);
+        Assert.Contains("$transportUrl = 'http://", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("$transportUrl = 'http://127.0.0.1:", script, StringComparison.Ordinal);
+        Assert.Contains("$ippUrl = 'ipp://", script, StringComparison.Ordinal);
+        Assert.Contains("$header = [byte[]](1, 1, 0, 11, 1, 2, 3, 4)", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("$requestIdBytes", script, StringComparison.Ordinal);
+        Assert.Contains("Test-IppWsdPort", script, StringComparison.Ordinal);
+        Assert.Contains("printer-uuid", script, StringComparison.Ordinal);
     }
 
     [Theory]
     [InlineData("http://127.0.0.1:9199/printers/rpm", 9199, true)]
     [InlineData("http://localhost:9199/printers/rpm/", 9199, true)]
-    [InlineData("http://192.168.1.8:9199/printers/rpm", 9199, false)]
+    [InlineData("ipp://127.0.0.1:9199/printers/rpm", 9199, true)]
+    [InlineData("ipp://MSI:9199/printers/rpm", 9199, true)]
+    [InlineData("http://192.0.2.1:9199/printers/rpm", 9199, false)]
     [InlineData("http://127.0.0.1:9199/other", 9199, false)]
     [InlineData("https://127.0.0.1:9199/printers/rpm", 9199, false)]
     public void VirtualPrinter_RecognizesOnlyConfiguredLocalIppPort(string portName, int port, bool expected)
@@ -1039,6 +1049,71 @@ public class RPMTests
     }
 
     [Fact]
+    public void ElevatedIppInstall_UsesScriptFileInsteadOfLongEncodedCommand()
+    {
+        var psi = VirtualPrinterManager.BuildElevatedInstallationStartInfo(
+            @"C:\Temp\Remote Print Manager install.ps1",
+            @"C:\Temp\Remote Print Manager result.json");
+
+        Assert.Contains("-File", psi.Arguments, StringComparison.Ordinal);
+        Assert.DoesNotContain("-EncodedCommand", psi.Arguments, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(@"C:\Temp\Remote Print Manager install.ps1", psi.Arguments, StringComparison.Ordinal);
+        Assert.Contains(@"C:\Temp\Remote Print Manager result.json", psi.Arguments, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("urn:uuid:0683c9d7-5b8b-d750-a7f2-0bb10732ccf7", "0683c9d7-5b8b-d750-a7f2-0bb10732ccf7")]
+    [InlineData("{0683c9d7-5b8b-d750-a7f2-0bb10732ccf7}", "0683c9d7-5b8b-d750-a7f2-0bb10732ccf7")]
+    [InlineData(" 0683c9d7-5b8b-d750-a7f2-0bb10732ccf7 ", "0683c9d7-5b8b-d750-a7f2-0bb10732ccf7")]
+    public void VirtualPrinter_NormalizesIppAndWindowsWsdPrinterUuid(string value, string expected)
+    {
+        Assert.Equal(expected, VirtualPrinterManager.NormalizePrinterUuid(value));
+    }
+
+    [Fact]
+    public void NativeIppInstallScript_NormalizesWsdRegistryPrinterUuid()
+    {
+        string script = VirtualPrinterManager.BuildNativeIppInstallScript("Remote Print Manager", 9199);
+
+        Assert.Contains("$registryUuid = [string]$metadata.'Printer UUID'", script, StringComparison.Ordinal);
+        Assert.Contains("$registryUuid.Substring(9)", script, StringComparison.Ordinal);
+        Assert.Contains("$expectedPrinterUuid.Substring(9)", script, StringComparison.Ordinal);
+        Assert.Contains("Test-IppWsdPort $existingPort $probePrinterUuid", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task IppServer_EchoesRequestedIppUriForWindowsDiscovery()
+    {
+        int ippPort = 9894;
+        string httpUrl = $"http://127.0.0.1:{ippPort}/printers/rpm";
+        string ippUrl = $"ipp://127.0.0.1:{ippPort}/printers/rpm";
+        using var ippServer = new LocalIppServer();
+        ippServer.Start(ippPort);
+
+        try
+        {
+            byte[] packet = BuildGetPrinterAttributesPacket(ippUrl, 14);
+            using var http = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, httpUrl)
+            {
+                Content = new ByteArrayContent(packet)
+            };
+            request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/ipp");
+
+            using var response = await http.SendAsync(request);
+            var parsed = ParseIppResponse(await response.Content.ReadAsByteArrayAsync());
+
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(0, parsed.StatusCode);
+            Assert.Contains(ippUrl, parsed.TextValues("printer-uri-supported"));
+        }
+        finally
+        {
+            ippServer.Stop();
+        }
+    }
+
+    [Fact]
     public async Task IppServer_RespondsToGetPrinterAttributesWithIppCapabilities()
     {
         int ippPort = 9889;
@@ -1069,6 +1144,43 @@ public class RPMTests
             Assert.Contains("printer-uri-supported", bodyText, StringComparison.Ordinal);
             Assert.Contains("operations-supported", bodyText, StringComparison.Ordinal);
             Assert.Contains("document-format-supported", bodyText, StringComparison.Ordinal);
+        }
+        finally
+        {
+            ippServer.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task IppServer_AcceptsIpp20GetPrinterAttributes()
+    {
+        int ippPort = 9896;
+        string ippUrl = $"http://127.0.0.1:{ippPort}/printers/rpm";
+        using var ippServer = new LocalIppServer();
+        ippServer.Start(ippPort);
+
+        try
+        {
+            byte[] packet = BuildGetPrinterAttributesPacket(ippUrl, 16);
+            packet[0] = 2;
+            packet[1] = 0;
+
+            using var http = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, ippUrl)
+            {
+                Content = new ByteArrayContent(packet)
+            };
+            request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/ipp");
+
+            using var response = await http.SendAsync(request);
+            var parsed = ParseIppResponse(await response.Content.ReadAsByteArrayAsync());
+
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal((byte)2, parsed.Major);
+            Assert.Equal((byte)0, parsed.Minor);
+            Assert.Equal(0, parsed.StatusCode);
+            Assert.Equal(16, parsed.RequestId);
+            Assert.Contains("printer-uri-supported", parsed.Attributes.Keys);
         }
         finally
         {
@@ -1115,18 +1227,243 @@ public class RPMTests
             Assert.Equal(0x23, parsed.Attributes["printer-state"].Single().Tag);
             Assert.Contains(3, parsed.IntegerValues("printer-state"));
             Assert.Contains(0x000B, parsed.IntegerValues("operations-supported"));
+            Assert.Contains(0x0008, parsed.IntegerValues("operations-supported"));
+            Assert.Contains(0x0009, parsed.IntegerValues("operations-supported"));
             Assert.Contains("1.1", parsed.TextValues("ipp-versions-supported"));
+            Assert.Contains("2.0", parsed.TextValues("ipp-versions-supported"));
             Assert.Contains("utf-8", parsed.TextValues("charset-supported"));
             Assert.Contains("none", parsed.TextValues("uri-authentication-supported"));
             Assert.Contains("none", parsed.TextValues("uri-security-supported"));
-            Assert.Contains("application/octet-stream", parsed.TextValues("document-format-supported"));
             Assert.Contains("application/pdf", parsed.TextValues("document-format-supported"));
-            Assert.Contains("application/postscript", parsed.TextValues("document-format-supported"));
+            Assert.Contains("application/octet-stream", parsed.TextValues("document-format-supported"));
+            Assert.DoesNotContain("application/postscript", parsed.TextValues("document-format-supported"));
+            Assert.Equal("application/pdf", parsed.TextValues("document-format-preferred").Single());
+            Assert.Equal("application/pdf", parsed.TextValues("document-format-default").Single());
+            Assert.Equal(0x23, parsed.Attributes["printer-type"].Single().Tag);
+            Assert.Contains(1, parsed.IntegerValues("printer-type"));
+            Assert.Contains("iso_a4_210x297mm", parsed.TextValues("media-supported"));
+            Assert.Contains("RemotePrintManager", parsed.TextValues("printer-firmware-name"));
+            Assert.Equal(0x41, parsed.Attributes["mopria-certified"].Single().Tag);
+            Assert.Equal(new[] { "1.3" }, parsed.TextValues("mopria-certified"));
+            Assert.DoesNotContain(parsed.Attributes.Keys, name => name.Contains('_', StringComparison.Ordinal));
+            Assert.Contains("printer-more-info", parsed.Attributes.Keys);
+            Assert.All(parsed.Attributes["printer-name"], value => Assert.Equal(0x04, value.GroupTag));
+            Assert.Equal(0x41, parsed.Attributes["printer-info"].Single().Tag);
+            Assert.Equal(0x41, parsed.Attributes["printer-make-and-model"].Single().Tag);
+            Assert.All(parsed.Attributes["document-format-supported"], value => Assert.Equal(0x04, value.GroupTag));
+            Assert.All(parsed.Attributes["operations-supported"], value => Assert.Equal(0x04, value.GroupTag));
             Assert.Contains(logs, log => log.Contains("method=POST", StringComparison.Ordinal));
             Assert.Contains(logs, log => log.Contains("operation=0x000B", StringComparison.Ordinal));
             Assert.Contains(logs, log => log.Contains($"requestId={requestId}", StringComparison.Ordinal));
             Assert.Contains(logs, log => log.Contains("httpStatus=200", StringComparison.Ordinal));
             Assert.Contains(logs, log => log.Contains("parseError=none", StringComparison.Ordinal));
+            Assert.Contains(logs, log => log.Contains("semanticError=none", StringComparison.Ordinal));
+        }
+        finally
+        {
+            ippServer.Stop();
+        }
+    }
+
+    [Fact]
+    public void IppAttributeSemantics_RejectsWrongKnownValueTag()
+    {
+        var attributes = new[]
+        {
+            new LocalIppServer.IppAttributeMetadata(0x04, 0x22, "printer-uri-supported", new byte[] { 1 }, 8)
+        };
+
+        Assert.False(LocalIppServer.TryValidateIppAttributeSemantics(attributes, out string error));
+        Assert.Contains("expected 0x45", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task IppServer_GetPrinterAttributes_HonorsNarrowRequestedAttributesWithoutInvalidNames()
+    {
+        int ippPort = 9895;
+        string ippUrl = $"ipp://127.0.0.1:{ippPort}/printers/rpm";
+        using var ippServer = new LocalIppServer();
+        ippServer.Start(ippPort);
+
+        try
+        {
+            byte[] basePacket = BuildGetPrinterAttributesPacket(ippUrl, 15);
+            using var packet = new MemoryStream();
+            packet.Write(basePacket, 0, basePacket.Length - 1);
+            // Ask for a narrow set, matching the directed-discovery pattern used by Windows.
+            WriteIppAttribute(packet, 0x44, "requested-attributes", "printer-name");
+            packet.WriteByte(0x03);
+
+            using var http = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{ippPort}/printers/rpm")
+            {
+                Content = new ByteArrayContent(packet.ToArray())
+            };
+            request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/ipp");
+
+            using var response = await http.SendAsync(request);
+            var parsed = ParseIppResponse(await response.Content.ReadAsByteArrayAsync());
+
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(0, parsed.StatusCode);
+            Assert.Contains("printer-name", parsed.Attributes.Keys);
+            Assert.DoesNotContain("printer-uri-supported", parsed.Attributes.Keys);
+            Assert.DoesNotContain("operations-supported", parsed.Attributes.Keys);
+            Assert.DoesNotContain("document-format-supported", parsed.Attributes.Keys);
+            Assert.DoesNotContain(parsed.Attributes.Keys, name => name.Contains('_', StringComparison.Ordinal));
+            Assert.DoesNotContain("mopria-certified", parsed.Attributes.Keys);
+        }
+        finally
+        {
+            ippServer.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task IppServer_WindowsDirectedDiscovery_ReturnsRequestedAliasesAndCanonicalUri()
+    {
+        int ippPort = 9898;
+        string transportUrl = $"http://127.0.0.1:{ippPort}/printers/rpm";
+        string printerHost = Environment.MachineName;
+        string printerUri = $"ipp://{printerHost}:{ippPort}/printers/rpm";
+        string[] requested =
+        [
+            "uri-authentication-supported",
+            "document-format-default",
+            "document-format-preferred",
+            "document-format-supported",
+            "ipp-versions-supported",
+            "media-supported",
+            "media-type-supported",
+            "mopria-certified",
+            "mopria_certified",
+            "printer-dns-sd-name",
+            "printer-firmware-name",
+            "printer-firmware-string-version",
+            "printer-device-id",
+            "printer-info",
+            "printer-location",
+            "printer-make-and-model",
+            "printer-more-info",
+            "printer-name",
+            "printer-uri-supported",
+            "printer-uuid",
+            "uri-security-supported"
+        ];
+
+        using var ippServer = new LocalIppServer();
+        ippServer.Start(ippPort);
+
+        try
+        {
+            using var packet = new MemoryStream();
+            packet.Write([1, 1, 0, 11, 0, 0, 0, 17]);
+            packet.WriteByte(0x01);
+            WriteIppAttribute(packet, 0x47, "attributes-charset", "utf-8");
+            WriteIppAttribute(packet, 0x48, "attributes-natural-language", "en-us");
+            WriteIppAttribute(packet, 0x45, "printer-uri", printerUri);
+            WriteIppAttribute(packet, 0x44, "requested-attributes", requested[0]);
+            foreach (string name in requested.Skip(1))
+                WriteIppContinuation(packet, 0x44, name);
+            packet.WriteByte(0x03);
+
+            using var http = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, transportUrl)
+            {
+                Content = new ByteArrayContent(packet.ToArray())
+            };
+            request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/ipp");
+            using var response = await http.SendAsync(request);
+            var parsed = ParseIppResponse(await response.Content.ReadAsByteArrayAsync());
+
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(0, parsed.StatusCode);
+            foreach (string name in requested.Where(name =>
+                !string.Equals(name, "mopria_certified", StringComparison.Ordinal) &&
+                !string.Equals(name, "mopria-certified", StringComparison.Ordinal)))
+                Assert.Contains(name, parsed.Attributes.Keys);
+            Assert.DoesNotContain("mopria_certified", parsed.Attributes.Keys);
+            Assert.Equal(new[] { "1.3" }, parsed.TextValues("mopria-certified"));
+            Assert.Equal(0x41, parsed.Attributes["mopria-certified"].Single().Tag);
+            Assert.DoesNotContain(parsed.Attributes.Keys, name => name.Contains('_', StringComparison.Ordinal));
+            Assert.Equal(printerUri, parsed.TextValues("printer-uri-supported").Single());
+            Assert.Equal($"http://{printerHost}:{ippPort}/printers/rpm", parsed.TextValues("printer-more-info").Single(), StringComparer.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            ippServer.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task IppServer_PrinterUuidRemainsStableAcrossRestarts()
+    {
+        int ippPort = 9897;
+        string ippUrl = $"ipp://127.0.0.1:{ippPort}/printers/rpm";
+        string? firstUuid = null;
+
+        for (int run = 0; run < 2; run++)
+        {
+            using var ippServer = new LocalIppServer();
+            ippServer.Start(ippPort);
+
+            try
+            {
+                using var http = new HttpClient();
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{ippPort}/printers/rpm")
+                {
+                    Content = new ByteArrayContent(BuildGetPrinterAttributesPacket(ippUrl, 100 + run))
+                };
+                request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/ipp");
+
+                using var response = await http.SendAsync(request);
+                var parsed = ParseIppResponse(await response.Content.ReadAsByteArrayAsync());
+                string uuid = parsed.TextValues("printer-uuid").Single();
+
+                if (firstUuid is null)
+                    firstUuid = uuid;
+                else
+                    Assert.Equal(firstUuid, uuid);
+            }
+            finally
+            {
+                ippServer.Stop();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task IppServer_SupportsGetJobsAndAdvertisesItAsSupported()
+    {
+        int ippPort = 9899;
+        string ippUrl = $"ipp://127.0.0.1:{ippPort}/printers/rpm";
+        using var ippServer = new LocalIppServer();
+        ippServer.Start(ippPort);
+
+        try
+        {
+            using var http = new HttpClient();
+            using var attributesRequest = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{ippPort}/printers/rpm")
+            {
+                Content = new ByteArrayContent(BuildGetPrinterAttributesPacket(ippUrl, 201))
+            };
+            attributesRequest.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/ipp");
+
+            using var attributesResponse = await http.SendAsync(attributesRequest);
+            var attributes = ParseIppResponse(await attributesResponse.Content.ReadAsByteArrayAsync());
+            Assert.Contains(attributes.IntegerValues("operations-supported"), value => value == 0x000A);
+
+            using var jobsRequest = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{ippPort}/printers/rpm")
+            {
+                Content = new ByteArrayContent(BuildIppPacket(0x000A, 202, ippUrl))
+            };
+            jobsRequest.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/ipp");
+
+            using var jobsResponse = await http.SendAsync(jobsRequest);
+            var jobs = ParseIppResponse(await jobsResponse.Content.ReadAsByteArrayAsync());
+            Assert.Equal(System.Net.HttpStatusCode.OK, jobsResponse.StatusCode);
+            Assert.Equal(0, jobs.StatusCode);
+            Assert.Equal(202, jobs.RequestId);
         }
         finally
         {
@@ -1333,6 +1670,17 @@ public class RPMTests
         stream.Write(valueBytes);
     }
 
+    private static void WriteIppContinuation(Stream stream, byte tag, string value)
+    {
+        byte[] valueBytes = Encoding.UTF8.GetBytes(value);
+        stream.WriteByte(tag);
+        stream.WriteByte(0);
+        stream.WriteByte(0);
+        stream.WriteByte((byte)(valueBytes.Length >> 8));
+        stream.WriteByte((byte)valueBytes.Length);
+        stream.Write(valueBytes);
+    }
+
     private static byte[] BuildGetPrinterAttributesPacket(string ippUrl, int requestId) =>
         BuildIppPacket(0x000B, requestId, ippUrl);
 
@@ -1353,15 +1701,26 @@ public class RPMTests
     {
         Assert.True(data.Length >= 9, "IPP response header is truncated.");
         int index = 8;
+        string? currentAttributeName = null;
+        byte currentGroupTag = 0;
         var attributes = new Dictionary<string, List<IppValue>>(StringComparer.OrdinalIgnoreCase);
         while (index < data.Length)
         {
             byte tag = data[index++];
             if (tag == 0x03) break;
-            if (tag is >= 0x01 and <= 0x02 or >= 0x04 and <= 0x07) continue;
+            if (tag is >= 0x01 and <= 0x02 or >= 0x04 and <= 0x08)
+            {
+                currentGroupTag = tag;
+                currentAttributeName = null;
+                continue;
+            }
             int nameLength = ReadU16(data, ref index);
             Assert.InRange(nameLength, 0, data.Length - index);
-            string name = Encoding.UTF8.GetString(data, index, nameLength);
+            if (nameLength == 0)
+                Assert.NotNull(currentAttributeName);
+            else
+                currentAttributeName = Encoding.UTF8.GetString(data, index, nameLength);
+            string name = currentAttributeName!;
             index += nameLength;
             int valueLength = ReadU16(data, ref index);
             Assert.InRange(valueLength, 0, data.Length - index);
@@ -1372,7 +1731,7 @@ public class RPMTests
                 values = new List<IppValue>();
                 attributes[name] = values;
             }
-            values.Add(new IppValue(tag, value));
+            values.Add(new IppValue(currentGroupTag, tag, value));
         }
 
         return new IppResponse(
@@ -1391,7 +1750,7 @@ public class RPMTests
         return value;
     }
 
-    private sealed record IppValue(byte Tag, byte[] Bytes);
+    private sealed record IppValue(byte GroupTag, byte Tag, byte[] Bytes);
 
     private sealed record IppResponse(
         byte Major,

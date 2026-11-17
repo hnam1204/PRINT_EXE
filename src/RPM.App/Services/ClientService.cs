@@ -176,12 +176,11 @@ public class ClientService : IDisposable, IAsyncDisposable
     {
         if (!_ippServer.IsRunning)
         {
-            PrintQueueSetupMessage = "Không thể mở Local IPP Server; Ctrl + P chưa sẵn sàng. Kiểm tra cổng IPP hoặc quyền truy cập localhost.";
+            PrintQueueSetupMessage = "Local IPP Server chưa mở; sẽ thử cấp quyền bind và khởi động lại trong quá trình cài hàng đợi.";
             OnLog?.Invoke(this, $"[IPP] {PrintQueueSetupMessage}");
-            return;
         }
 
-        if (IsRemotePrinterInstalled)
+        if (IsRemotePrinterInstalled && _ippServer.IsRunning && _ippServer.IsLanBindingActive)
         {
             PrintQueueSetupMessage = "Hàng đợi 'Remote Print Manager' đã sẵn sàng cho Ctrl + P.";
             OnLog?.Invoke(this, "[IPP] Hàng đợi 'Remote Print Manager' đã sẵn sàng cho Ctrl + P.");
@@ -190,7 +189,12 @@ public class ClientService : IDisposable, IAsyncDisposable
 
         var result = await VirtualPrinterManager.InstallVirtualPrinterAsync(
             VirtualPrinterManager.DefaultPrinterName,
-            _settings.LocalIppPort);
+            _settings.LocalIppPort,
+            () =>
+            {
+                _ippServer.Restart(_settings.LocalIppPort);
+                return _ippServer.IsRunning && _ippServer.IsLanBindingActive;
+            });
         _remotePrinterInstalled = result.Success &&
             string.Equals(
                 VirtualPrinterManager.FindPrinterBoundToLocalIpp(_settings.LocalIppPort),

@@ -2075,6 +2075,9 @@ public class ServerService : IDisposable, IAsyncDisposable
     private static bool IsRawPrinterFormat(string documentFormat) => documentFormat switch
     {
         "application/octet-stream" => true,
+        // Microsoft IPP Class Driver emits PDF for this queue. Host forwards
+        // the bounded PDF payload through the same spooler adapter.
+        "application/pdf" => true,
         "application/postscript" => true,
         "application/vnd.hp-pcl" => true,
         "application/vnd.hp-pclxl" => true,
