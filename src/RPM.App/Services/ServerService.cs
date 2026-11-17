@@ -36,6 +36,7 @@ public class ServerService : IDisposable, IAsyncDisposable
     private Task? _cloudWorkerTask;
     private Task? _cloudPairingWorkerTask;
     private int _isDisposed;
+    private int _cloudPairingCodeRefreshPending;
     private readonly Queue<PrintJob> _printQueue = new();
     private readonly SemaphoreSlim _queueLock = new(1, 1);
     private readonly HashSet<string> _recentlyPrintedHashes = new();
@@ -48,6 +49,7 @@ public class ServerService : IDisposable, IAsyncDisposable
     private Task? _directStreamCleanupTask;
     private readonly object _startupGate = new();
     private Task? _startupTask;
+    private volatile bool _startupReady;
 
     public RelayClient Relay => _relayClient;
     public PrinterService PrinterService => _printerService;
@@ -66,7 +68,8 @@ public class ServerService : IDisposable, IAsyncDisposable
         _cloud.ActivationStatus,
         _cloud.IsOnline,
         IsInternalConnectionReady,
-        _cloud.HasPreviouslyVerifiedActivation);
+        _cloud.HasPreviouslyVerifiedActivation,
+        _startupReady);
     public ConnectionMode ConnectionMode => ConnectionStatusInfo.ConnectionMode;
     public TransportStatus TransportStatus => ConnectionStatusInfo.TransportStatus;
     public string ConnectionStatus => ConnectionStatusInfo.PrimaryText;
@@ -106,7 +109,8 @@ public class ServerService : IDisposable, IAsyncDisposable
                 CloudCapacityLoaded = false;
                 CloudOnlineClientCount = 0;
             }
-            OnStatusChanged?.Invoke(this, EventArgs.Empty);
+            if (_startupReady)
+                OnStatusChanged?.Invoke(this, EventArgs.Empty);
         };
 
         // Restore only remote devices. Role switches can leave the previous
@@ -179,64 +183,80 @@ public class ServerService : IDisposable, IAsyncDisposable
 
     private async Task StartCoreAsync(string startupReason)
     {
-        OnLog?.Invoke(this, $"[Startup] Host khởi động với lý do: {startupReason}; mã ghép nối nội bộ sẽ được tạo mới một lần.");
-        string previousCloudSessionId = RotateLocalPairingCode();
-
-        _relayClient.PairingCode = _settings.PairingCode;
-
-        if (string.IsNullOrWhiteSpace(_settings.EncryptionSecret))
+        _startupReady = false;
+        try
         {
-            _settings.EncryptionSecret = Guid.NewGuid().ToString("N");
-            ConfigManager.Save(_settings);
-        }
+            OnLog?.Invoke(this, $"[Startup] Host khởi động với lý do: {startupReason}; mã ghép nối nội bộ sẽ được tạo mới một lần.");
+            bool cloudConfigured = _settings.CloudTransportEnabled || _cloud.HasStoredToken;
+            RotateLocalPairingCode(clearCloudCode: !cloudConfigured);
 
-        // Load and detect all installed printers and shared configuration
-        LoadPrinters();
+            _relayClient.PairingCode = _settings.PairingCode;
 
-        bool cloudReady = false;
-        if (_settings.CloudTransportEnabled || _cloud.HasStoredToken)
-        {
-            await _cloud.StartAsync();
-            if (_cloud.IsOnline)
+            if (string.IsNullOrWhiteSpace(_settings.EncryptionSecret))
             {
-                cloudReady = true;
-                await StartCloudWorkersIfNeededAsync(previousCloudSessionId);
-                await EnsureCloudGeofenceAsync();
+                _settings.EncryptionSecret = Guid.NewGuid().ToString("N");
+                ConfigManager.Save(_settings);
             }
-        }
 
-        // Keep the embedded Relay available even when Cloud is online. It is the
-        // LAN fallback and must listen on the same port for other devices.
-        if (_settings.Role == AppRole.Server &&
-            Uri.TryCreate(_settings.RelayServerUrl, UriKind.Absolute, out var relayUri) &&
-            relayUri.Scheme == "ws")
-        {
-            try
+            // Load and detect all installed printers and shared configuration
+            LoadPrinters();
+
+            bool cloudReady = false;
+            if (_settings.CloudTransportEnabled || _cloud.HasStoredToken)
             {
-                int port = 9090;
-                if (relayUri.Port > 0)
+                await _cloud.StartAsync();
+                if (_cloud.IsOnline)
                 {
-                    port = relayUri.Port;
+                    cloudReady = await StartCloudWorkersIfNeededAsync();
+                    if (cloudReady)
+                    {
+                        await EnsureCloudGeofenceAsync();
+                    }
+                    else
+                    {
+                        OnLog?.Invoke(this, "[Cloud] Kết nối dịch vụ đã xác minh nhưng chưa cấp được mã kết nối Cloud.");
+                    }
                 }
-                _embeddedRelay = new RelayServer();
-                _embeddedRelay.Start(port);
-                LanAccessStatus = _embeddedRelay.LanBindingStatus;
-                await RefreshLanAccessStatusAsync();
-                OnLog?.Invoke(this, $"[Relay] Đã tự động kích hoạt máy chủ trung chuyển nội bộ trên cổng {port}.");
             }
-            catch (Exception ex)
+
+            // Keep the embedded Relay available even when Cloud is online. It is the
+            // LAN fallback and must listen on the same port for other devices.
+            if (_settings.Role == AppRole.Server &&
+                Uri.TryCreate(_settings.RelayServerUrl, UriKind.Absolute, out var relayUri) &&
+                relayUri.Scheme == "ws")
             {
-                LanAccessStatus = $"Không thể mở quyền LAN cho cổng 9090: {ex.Message}";
-                OnLog?.Invoke(this, $"[Relay] Khởi động trung chuyển nội bộ: {ex.Message}");
+                try
+                {
+                    int port = 9090;
+                    if (relayUri.Port > 0)
+                    {
+                        port = relayUri.Port;
+                    }
+                    _embeddedRelay = new RelayServer();
+                    _embeddedRelay.Start(port);
+                    LanAccessStatus = _embeddedRelay.LanBindingStatus;
+                    await RefreshLanAccessStatusAsync();
+                    OnLog?.Invoke(this, $"[Relay] Đã tự động kích hoạt máy chủ trung chuyển nội bộ trên cổng {port}.");
+                }
+                catch (Exception ex)
+                {
+                    LanAccessStatus = $"Không thể mở quyền LAN cho cổng 9090: {ex.Message}";
+                    OnLog?.Invoke(this, $"[Relay] Khởi động trung chuyển nội bộ: {ex.Message}");
+                }
+            }
+
+            await _relayClient.StartAsync(_settings.RelayServerUrl);
+            _directStreamCleanupTask = Task.Run(DirectStreamCleanupLoopAsync);
+
+            if (cloudReady)
+            {
+                OnLog?.Invoke(this, "[Cloud] Host worker đã khởi động; kết nối nội bộ LAN vẫn sẵn sàng dự phòng.");
             }
         }
-
-        await _relayClient.StartAsync(_settings.RelayServerUrl);
-        _directStreamCleanupTask = Task.Run(DirectStreamCleanupLoopAsync);
-
-        if (cloudReady)
+        finally
         {
-            OnLog?.Invoke(this, "[Cloud] Host worker đã khởi động; kết nối nội bộ LAN vẫn sẵn sàng dự phòng.");
+            _startupReady = true;
+            OnStatusChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
@@ -287,45 +307,50 @@ public class ServerService : IDisposable, IAsyncDisposable
 
     public async Task<bool> RotatePairingCodeAsync(CancellationToken cancellationToken = default)
     {
+        bool cloudMode = _settings.CloudTransportEnabled;
+        if (cloudMode)
+        {
+            if (!_cloud.IsOnline || _cloud.Client is null)
+            {
+                OnLog?.Invoke(this, "[Cloud] Chưa thể tạo mã dịch vụ vì kết nối Cloud chưa sẵn sàng.");
+                return false;
+            }
+
+            // The backend revokes the previous active code in the same issue
+            // transaction. Keep the local code untouched until Cloud succeeds.
+            if (!await IssueCloudPairingCodeAsync(cancellationToken))
+                return false;
+        }
+
         bool restartRelay = _relayClient.IsConnected;
         if (restartRelay)
         {
             await _relayClient.StopAsync();
         }
 
-        string previousCloudSessionId = RotateLocalPairingCode();
+        RotateLocalPairingCode(clearCloudCode: !cloudMode);
 
         if (restartRelay)
         {
             await _relayClient.StartAsync(_settings.RelayServerUrl);
         }
 
-        if (_settings.CloudTransportEnabled && _cloud.IsOnline && _cloud.Client is not null)
-        {
-            try
-            {
-                await IssueCloudPairingCodeAsync(previousCloudSessionId, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                OnLog?.Invoke(this, $"[Cloud] Đã đổi mã Relay, nhưng chưa đổi được mã Cloud: {ex.Message}");
-            }
-        }
-
         OnStatusChanged?.Invoke(this, EventArgs.Empty);
         return true;
     }
 
-    private string RotateLocalPairingCode()
+    private string RotateLocalPairingCode(bool clearCloudCode = true)
     {
-        string previousCloudSessionId = _settings.CloudPairingSessionId;
         _settings.PairingCode = Core.Security.RPMCrypto.GeneratePairingCode(_settings.PairingCode);
-        _settings.CloudPairingCode = string.Empty;
-        _settings.CloudPairingExpiresAt = null;
-        _settings.CloudPairingSessionId = string.Empty;
+        if (clearCloudCode)
+        {
+            _settings.CloudPairingCode = string.Empty;
+            _settings.CloudPairingExpiresAt = null;
+            _settings.CloudPairingSessionId = string.Empty;
+        }
         ConfigManager.Save(_settings);
         _relayClient.PairingCode = _settings.PairingCode;
-        return previousCloudSessionId;
+        return _settings.PairingCode;
     }
 
     public async Task<bool> EnrollCloudAsync(string enrollmentSecret, CancellationToken cancellationToken = default)
@@ -397,19 +422,30 @@ public class ServerService : IDisposable, IAsyncDisposable
 
     private async Task EnsureCloudWorkersAsync()
     {
-        try { await StartCloudWorkersIfNeededAsync(); }
+        try
+        {
+            if (!await StartCloudWorkersIfNeededAsync())
+            {
+                OnLog?.Invoke(this, "[Cloud] Worker đang chờ mã kết nối dịch vụ hợp lệ.");
+            }
+        }
         catch (Exception ex) { OnLog?.Invoke(this, $"[Cloud] Không thể khởi động lại Worker: {ex.Message}"); }
     }
 
-    private async Task StartCloudWorkersIfNeededAsync(string? previousCloudSessionId = null)
+    private async Task<bool> StartCloudWorkersIfNeededAsync()
     {
-        if (Interlocked.Exchange(ref _cloudWorkersStarted, 1) != 0) return;
+        if (Interlocked.Exchange(ref _cloudWorkersStarted, 1) != 0) return true;
         try
         {
             await RegisterCloudPrintersAsync();
-            await IssueCloudPairingCodeAsync(previousCloudSessionId);
+            if (!await IssueCloudPairingCodeAsync())
+            {
+                OnLog?.Invoke(this, "[Cloud] Worker vẫn khởi động; mã kết nối dịch vụ sẽ được thử lại khi Cloud đồng bộ lại.");
+            }
+
             _cloudWorkerTask = Task.Run(CloudWorkerLoopAsync);
             _cloudPairingWorkerTask = Task.Run(CloudPairingLoopAsync);
+            return true;
         }
         catch
         {
@@ -418,32 +454,97 @@ public class ServerService : IDisposable, IAsyncDisposable
         }
     }
 
-    private async Task IssueCloudPairingCodeAsync(string? previousCloudSessionId = null, CancellationToken cancellationToken = default)
+    private async Task<bool> IssueCloudPairingCodeAsync(CancellationToken cancellationToken = default)
     {
-        if (_cloud.Client is null) return;
-        string sessionToRevoke = previousCloudSessionId ?? _settings.CloudPairingSessionId;
-        if (!string.IsNullOrWhiteSpace(sessionToRevoke))
+        if (_cloud.Client is null)
         {
-            try
-            {
-                await _cloud.Client.RevokePairingCodeAsync(sessionToRevoke, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                OnLog?.Invoke(this, $"[Cloud] Không thể thu hồi mã cũ, tiếp tục tạo mã mới: {ex.Message}");
-            }
+            Interlocked.Exchange(ref _cloudPairingCodeRefreshPending, 1);
+            return false;
         }
 
-        string sessionId = $"{_settings.DeviceId}:{Guid.NewGuid():N}";
-        var code = await _cloud.Client.IssuePairingCodeAsync(sessionId, cancellationToken);
-        if (code?.Code is not null)
+        string previousSessionId = _settings.CloudPairingSessionId;
+        try
         {
-            _settings.CloudPairingCode = code.Code;
-            _settings.CloudPairingExpiresAt = code.ExpiresAt;
-            _settings.CloudPairingSessionId = code.SessionId;
-            ConfigManager.Save(_settings);
-            OnLog?.Invoke(this, $"Mã kết nối: {code.Code}");
+            string sessionId = $"{_settings.DeviceId}:{Guid.NewGuid():N}";
+            var response = await _cloud.Client.IssuePairingCodeAsync(sessionId, cancellationToken);
+            var issued = PairingCodePolicy.ValidateCloudIssue(response);
+            if (!issued.Success)
+            {
+                if (await TryRecoverCurrentCloudPairingCodeAsync(previousSessionId, cancellationToken))
+                {
+                    Interlocked.Exchange(ref _cloudPairingCodeRefreshPending, 0);
+                    if (_startupReady) OnStatusChanged?.Invoke(this, EventArgs.Empty);
+                    OnLog?.Invoke(this, "[Cloud] Đã khôi phục mã dịch vụ hiện tại sau phản hồi không đầy đủ.");
+                    return true;
+                }
+
+                OnLog?.Invoke(this, "[Cloud] Máy chủ không trả về mã dịch vụ hợp lệ; giữ nguyên mã hiện tại.");
+                Interlocked.Exchange(ref _cloudPairingCodeRefreshPending, 1);
+                return false;
+            }
+
+            SaveCloudPairingCode(issued);
+            Interlocked.Exchange(ref _cloudPairingCodeRefreshPending, 0);
+            if (_startupReady) OnStatusChanged?.Invoke(this, EventArgs.Empty);
+            OnLog?.Invoke(this, $"Mã kết nối dịch vụ: {issued.Code}");
+            return true;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            if (await TryRecoverCurrentCloudPairingCodeAsync(previousSessionId, cancellationToken))
+            {
+                Interlocked.Exchange(ref _cloudPairingCodeRefreshPending, 0);
+                if (_startupReady) OnStatusChanged?.Invoke(this, EventArgs.Empty);
+                OnLog?.Invoke(this, "[Cloud] Đã khôi phục mã dịch vụ hiện tại sau lỗi phản hồi.");
+                return true;
+            }
+
+            OnLog?.Invoke(this, $"[Cloud] Không thể tạo mã dịch vụ; giữ nguyên mã hiện tại: {ex.Message}");
+            Interlocked.Exchange(ref _cloudPairingCodeRefreshPending, 1);
+            return false;
+        }
+    }
+
+    private async Task<bool> TryRecoverCurrentCloudPairingCodeAsync(
+        string previousSessionId,
+        CancellationToken cancellationToken)
+    {
+        if (_cloud.Client is null) return false;
+
+        try
+        {
+            var current = await _cloud.Client.GetCurrentPairingCodeAsync(cancellationToken);
+            var recovered = PairingCodePolicy.ValidateCloudIssue(current);
+            if (!recovered.Success) return false;
+            if (!string.IsNullOrWhiteSpace(previousSessionId) &&
+                string.Equals(previousSessionId, recovered.SessionId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            SaveCloudPairingCode(recovered);
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void SaveCloudPairingCode(CloudPairingIssueResult issued)
+    {
+        _settings.CloudPairingCode = issued.Code!;
+        _settings.CloudPairingExpiresAt = issued.ExpiresAt;
+        _settings.CloudPairingSessionId = issued.SessionId!;
+        ConfigManager.Save(_settings);
     }
 
     private async Task RegisterCloudPrintersAsync()
@@ -479,6 +580,16 @@ public class ServerService : IDisposable, IAsyncDisposable
         {
             try
             {
+                if (Volatile.Read(ref _cloudPairingCodeRefreshPending) != 0 &&
+                    _cloud.IsOnline &&
+                    _cloud.Client is not null)
+                {
+                    if (!await IssueCloudPairingCodeAsync(_cloudWorkerStop.Token))
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(10), _cloudWorkerStop.Token);
+                    }
+                }
+
                 await RefreshPendingPairingsAsync(_cloudWorkerStop.Token);
                 await Task.Delay(TimeSpan.FromSeconds(2), _cloudWorkerStop.Token);
             }

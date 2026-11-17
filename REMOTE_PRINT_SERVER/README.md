@@ -107,7 +107,16 @@ The current safe upload limit is `MAX_DOCUMENT_BYTES=4194304` (4 MiB), below the
 
 ## Retention policy
 
-Vercel Cron calls cleanup daily at `02:00 UTC`. Cleanup only removes terminal rejected/expired pairings, terminal print jobs whose `updated_at` is older than 72 hours, old audit events, and old rate-limit events. Devices, approved pairings, printers, active/expired pairing-code history, unfinished jobs, and idempotency records are retained. Cleanup runs are retained for 30 days.
+Vercel Cron calls cleanup daily at `02:00 UTC`. Cleanup removes terminal rejected/expired/revoked pairings, expired print authorizations, terminal print jobs whose `updated_at` is older than 72 hours, old audit events, old rate-limit events, expired pairing-code history after 72 hours, realtime events after `REALTIME_EVENT_RETENTION_SECONDS` (default 7 days), Telegram tracking rows after 30 days, and expired print-job tombstones after 30 days. Devices, approved pairings, printers, activation-code history, and unfinished jobs are retained. Cleanup runs are retained for 30 days.
+
+Administrators can run the same protected cleanup from Telegram:
+
+```text
+/cleanup dry-run   # inspect candidates without deleting
+/cleanup           # execute the cleanup
+```
+
+The command is available only to `TELEGRAM_ADMIN_IDS` and reports inspected/deleted counts without exposing secrets. Apply `migrations/015_cleanup_retention_indexes.sql` to existing PostgreSQL databases before production rollout.
 ## Telegram admin bot
 
 The optional Telegram bot is a webhook-based admin interface. It does not expose

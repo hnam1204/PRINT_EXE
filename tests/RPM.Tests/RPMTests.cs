@@ -187,6 +187,105 @@ public class RPMTests
     }
 
     [Fact]
+    public void ConnectionStatusResolver_ShowsCheckingUntilStartupReadinessCompletes()
+    {
+        var checking = ConnectionStatusResolver.Resolve(
+            ActivationStatus.VerificationPending,
+            cloudOnline: false,
+            relayOnline: true,
+            previouslyVerified: true,
+            startupReady: false);
+
+        Assert.True(checking.IsChecking);
+        Assert.Equal("Đang kiểm tra kết nối dịch vụ...", checking.PrimaryText);
+
+        var ready = ConnectionStatusResolver.Resolve(
+            ActivationStatus.Valid,
+            cloudOnline: true,
+            relayOnline: true,
+            previouslyVerified: true,
+            startupReady: true);
+
+        Assert.False(ready.IsChecking);
+        Assert.Equal("Đã kết nối dịch vụ", ready.PrimaryText);
+    }
+
+    [Fact]
+    public void PairingCodePolicy_RejectsCloudResponseWithoutCode()
+    {
+        var result = PairingCodePolicy.ValidateCloudIssue(null);
+
+        Assert.False(result.Success);
+        Assert.Null(result.Code);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void PairingCodePolicy_RejectsEmptyCloudCode(string code)
+    {
+        var result = PairingCodePolicy.ValidateCloudIssue(new CloudPairingCodeResponse(
+            "session-1",
+            code,
+            DateTime.UtcNow,
+            DateTime.UtcNow.AddMinutes(5),
+            "ACTIVE"));
+
+        Assert.False(result.Success);
+        Assert.Null(result.Code);
+    }
+
+    [Theory]
+    [InlineData("INACTIVE")]
+    [InlineData("REVOKED")]
+    public void PairingCodePolicy_RejectsNonActiveCloudResponse(string status)
+    {
+        var result = PairingCodePolicy.ValidateCloudIssue(new CloudPairingCodeResponse(
+            "session-1",
+            "CLOUD1",
+            DateTime.UtcNow,
+            DateTime.UtcNow.AddMinutes(5),
+            status));
+
+        Assert.False(result.Success);
+        Assert.Null(result.Code);
+    }
+
+    [Fact]
+    public void PairingCodePolicy_RejectsExpiredOrIncompleteCloudResponse()
+    {
+        var expired = PairingCodePolicy.ValidateCloudIssue(new CloudPairingCodeResponse(
+            "session-1",
+            "CLOUD1",
+            DateTime.UtcNow.AddMinutes(-10),
+            DateTime.UtcNow.AddMinutes(-5),
+            "ACTIVE"));
+        var missingSession = PairingCodePolicy.ValidateCloudIssue(new CloudPairingCodeResponse(
+            " ",
+            "CLOUD1",
+            DateTime.UtcNow,
+            DateTime.UtcNow.AddMinutes(5),
+            "ACTIVE"));
+
+        Assert.False(expired.Success);
+        Assert.False(missingSession.Success);
+    }
+
+    [Fact]
+    public void PairingCodePolicy_UsesServiceCodeWithoutFallingBackToLanCode()
+    {
+        Assert.Equal(
+            "Chưa có mã kết nối dịch vụ",
+            PairingCodePolicy.GetPrimaryCode(cloudEnabled: true, cloudCode: null, localCode: "RPM-LOCAL1"));
+        Assert.Equal(
+            "CLOUD1",
+            PairingCodePolicy.GetPrimaryCode(cloudEnabled: true, cloudCode: "CLOUD1", localCode: "RPM-LOCAL1"));
+        Assert.Equal(
+            "RPM-LOCAL1",
+            PairingCodePolicy.GetPrimaryCode(cloudEnabled: false, cloudCode: null, localCode: "RPM-LOCAL1"));
+    }
+
+    [Fact]
     public void TransportPolicy_DefaultsToDirectOnlyAndPreservesLegacyConfig()
     {
         var fresh = new AppSettings();

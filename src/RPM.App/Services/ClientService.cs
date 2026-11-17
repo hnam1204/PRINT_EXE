@@ -31,6 +31,7 @@ public class ClientService : IDisposable, IAsyncDisposable
     private readonly ConcurrentDictionary<string, TaskCompletionSource<PrintStreamAckPayload>> _streamAcks = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _cloudApprovalLock = new(1, 1);
     private volatile bool _remotePrinterInstalled;
+    private volatile bool _startupReady;
     private int _isDisposed;
 
     public RelayClient Relay => _relayClient;
@@ -55,7 +56,8 @@ public class ClientService : IDisposable, IAsyncDisposable
         _cloud.ActivationStatus,
         _cloud.IsOnline,
         _relayClient.IsConnected,
-        _cloud.HasPreviouslyVerifiedActivation);
+        _cloud.HasPreviouslyVerifiedActivation,
+        _startupReady);
     public ConnectionMode ConnectionMode => ConnectionStatusInfo.ConnectionMode;
     public TransportStatus TransportStatus => ConnectionStatusInfo.TransportStatus;
     public string ConnectionStatusDisplay => ConnectionStatusInfo.PrimaryText;
@@ -75,7 +77,8 @@ public class ClientService : IDisposable, IAsyncDisposable
         _cloud.OnLog += (s, msg) => OnLog?.Invoke(this, msg);
         _cloud.OnStateChanged += (s, e) =>
         {
-            OnStateChanged?.Invoke(this, EventArgs.Empty);
+            if (_startupReady)
+                OnStateChanged?.Invoke(this, EventArgs.Empty);
             if (_cloud.IsOnline) _ = ResyncCloudPairingAsync();
             if (!_cloud.IsOnline) _ = StartRelayFallbackAsync();
         };
@@ -139,21 +142,33 @@ public class ClientService : IDisposable, IAsyncDisposable
 
     public async Task StartAsync()
     {
-        _ippServer.Start(_settings.LocalIppPort);
-        _remotePrinterInstalled = string.Equals(
-            VirtualPrinterManager.FindPrinterBoundToLocalIpp(_settings.LocalIppPort),
-            VirtualPrinterManager.DefaultPrinterName,
-            StringComparison.OrdinalIgnoreCase);
-        await EnsureRemotePrinterAsync();
-        if (_settings.CloudTransportEnabled || _cloud.HasStoredToken)
+        _startupReady = false;
+        try
         {
-            await _cloud.StartAsync();
-        }
+            if (_settings.CloudTransportEnabled || _cloud.HasStoredToken)
+            {
+                // Verify the stored activation before the optional Windows printer
+                // setup so the dashboard can resolve the service state promptly.
+                await _cloud.StartAsync();
+            }
 
-        // Direct printing is the selected transport when enabled. Cloud remains
-        // available as the legacy rollback path when direct streaming is disabled.
-        if (_settings.UsesDirectTransport || !_cloud.IsOnline)
-            await StartRelayFallbackAsync();
+            _ippServer.Start(_settings.LocalIppPort);
+            _remotePrinterInstalled = string.Equals(
+                VirtualPrinterManager.FindPrinterBoundToLocalIpp(_settings.LocalIppPort),
+                VirtualPrinterManager.DefaultPrinterName,
+                StringComparison.OrdinalIgnoreCase);
+            await EnsureRemotePrinterAsync();
+
+            // Direct printing is the selected transport when enabled. Cloud remains
+            // available as the legacy rollback path when direct streaming is disabled.
+            if (_settings.UsesDirectTransport || !_cloud.IsOnline)
+                await StartRelayFallbackAsync();
+        }
+        finally
+        {
+            _startupReady = true;
+            OnStateChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     private async Task EnsureRemotePrinterAsync()

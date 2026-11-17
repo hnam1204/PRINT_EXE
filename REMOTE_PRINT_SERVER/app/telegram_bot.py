@@ -182,6 +182,39 @@ def tracked_message_ids(session, chat_id: int) -> list[int]:
             .order_by(TelegramMessage.created_at.desc()).all()]
 
 
+def format_cleanup_result(result: dict) -> str:
+    """Format cleanup output without exposing secrets or database contents."""
+    mode = "XEM TRƯỚC" if result.get("dryRun") else "ĐÃ DỌN"
+    status = result.get("status", "UNKNOWN")
+    inspected = result.get("inspected", {})
+    deleted = result.get("deleted", {})
+    rows = (
+        ("pairings", "pairings"),
+        ("printJobs", "print_jobs"),
+        ("printAuthorizations", "print_authorizations"),
+        ("auditEvents", "audit_events"),
+        ("rateLimitEvents", "rate_limit_events"),
+        ("pairingCodes", "pairing_codes"),
+        ("realtimeEvents", "realtime_events"),
+        ("telegramMessages", "telegram_messages"),
+        ("printJobTombstones", "print_job_tombstones"),
+    )
+    lines = [f"CLEANUP DATABASE - {mode}", f"Trạng thái: {status}", ""]
+    for key, label in rows:
+        lines.append(f"{label}: kiểm tra {inspected.get(key, 0)}, xóa {deleted.get(key, 0)}")
+    retained = result.get("retained", {})
+    lines.extend([
+        "",
+        f"Pairing đang hoạt động giữ lại: {retained.get('activePairings', 0)}",
+        f"Print job chưa hoàn tất giữ lại: {retained.get('unfinishedPrintJobs', 0)}",
+        f"Blob lỗi giữ lại: {retained.get('blobFailures', 0)}",
+    ])
+    errors = result.get("errors") or []
+    if errors:
+        lines.append(f"Lỗi cần xử lý lại: {len(errors)}")
+    return "\n".join(lines)
+
+
 def remove_tracked_message(session, chat_id: int, message_id: int) -> None:
     session.query(TelegramMessage).filter(
         TelegramMessage.chat_id == str(chat_id), TelegramMessage.message_id == message_id
@@ -262,6 +295,7 @@ def set_bot_commands(bot_token: str) -> bool:
             {"command": "list", "description": "Xem danh sách mã"},
             {"command": "reissue", "description": "Cấp lại mã bị mất"},
             {"command": "revoke", "description": "Thu hồi mã"},
+            {"command": "cleanup", "description": "Dọn dữ liệu hết hạn"},
             {"command": "clear-chat", "description": "Xóa tin nhắn đoạn chat"},
         ]
     }).encode("utf-8")

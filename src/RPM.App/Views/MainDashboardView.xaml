@@ -48,7 +48,7 @@
                     <Border x:Name="PillStatus" Background="{StaticResource WarningLightBrush}" CornerRadius="12" Padding="9,4" Margin="0,0,8,0">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <Ellipse x:Name="DotStatus" Width="7" Height="7" Fill="{StaticResource WarningBrush}" Margin="0,0,5,0"/>
-                            <TextBlock x:Name="TxtHeaderStatus" Text="Chưa kết nối" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource WarningBrush}"/>
+                            <TextBlock x:Name="TxtHeaderStatus" Text="Đang kiểm tra kết nối dịch vụ..." FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource WarningBrush}"/>
                         </StackPanel>
                     </Border>
 
@@ -108,7 +108,10 @@
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                         <Button x:Name="BtnRegeneratePairingCode" Style="{StaticResource SecondaryBtn}" Click="BtnRegeneratePairingCode_Click" Padding="10,6" Margin="0,0,6,0">
-                                            <TextBlock Text="Tạo mã mới" FontSize="11"/>
+                                            <StackPanel Orientation="Horizontal">
+                                                <ProgressBar x:Name="PbRegeneratePairingCode" Width="13" Height="13" IsIndeterminate="True" Visibility="Collapsed" Margin="0,0,6,0"/>
+                                                <TextBlock x:Name="TxtRegeneratePairingCode" Text="Tạo mã mới" FontSize="11"/>
+                                            </StackPanel>
                                         </Button>
                                         <Button x:Name="BtnCopyPairingCode" Style="{StaticResource PrimaryBtn}" Click="BtnCopyPairingCode_Click" Padding="12,6">
                                             <StackPanel Orientation="Horizontal">
@@ -143,7 +146,7 @@
                             <!-- Connection Stats -->
                             <Grid Margin="0,0,0,6">
                                 <TextBlock Text="Kết nối:" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
-                                <TextBlock x:Name="TxtServerConnectionStatus" Text="Chưa kết nối" HorizontalAlignment="Right" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource WarningBrush}"/>
+                                <TextBlock x:Name="TxtServerConnectionStatus" Text="Đang kiểm tra kết nối dịch vụ..." HorizontalAlignment="Right" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource WarningBrush}"/>
                             </Grid>
                             <Grid Margin="0,0,0,6">
                                 <TextBlock Text="Máy con:" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
@@ -389,7 +392,7 @@
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0" Text="Trạng thái:" FontSize="12" Foreground="{StaticResource TextMainBrush}" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" x:Name="TxtSettingsConnectionStatus" Text="Chưa kết nối nội bộ" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource WarningBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" x:Name="TxtSettingsConnectionStatus" Text="Đang kiểm tra kết nối dịch vụ..." FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource WarningBrush}" VerticalAlignment="Center"/>
                                 </Grid>
 
                                 <Grid Margin="0,0,0,8">
@@ -407,7 +410,7 @@
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="170"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                         <StackPanel Grid.RowSpan="2" Grid.Column="0" VerticalAlignment="Center">
                                             <TextBlock Text="Kết nối dịch vụ" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextMainBrush}"/>
-                                            <TextBlock x:Name="TxtCloudStatus" Text="Đang tắt" FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,1,0,0"/>
+                                            <TextBlock x:Name="TxtCloudStatus" Text="Đang kiểm tra kết nối dịch vụ..." FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,1,0,0"/>
                                         </StackPanel>
                                         <Grid Grid.Row="0" Grid.Column="1">
                                             <StackPanel>

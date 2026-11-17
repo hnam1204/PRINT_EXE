@@ -2,15 +2,29 @@ from datetime import datetime, timedelta, timezone
 import threading
 import uuid
 
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, or_, select, text
 
-from .database import AuditEvent, CleanupRun, Pairing, PrintAuthorization, PrintJob, PrintJobTombstone, RateLimitEvent
+from .database import (
+    AuditEvent,
+    CleanupRun,
+    Pairing,
+    PairingCode,
+    PrintAuthorization,
+    PrintJob,
+    PrintJobTombstone,
+    RateLimitEvent,
+    RealtimeEvent,
+    TelegramMessage,
+)
 
 CLEANUP_AFTER_HOURS = 72
 BATCH_SIZE = 250
+DEFAULT_REALTIME_EVENT_RETENTION_SECONDS = 7 * 24 * 60 * 60
+DEFAULT_PAIRING_CODE_RETENTION_SECONDS = CLEANUP_AFTER_HOURS * 60 * 60
+DEFAULT_TELEGRAM_MESSAGE_RETENTION_SECONDS = 30 * 24 * 60 * 60
+DEFAULT_PRINT_JOB_TOMBSTONE_RETENTION_SECONDS = 30 * 24 * 60 * 60
 _sqlite_cleanup_lock = threading.Lock()
 TERMINAL_JOB_STATUSES = {"COMPLETED", "CANCELED", "CANCELLED", "FAILED"}
-TERMINAL_PAIRING_STATUSES = {"REJECTED", "EXPIRED"}
 
 
 def _utc(value: datetime) -> datetime:
@@ -47,17 +61,52 @@ def _unlock(session) -> None:
         _sqlite_cleanup_lock.release()
 
 
-def run_cleanup(session_factory, engine, blob_store=None, now: datetime | None = None, dry_run: bool = False) -> dict:
+def run_cleanup(
+    session_factory,
+    engine,
+    blob_store=None,
+    now: datetime | None = None,
+    dry_run: bool = False,
+    *,
+    realtime_event_retention_seconds: int = DEFAULT_REALTIME_EVENT_RETENTION_SECONDS,
+    pairing_code_retention_seconds: int = DEFAULT_PAIRING_CODE_RETENTION_SECONDS,
+    telegram_message_retention_seconds: int = DEFAULT_TELEGRAM_MESSAGE_RETENTION_SECONDS,
+    print_job_tombstone_retention_seconds: int = DEFAULT_PRINT_JOB_TOMBSTONE_RETENTION_SECONDS,
+) -> dict:
     started_at = now or datetime.now(timezone.utc)
     cutoff = started_at - timedelta(hours=CLEANUP_AFTER_HOURS)
+    realtime_event_cutoff = started_at - timedelta(seconds=realtime_event_retention_seconds)
+    pairing_code_cutoff = started_at - timedelta(seconds=pairing_code_retention_seconds)
+    telegram_message_cutoff = started_at - timedelta(seconds=telegram_message_retention_seconds)
+    tombstone_cutoff = started_at - timedelta(seconds=print_job_tombstone_retention_seconds)
     result = {
         "status": "SUCCEEDED",
         "dryRun": dry_run,
         "startedAt": started_at.isoformat(),
         "finishedAt": None,
         "cutoff": cutoff.isoformat(),
-        "inspected": {"pairings": 0, "printJobs": 0, "printAuthorizations": 0, "auditEvents": 0, "rateLimitEvents": 0},
-        "deleted": {"pairings": 0, "printJobs": 0, "printAuthorizations": 0, "auditEvents": 0, "rateLimitEvents": 0},
+        "inspected": {
+            "pairings": 0,
+            "printJobs": 0,
+            "printAuthorizations": 0,
+            "auditEvents": 0,
+            "rateLimitEvents": 0,
+            "pairingCodes": 0,
+            "realtimeEvents": 0,
+            "telegramMessages": 0,
+            "printJobTombstones": 0,
+        },
+        "deleted": {
+            "pairings": 0,
+            "printJobs": 0,
+            "printAuthorizations": 0,
+            "auditEvents": 0,
+            "rateLimitEvents": 0,
+            "pairingCodes": 0,
+            "realtimeEvents": 0,
+            "telegramMessages": 0,
+            "printJobTombstones": 0,
+        },
         "retained": {"activePairings": 0, "unfinishedPrintJobs": 0, "blobFailures": 0},
         "errors": [],
         "errorCode": None,
@@ -70,7 +119,12 @@ def run_cleanup(session_factory, engine, blob_store=None, now: datetime | None =
             result["status"] = "SKIPPED_ALREADY_RUNNING"
             return result
 
-        pairing_condition = Pairing.status.in_(TERMINAL_PAIRING_STATUSES) & (Pairing.expires_at <= cutoff)
+        pairing_condition = or_(
+            Pairing.status.in_({"REJECTED", "EXPIRED"}) & (Pairing.expires_at <= cutoff),
+            (Pairing.status == "REVOKED")
+            & Pairing.decided_at.is_not(None)
+            & (Pairing.decided_at <= cutoff),
+        )
         if dry_run:
             pairing_deleted = 0
             pairing_inspected = session.scalar(select(func.count(Pairing.id)).where(pairing_condition)) or 0
@@ -84,6 +138,27 @@ def run_cleanup(session_factory, engine, blob_store=None, now: datetime | None =
             authorization_inspected = session.scalar(select(func.count(PrintAuthorization.id)).where(authorization_condition)) or 0
         else:
             authorization_deleted, authorization_inspected = _delete_in_batches(session, PrintAuthorization, authorization_condition, started_at)
+        pairing_code_condition = or_(
+            PairingCode.expires_at <= pairing_code_cutoff,
+            PairingCode.revoked_at.is_not(None) & (PairingCode.revoked_at <= pairing_code_cutoff),
+        )
+        realtime_event_condition = RealtimeEvent.created_at <= realtime_event_cutoff
+        telegram_message_condition = TelegramMessage.created_at <= telegram_message_cutoff
+        tombstone_condition = or_(
+            PrintJobTombstone.expires_at <= started_at,
+            PrintJobTombstone.expires_at.is_(None) & (PrintJobTombstone.created_at <= tombstone_cutoff),
+        )
+        if dry_run:
+            pairing_code_deleted = realtime_event_deleted = telegram_message_deleted = tombstone_deleted = 0
+            pairing_code_inspected = session.scalar(select(func.count(PairingCode.id)).where(pairing_code_condition)) or 0
+            realtime_event_inspected = session.scalar(select(func.count(RealtimeEvent.id)).where(realtime_event_condition)) or 0
+            telegram_message_inspected = session.scalar(select(func.count(TelegramMessage.id)).where(telegram_message_condition)) or 0
+            tombstone_inspected = session.scalar(select(func.count(PrintJobTombstone.id)).where(tombstone_condition)) or 0
+        else:
+            pairing_code_deleted, pairing_code_inspected = _delete_in_batches(session, PairingCode, pairing_code_condition, started_at)
+            realtime_event_deleted, realtime_event_inspected = _delete_in_batches(session, RealtimeEvent, realtime_event_condition, started_at)
+            telegram_message_deleted, telegram_message_inspected = _delete_in_batches(session, TelegramMessage, telegram_message_condition, started_at)
+            tombstone_deleted, tombstone_inspected = _delete_in_batches(session, PrintJobTombstone, tombstone_condition, started_at)
         job_deleted = 0
         job_inspected = 0
         while True:
@@ -122,7 +197,7 @@ def run_cleanup(session_factory, engine, blob_store=None, now: datetime | None =
                         request_hash=job.request_hash,
                         original_job_id=job.id,
                         created_at=started_at,
-                        expires_at=None,
+                        expires_at=started_at + timedelta(seconds=print_job_tombstone_retention_seconds),
                     ))
                     session.flush()
                     session.delete(job)
@@ -150,6 +225,10 @@ def run_cleanup(session_factory, engine, blob_store=None, now: datetime | None =
             printAuthorizations=authorization_inspected,
             auditEvents=audit_inspected,
             rateLimitEvents=rate_inspected,
+            pairingCodes=pairing_code_inspected,
+            realtimeEvents=realtime_event_inspected,
+            telegramMessages=telegram_message_inspected,
+            printJobTombstones=tombstone_inspected,
         )
         result["deleted"].update(
             pairings=pairing_deleted,
@@ -157,6 +236,10 @@ def run_cleanup(session_factory, engine, blob_store=None, now: datetime | None =
             printAuthorizations=authorization_deleted,
             auditEvents=audit_deleted,
             rateLimitEvents=rate_deleted,
+            pairingCodes=pairing_code_deleted,
+            realtimeEvents=realtime_event_deleted,
+            telegramMessages=telegram_message_deleted,
+            printJobTombstones=tombstone_deleted,
         )
         result["retained"]["activePairings"] = session.scalar(
             select(func.count(Pairing.id)).where(Pairing.status == "APPROVED")

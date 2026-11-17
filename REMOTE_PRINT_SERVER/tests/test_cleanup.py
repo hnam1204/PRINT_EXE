@@ -9,7 +9,19 @@ os.environ.setdefault("CRON_SECRET", "test-cron-secret")
 from fastapi.testclient import TestClient
 
 from app.cleanup import run_cleanup
-from app.database import AuditEvent, Device, Pairing, PairingCode, PrintJob, PrintJobTombstone, Printer, RateLimitEvent, utcnow
+from app.database import (
+    AuditEvent,
+    Device,
+    Pairing,
+    PairingCode,
+    PrintJob,
+    PrintJobTombstone,
+    Printer,
+    RateLimitEvent,
+    RealtimeEvent,
+    TelegramMessage,
+    utcnow,
+)
 from app.main import create_app
 
 
@@ -22,6 +34,8 @@ def test_cleanup_deletes_only_safe_terminal_data(tmp_path):
             Device(id="host-01", name="Host", role="HOST", app_version="1", token_hash="host", last_seen_at=old, created_at=old),
             Device(id="client-01", name="Client", role="CLIENT", app_version="1", token_hash="client", last_seen_at=old, created_at=old),
             Pairing(id="old-rejected", host_id="host-01", client_id="client-01", code="OLD", status="REJECTED", expires_at=old, created_at=old),
+            Pairing(id="old-revoked", host_id="host-01", client_id="client-01", code="OLD-REVOKED", status="REVOKED", expires_at=old, created_at=old, decided_at=old),
+            Pairing(id="recent-revoked", host_id="host-01", client_id="client-01", code="RECENT-REVOKED", status="REVOKED", expires_at=old, created_at=old, decided_at=recent),
             Pairing(id="approved", host_id="host-01", client_id="client-01", code="KEEP", status="APPROVED", expires_at=old, created_at=old),
             Printer(id="printer-01", host_id="host-01", display_name="Printer", updated_at=old),
             PrintJob(id="done-old", idempotency_key="done-old", client_id="client-01", host_id="host-01", printer_id="printer-01", status="COMPLETED", request_hash="a", created_at=old, updated_at=old),
@@ -34,13 +48,15 @@ def test_cleanup_deletes_only_safe_terminal_data(tmp_path):
 
     result = run_cleanup(app.state.session_factory, app.state.engine, now=utcnow())
     assert result["status"] == "SUCCEEDED"
-    assert result["deleted"]["pairings"] == 1
+    assert result["deleted"]["pairings"] == 2
     assert result["deleted"]["printJobs"] == 1
 
     with app.state.session_factory() as session:
         assert session.get(Device, "host-01") is not None
         assert session.get(Pairing, "approved") is not None
         assert session.get(Pairing, "old-rejected") is None
+        assert session.get(Pairing, "old-revoked") is None
+        assert session.get(Pairing, "recent-revoked") is not None
         assert session.get(PrintJob, "done-old") is None
         assert session.get(PrintJob, "queued-old") is not None
         assert session.get(PrintJob, "done-recent") is not None
@@ -127,3 +143,53 @@ def test_cleanup_dry_run_does_not_delete_or_create_tombstone(tmp_path):
     assert result["deleted"]["printJobs"] == 0
     with app.state.session_factory() as session:
         assert session.get(PrintJob, "dry-job") is not None
+
+
+def test_cleanup_removes_expired_retention_records(tmp_path):
+    app = create_app(database_url=f"sqlite:///{tmp_path / 'retention.db'}")
+    now = datetime(2026, 1, 31, tzinfo=timezone.utc)
+    old = now - timedelta(days=31)
+    recent = now - timedelta(days=1)
+    with app.state.session_factory() as session:
+        session.add_all([
+            Device(id="host-01", name="Host", role="HOST", app_version="1", token_hash="host", last_seen_at=now, created_at=now),
+            Device(id="client-01", name="Client", role="CLIENT", app_version="1", token_hash="client", last_seen_at=now, created_at=now),
+            PairingCode(
+                id="old-code", session_id="old-session", device_id="host-01", code_hash="old-hash",
+                code_ciphertext="old-ciphertext", issued_at=old, expires_at=old, status="EXPIRED",
+            ),
+            PairingCode(
+                id="recent-code", session_id="recent-session", device_id="host-01", code_hash="recent-hash",
+                code_ciphertext="recent-ciphertext", issued_at=recent, expires_at=recent, status="EXPIRED",
+            ),
+            RealtimeEvent(id=1, event_type="OLD", recipient_device_id="client-01", created_at=old),
+            RealtimeEvent(id=2, event_type="RECENT", recipient_device_id="client-01", created_at=recent),
+            TelegramMessage(id="old-message", chat_id="123", message_id=1, direction="IN", created_at=old),
+            TelegramMessage(id="recent-message", chat_id="123", message_id=2, direction="IN", created_at=recent),
+            PrintJobTombstone(
+                id="old-tombstone", idempotency_key="old-key", request_hash="old-request",
+                original_job_id="old-job", created_at=old, expires_at=None,
+            ),
+            PrintJobTombstone(
+                id="recent-tombstone", idempotency_key="recent-key", request_hash="recent-request",
+                original_job_id="recent-job", created_at=recent, expires_at=None,
+            ),
+        ])
+        session.commit()
+
+    result = run_cleanup(app.state.session_factory, app.state.engine, now=now)
+
+    assert result["status"] == "SUCCEEDED"
+    assert result["deleted"]["pairingCodes"] == 1
+    assert result["deleted"]["realtimeEvents"] == 1
+    assert result["deleted"]["telegramMessages"] == 1
+    assert result["deleted"]["printJobTombstones"] == 1
+    with app.state.session_factory() as session:
+        assert session.get(PairingCode, "old-code") is None
+        assert session.get(PairingCode, "recent-code") is not None
+        assert session.get(RealtimeEvent, 1) is None
+        assert session.get(RealtimeEvent, 2) is not None
+        assert session.get(TelegramMessage, "old-message") is None
+        assert session.get(TelegramMessage, "recent-message") is not None
+        assert session.get(PrintJobTombstone, "old-tombstone") is None
+        assert session.get(PrintJobTombstone, "recent-tombstone") is not None

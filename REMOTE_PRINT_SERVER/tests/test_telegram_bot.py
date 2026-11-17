@@ -3,7 +3,19 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.database import ActivationCode, AuditEvent, Device, as_utc, create_session_factory, utcnow
-from app.telegram_bot import create_activation_code, format_remaining, format_vietnam_datetime, parse_command, purge_revoked_activation_codes, record_message, remove_tracked_message, reissue_activation_code, revoke_activation_code, tracked_message_ids
+from app.telegram_bot import (
+    create_activation_code,
+    format_cleanup_result,
+    format_remaining,
+    format_vietnam_datetime,
+    parse_command,
+    purge_revoked_activation_codes,
+    record_message,
+    remove_tracked_message,
+    reissue_activation_code,
+    revoke_activation_code,
+    tracked_message_ids,
+)
 
 
 def test_parse_telegram_command_with_bot_suffix():
@@ -25,6 +37,51 @@ def test_parse_telegram_command_supports_short_management_names():
     assert parse_command("/list").name == "/list"
     assert parse_command("/revoke ABC123").name == "/revoke"
     assert parse_command("/reissue ABC123").name == "/reissue"
+
+
+def test_parse_telegram_cleanup_supports_dry_run():
+    command = parse_command("/cleanup dry-run")
+
+    assert command is not None
+    assert command.name == "/cleanup"
+    assert command.args == ("dry-run",)
+
+
+def test_format_cleanup_result_includes_all_cleanup_groups():
+    reply = format_cleanup_result({
+        "status": "SUCCEEDED",
+        "dryRun": True,
+        "inspected": {
+            "pairings": 0,
+            "printJobs": 0,
+            "printAuthorizations": 0,
+            "auditEvents": 3,
+            "rateLimitEvents": 0,
+            "pairingCodes": 2,
+            "realtimeEvents": 4,
+            "telegramMessages": 5,
+            "printJobTombstones": 1,
+        },
+        "deleted": {
+            "pairings": 0,
+            "printJobs": 0,
+            "printAuthorizations": 0,
+            "auditEvents": 0,
+            "rateLimitEvents": 0,
+            "pairingCodes": 0,
+            "realtimeEvents": 0,
+            "telegramMessages": 0,
+            "printJobTombstones": 0,
+        },
+        "retained": {"activePairings": 0, "unfinishedPrintJobs": 0, "blobFailures": 0},
+        "errors": [],
+    })
+
+    assert "XEM TRƯỚC" in reply
+    assert "pairing_codes: kiểm tra 2" in reply
+    assert "realtime_events: kiểm tra 4" in reply
+    assert "telegram_messages: kiểm tra 5" in reply
+    assert "print_job_tombstones: kiểm tra 1" in reply
 
 
 def test_create_and_revoke_customer_activation_code(tmp_path):

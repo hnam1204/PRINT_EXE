@@ -43,6 +43,9 @@ class Settings:
     realtime_gateway_url: str
     realtime_gateway_shared_secret: str
     realtime_event_retention_seconds: int
+    pairing_code_retention_seconds: int
+    telegram_message_retention_seconds: int
+    print_job_tombstone_retention_seconds: int
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -108,4 +111,7 @@ class Settings:
             realtime_gateway_url=realtime_gateway_url,
             realtime_gateway_shared_secret=realtime_gateway_shared_secret,
             realtime_event_retention_seconds=int(os.getenv("REALTIME_EVENT_RETENTION_SECONDS", str(7 * 24 * 3600))),
+            pairing_code_retention_seconds=int(os.getenv("PAIRING_CODE_RETENTION_SECONDS", str(72 * 3600))),
+            telegram_message_retention_seconds=int(os.getenv("TELEGRAM_MESSAGE_RETENTION_SECONDS", str(30 * 24 * 3600))),
+            print_job_tombstone_retention_seconds=int(os.getenv("PRINT_JOB_TOMBSTONE_RETENTION_SECONDS", str(30 * 24 * 3600))),
         )

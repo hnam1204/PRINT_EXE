@@ -69,6 +69,7 @@ from .telegram_bot import (
     format_remaining,
     format_vietnam_datetime,
     build_activation_success_message,
+    format_cleanup_result,
     send_activation_success_notifications,
     tracked_message_ids,
 )
@@ -1515,7 +1516,16 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Cron authorization required")
         if not secrets.compare_digest(authorization.removeprefix("Bearer ").strip(), settings.cron_secret):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid cron authorization")
-        return run_cleanup(session_factory, engine, app.state.blob_store, dry_run=dry_run)
+        return run_cleanup(
+            session_factory,
+            engine,
+            app.state.blob_store,
+            dry_run=dry_run,
+            realtime_event_retention_seconds=settings.realtime_event_retention_seconds,
+            pairing_code_retention_seconds=settings.pairing_code_retention_seconds,
+            telegram_message_retention_seconds=settings.telegram_message_retention_seconds,
+            print_job_tombstone_retention_seconds=settings.print_job_tombstone_retention_seconds,
+        )
 
     @app.get("/api/v1/internal/realtime/events", response_model=list[RealtimeEventEnvelope], tags=["Internal"])
     def internal_realtime_events(
@@ -1609,12 +1619,42 @@ def create_app(settings: Settings | None = None, database_url: str | None = None
                 "/list - Xem toàn bộ thông tin mã\n"
                 "/reissue [id] - Cấp lại mã khi khách hàng làm mất mã\n"
                 "/revoke [id|ma] - Thu hồi mã\n"
+                 "/cleanup [dry-run] - Dọn dữ liệu hết hạn; mặc định chạy thật\n"
                 "/clear-chat - Xóa tin nhắn bot và người dùng đã ghi nhận\n\n"
                 "Ví dụ:\n"
                 "/create CongTyABC 30 1 500\n"
                  "/create CongTyABC forever unlimited 5000\n"
                 "/reissue 38dddc98-b95a-48c9-b1b2-571df9c0f4ab"
             )
+        elif command.name == "/cleanup":
+            dry_run = bool(command.args) and command.args[0].lower() in {"dry-run", "preview", "xem-truoc", "xem_truoc"}
+            if len(command.args) > 1 or (command.args and not dry_run):
+                reply = "Cú pháp: /cleanup dry-run để xem trước hoặc /cleanup để dọn thật."
+            else:
+                cleanup_result = await asyncio.to_thread(
+                    run_cleanup,
+                    session_factory,
+                    engine,
+                    app.state.blob_store,
+                    dry_run=dry_run,
+                    realtime_event_retention_seconds=settings.realtime_event_retention_seconds,
+                    pairing_code_retention_seconds=settings.pairing_code_retention_seconds,
+                    telegram_message_retention_seconds=settings.telegram_message_retention_seconds,
+                    print_job_tombstone_retention_seconds=settings.print_job_tombstone_retention_seconds,
+                )
+                with session_factory() as session:
+                    session.add(AuditEvent(
+                        actor_id=actor,
+                        action="DATABASE_CLEANUP_REQUESTED",
+                        target_type="DATABASE",
+                        details={
+                            "dryRun": dry_run,
+                            "status": cleanup_result.get("status"),
+                            "deleted": cleanup_result.get("deleted", {}),
+                        },
+                    ))
+                    session.commit()
+                reply = format_cleanup_result(cleanup_result)
         elif command.name == "/create":
             label = command.args[0] if command.args else "customer"
             days_arg = command.args[1].lower() if len(command.args) > 1 else "30"

@@ -42,6 +42,7 @@ public partial class MainDashboardView : UserControl
     private bool _restoringPrinterSelection;
     private int _printerLoadVersion;
     private bool _cloudRevocationNoticeShown;
+    private bool _pairingCodeGenerationInProgress;
     private readonly DispatcherTimer _activationCountdownTimer;
 
     public event EventHandler? OnMinimizeRequested;
@@ -259,11 +260,8 @@ public partial class MainDashboardView : UserControl
         var status = _serverService.ConnectionStatusInfo;
         ApplyHeaderConnectionStatus(status);
         TxtServerConnectionStatus.Text = status.PrimaryText;
-        if (_isSettingsOpen && _currentSettingsTab == SettingsTab.General)
-        {
-            TxtSettingsConnectionStatus.Text = status.PrimaryText;
-            TxtCloudStatus.Text = GetCloudStatusText(status);
-        }
+        TxtSettingsConnectionStatus.Text = status.PrimaryText;
+        TxtCloudStatus.Text = GetCloudStatusText(status);
 
         int sharedCount = _serverService.SharedPrinters.Count(p => p.IsShared);
         if (_serverService.ActiveSharedPrinter != null)
@@ -323,11 +321,8 @@ public partial class MainDashboardView : UserControl
         var status = _clientService.ConnectionStatusInfo;
         TxtClientGeofenceStatus.Text = _clientService.GeofenceStatusDisplay;
         ApplyHeaderConnectionStatus(status);
-        if (_isSettingsOpen && _currentSettingsTab == SettingsTab.General)
-        {
-            TxtSettingsConnectionStatus.Text = status.PrimaryText;
-            TxtCloudStatus.Text = GetCloudStatusText(status);
-        }
+        TxtSettingsConnectionStatus.Text = status.PrimaryText;
+        TxtCloudStatus.Text = GetCloudStatusText(status);
 
         if (_clientService.IsConnecting)
         {
@@ -489,10 +484,16 @@ public partial class MainDashboardView : UserControl
         return $"{name} • Build {version.Build}";
     }
 
-    private string GetDisplayedPairingCode() =>
-        _settings.CloudTransportEnabled && !string.IsNullOrWhiteSpace(_settings.CloudPairingCode)
-            ? _settings.CloudPairingCode
-            : _settings.PairingCode;
+    private string GetDisplayedPairingCode() => PairingCodePolicy.GetPrimaryCode(
+        _settings.CloudTransportEnabled,
+        _settings.CloudPairingCode,
+        _settings.PairingCode);
+
+    private bool HasDisplayedPairingCode() =>
+        !_settings.CloudTransportEnabled || !string.IsNullOrWhiteSpace(_settings.CloudPairingCode);
+
+    private bool IsPairingCodeReadyForDisplay() =>
+        _serverService is null || !_serverService.ConnectionStatusInfo.IsChecking;
 
     private string GetClientRelayAddressDisplay() =>
         RPM.Core.Networking.RelayEndpointPolicy.IsLoopback(_settings.RelayServerUrl)
@@ -501,12 +502,24 @@ public partial class MainDashboardView : UserControl
 
     private void UpdateServerPairingCodeUI()
     {
-        TxtServerPairingCode.Text = GetDisplayedPairingCode();
+        bool ready = IsPairingCodeReadyForDisplay();
+        TxtServerPairingCode.Text = ready ? GetDisplayedPairingCode() : "Đang kiểm tra kết nối dịch vụ...";
+        BtnCopyPairingCode.IsEnabled = ready && !_pairingCodeGenerationInProgress && HasDisplayedPairingCode();
+        if (!ready)
+        {
+            TxtServerPairingExpiry.Text = "Đang xác minh mã kết nối";
+            return;
+        }
+
         if (_settings.CloudTransportEnabled && !string.IsNullOrWhiteSpace(_settings.CloudPairingCode))
         {
             TxtServerPairingExpiry.Text = _settings.CloudPairingExpiresAt is DateTime expiresAt
                 ? $"Hết hạn lúc {expiresAt.ToLocalTime():HH:mm:ss}"
                 : "Mã kết nối đang hoạt động";
+        }
+        else if (_settings.CloudTransportEnabled)
+        {
+            TxtServerPairingExpiry.Text = "Chưa tạo được mã kết nối dịch vụ";
         }
         else
         {
@@ -1341,6 +1354,16 @@ public partial class MainDashboardView : UserControl
 
     private async void BtnCopyPairingCode_Click(object sender, RoutedEventArgs e)
     {
+        if (_pairingCodeGenerationInProgress || !IsPairingCodeReadyForDisplay() || !HasDisplayedPairingCode())
+        {
+            MessageBox.Show(
+                "Chưa có mã kết nối dịch vụ để sao chép. Hãy chờ hệ thống tạo mã hoặc thử lại.",
+                "Chưa có mã kết nối",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
         bool copied = false;
         const int maxAttempts = 5;
 
@@ -1414,7 +1437,7 @@ public partial class MainDashboardView : UserControl
 
     private async void BtnRegeneratePairingCode_Click(object sender, RoutedEventArgs e)
     {
-        if (_serverService == null) return;
+        if (_serverService == null || _pairingCodeGenerationInProgress) return;
 
         if (MessageBox.Show(
                 "Mã hiện tại sẽ hết hiệu lực và các máy con phải gửi yêu cầu kết nối lại. Bạn có muốn tiếp tục không?",
@@ -1425,11 +1448,20 @@ public partial class MainDashboardView : UserControl
             return;
         }
 
-        BtnRegeneratePairingCode.IsEnabled = false;
+        SetPairingCodeGenerationBusy(true);
         try
         {
-            await _serverService.RotatePairingCodeAsync();
+            bool success = await _serverService.RotatePairingCodeAsync();
             UpdateServerPairingCodeUI();
+            MessageBox.Show(
+                success
+                    ? (_settings.CloudTransportEnabled
+                        ? "Đã tạo mã kết nối dịch vụ mới."
+                        : "Đã tạo mã kết nối nội bộ mới.")
+                    : "Không thể tạo mã kết nối dịch vụ. Mã hiện tại vẫn được giữ nguyên.",
+                success ? "Đã tạo mã mới" : "Không thể tạo mã mới",
+                MessageBoxButton.OK,
+                success ? MessageBoxImage.Information : MessageBoxImage.Warning);
         }
         catch (Exception ex)
         {
@@ -1441,8 +1473,17 @@ public partial class MainDashboardView : UserControl
         }
         finally
         {
-            BtnRegeneratePairingCode.IsEnabled = true;
+            SetPairingCodeGenerationBusy(false);
         }
+    }
+
+    private void SetPairingCodeGenerationBusy(bool isBusy)
+    {
+        _pairingCodeGenerationInProgress = isBusy;
+        BtnRegeneratePairingCode.IsEnabled = !isBusy;
+        BtnCopyPairingCode.IsEnabled = !isBusy && IsPairingCodeReadyForDisplay() && HasDisplayedPairingCode();
+        PbRegeneratePairingCode.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
+        TxtRegeneratePairingCode.Text = isBusy ? "Đang tạo mã..." : "Tạo mã mới";
     }
 
     private async void BtnClientConnectToggle_Click(object sender, RoutedEventArgs e)

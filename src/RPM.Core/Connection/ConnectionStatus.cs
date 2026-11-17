@@ -29,7 +29,8 @@ public sealed record ConnectionStatusSnapshot(
     ConnectionMode ConnectionMode,
     TransportStatus TransportStatus,
     string PrimaryText,
-    string? SecondaryText)
+    string? SecondaryText,
+    bool IsChecking = false)
 {
     public bool IsPrimaryConnected => TransportStatus == TransportStatus.Online;
 }
@@ -58,8 +59,20 @@ public static class ConnectionStatusResolver
         ActivationStatus activationStatus,
         bool cloudOnline,
         bool relayOnline,
-        bool previouslyVerified = false)
+        bool previouslyVerified = false,
+        bool startupReady = true)
     {
+        if (!startupReady)
+        {
+            return new ConnectionStatusSnapshot(
+                activationStatus,
+                ConnectionMode.None,
+                TransportStatus.Offline,
+                "Đang kiểm tra kết nối dịch vụ...",
+                null,
+                IsChecking: true);
+        }
+
         if (activationStatus == ActivationStatus.Valid)
         {
             if (cloudOnline)
