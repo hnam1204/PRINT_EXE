@@ -293,12 +293,19 @@ public partial class MainDashboardView : UserControl
         TxtServerClientsSummary.Text = $"{approvedClients}/{maxClients} máy đã được chấp nhận ({onlineClients} máy đang trực tuyến • {pendingClients} yêu cầu đang chờ)";
         TxtServerGeofenceStatus.Text = _serverService.GeofenceStatusDisplay;
         var lanEndpoints = _serverService.LanRelayEndpoints;
-        string lanDetails = !_serverService.IsLanRelayAvailable
-            ? _serverService.LanAccessStatus
-            : lanEndpoints.Count > 0
-                ? $"{_serverService.LanAccessStatus}\n{string.Join("\n", lanEndpoints)}"
-                : "Không tìm thấy IP LAN";
-        TxtServerLanEndpoint.Text = $"{lanDetails}\nMã LAN dự phòng: {_settings.PairingCode}";
+        bool lanReady = _serverService.IsLanRelayAvailable && lanEndpoints.Count > 0;
+        TxtServerLanStatus.Text = lanReady ? "Sẵn sàng" : "Chưa sẵn sàng";
+        TxtServerLanStatus.Foreground = (SolidColorBrush)Application.Current.Resources[
+            lanReady ? "SuccessBrush" : "WarningBrush"];
+        TxtServerLanStatus.ToolTip = _serverService.LanAccessStatus;
+        TxtServerLanEndpoint.Text = lanEndpoints.Count > 0
+            ? string.Join(" • ", lanEndpoints)
+            : "Chưa phát hiện địa chỉ LAN";
+        TxtServerLanEndpoint.ToolTip = lanEndpoints.Count > 0
+            ? string.Join(Environment.NewLine, lanEndpoints)
+            : _serverService.LanAccessStatus;
+        TxtServerLanPairingCode.Text = $"Mã dự phòng: {_settings.PairingCode}";
+        BtnCopyLanEndpoint.Visibility = lanEndpoints.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         TxtPrintersConnectionStatus.Text = $"Trạng thái kết nối: {status.PrimaryText} • Chọn máy in để xem thông tin và lệnh in.";
 
         UpdateCloudEnrollmentUI();
@@ -456,6 +463,8 @@ public partial class MainDashboardView : UserControl
         DotStatus.Fill = statusBrush;
         PillStatus.Background = statusLightBrush;
         TxtHeaderStatus.Foreground = statusBrush;
+        TxtServerConnectionStatus.Foreground = statusBrush;
+        TxtSettingsConnectionStatus.Foreground = statusBrush;
     }
 
     private void ApplyConnectionStatus(ConnectionStatusSnapshot status)
@@ -1376,6 +1385,30 @@ public partial class MainDashboardView : UserControl
             {
                 BtnCopyPairingCode.ClearValue(BackgroundProperty);
             }
+        }
+    }
+
+    private async void BtnCopyLanEndpoint_Click(object sender, RoutedEventArgs e)
+    {
+        if (_serverService == null) return;
+
+        string endpointText = string.Join(Environment.NewLine, _serverService.LanRelayEndpoints);
+        if (string.IsNullOrWhiteSpace(endpointText)) return;
+
+        try
+        {
+            Clipboard.SetText(endpointText);
+            BtnCopyLanEndpoint.ToolTip = "Đã sao chép địa chỉ LAN";
+            await Task.Delay(1200);
+            BtnCopyLanEndpoint.ToolTip = "Sao chép địa chỉ LAN";
+        }
+        catch (ExternalException ex) when ((uint)ex.HResult == 0x800401D0u)
+        {
+            MessageBox.Show(
+                "Không thể sao chép lúc này vì bộ nhớ tạm đang được ứng dụng khác sử dụng. Hãy thử lại sau ít giây.",
+                "Không thể sao chép",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
         }
     }
 

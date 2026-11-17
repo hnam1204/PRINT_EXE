@@ -3,6 +3,8 @@ param(
     [string]$Channel = "Beta",
     [string]$DownloadBaseUrl = "",
     [string[]]$Changelog = @(
+        "Toi uu UX khoi LAN noi bo: hien thi trang thai ngan gon va endpoint de sao chep",
+        "Dong bo mau trang thai ket noi dich vu theo trang thai thuc te",
         "Can bang kich thuoc va khoang cach cac nut trong modal thoat ung dung",
         "Sua man hinh Cai dat Chung co the co gian va cuon doc khi thieu chieu cao",
         "Gui thong bao Telegram khi khach hang kich hoat thanh cong; server chi luu hash va ma goi y",
