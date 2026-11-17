@@ -189,14 +189,8 @@ public class LocalIppServer : IDisposable
         }
     }
 
-    private static int FindDocumentOffset(byte[] data)
-    {
-        for (int i = 8; i < data.Length; i++)
-        {
-            if (data[i] == 0x03) return i + 1;
-        }
-        return -1;
-    }
+    private static int FindDocumentOffset(byte[] data) =>
+        TryFindAttributesEnd(data, out int endTagIndex) ? endTagIndex + 1 : -1;
 
     private static byte[] ReadFileSegment(string path, long offset, long length)
     {
@@ -234,16 +228,9 @@ public class LocalIppServer : IDisposable
         short opCode = (short)((data[2] << 8) | data[3]);
         int reqId = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
 
-        // Locate End of attributes tag (0x03)
-        int endTagIndex = -1;
-        for (int i = 8; i < data.Length; i++)
-        {
-            if (data[i] == 0x03) // End of attributes tag
-            {
-                endTagIndex = i;
-                break;
-            }
-        }
+        bool hasValidAttributes = TryFindAttributesEnd(data, out int endTagIndex);
+        if (!hasValidAttributes)
+            return CreateSimpleIppResponse(major, minor, 0x0400, reqId); // client-error-bad-request
 
         // Operation 0x0002 = Print-Job, 0x0006 = Send-Document.
         // Some Windows IPP clients split Create-Job and Send-Document instead
@@ -253,19 +240,9 @@ public class LocalIppServer : IDisposable
             string docName = "RemoteDocument_" + DateTime.Now.ToString("HHmmss");
             string documentFormat = GetAttributeValue(data, endTagIndex, "document-format") ?? "application/octet-stream";
 
-            // Look for job-name inside attributes if possible
-            string reqString = Encoding.ASCII.GetString(data, 0, endTagIndex > 8 ? endTagIndex : data.Length);
-            int jobNameIdx = reqString.IndexOf("job-name", StringComparison.OrdinalIgnoreCase);
-            if (jobNameIdx > 0 && jobNameIdx + 20 < reqString.Length)
-            {
-                // Simple heuristic to extract friendly doc name
-                string snippet = reqString.Substring(jobNameIdx + 8, Math.Min(50, reqString.Length - (jobNameIdx + 8)));
-                string cleaned = new string(snippet.Where(c => char.IsLetterOrDigit(c) || c == '.' || c == '_' || c == '-').ToArray());
-                if (!string.IsNullOrWhiteSpace(cleaned))
-                {
-                    docName = cleaned;
-                }
-            }
+            string? requestedJobName = GetAttributeValue(data, endTagIndex, "job-name");
+            if (!string.IsNullOrWhiteSpace(requestedJobName))
+                docName = SanitizeDocumentName(requestedJobName);
 
             if (endTagIndex != -1 && endTagIndex + 1 < data.Length)
             {
@@ -304,11 +281,12 @@ public class LocalIppServer : IDisposable
         int limit = endTagIndex > 8 ? endTagIndex : data.Length;
         int index = 8;
         string? currentName = null;
-        while (index + 4 <= limit)
+        while (index < limit)
         {
             byte valueTag = data[index++];
-            if (valueTag == 0x03) break; // end-of-attributes delimiter
-            if (valueTag <= 0x0F) continue; // IPP group delimiter
+            if (valueTag == 0x03) break;
+            if (IsGroupDelimiter(valueTag)) continue;
+            if (index + 2 > limit) break;
             int nameLength = (data[index++] << 8) | data[index++];
             if (index + nameLength + 2 > limit) break;
             string name = nameLength == 0 && currentName is not null
@@ -320,9 +298,47 @@ public class LocalIppServer : IDisposable
             string value = Encoding.UTF8.GetString(data, index, valueLength);
             index += valueLength;
             if (nameLength > 0) currentName = name;
-            if (valueTag == 0x49 && string.Equals(name, attributeName, StringComparison.OrdinalIgnoreCase)) return value;
+            if (string.Equals(name, attributeName, StringComparison.OrdinalIgnoreCase)) return value;
         }
         return null;
+    }
+
+    private static bool TryFindAttributesEnd(byte[] data, out int endTagIndex)
+    {
+        endTagIndex = -1;
+        if (data.Length < 9) return false;
+
+        int index = 8;
+        while (index < data.Length)
+        {
+            byte valueTag = data[index++];
+            if (valueTag == 0x03)
+            {
+                endTagIndex = index - 1;
+                return true;
+            }
+
+            if (IsGroupDelimiter(valueTag)) continue;
+            if (index + 2 > data.Length) return false;
+
+            int nameLength = (data[index++] << 8) | data[index++];
+            if (index + nameLength + 2 > data.Length) return false;
+            index += nameLength;
+
+            int valueLength = (data[index++] << 8) | data[index++];
+            if (index + valueLength > data.Length) return false;
+            index += valueLength;
+        }
+
+        return false;
+    }
+
+    private static bool IsGroupDelimiter(byte tag) => tag is >= 0x01 and <= 0x02 or >= 0x04 and <= 0x07;
+
+    private static string SanitizeDocumentName(string value)
+    {
+        string cleaned = new(value.Where(c => char.IsLetterOrDigit(c) || c is '.' or '_' or '-' or ' ').ToArray());
+        return string.IsNullOrWhiteSpace(cleaned) ? "RemoteDocument" : cleaned.Trim();
     }
 
     private byte[] CreateSimpleIppResponse(byte major, byte minor, short statusCode, int reqId)
@@ -359,15 +375,35 @@ public class LocalIppServer : IDisposable
 
         // Printer attributes group
         ms.WriteByte(0x02);
+        WriteAttribute(ms, 0x45, "printer-uri-supported", GetPrinterUri());
+        WriteAttribute(ms, 0x44, "uri-authentication-supported", "none");
+        WriteAttribute(ms, 0x44, "uri-security-supported", "none");
+        WriteAttribute(ms, 0x44, "ipp-versions-supported", "1.1");
+        WriteAttribute(ms, 0x47, "charset-configured", "utf-8");
+        WriteAttribute(ms, 0x47, "charset-supported", "utf-8");
+        WriteAttribute(ms, 0x48, "natural-language-configured", "en-us");
+        WriteAttribute(ms, 0x48, "generated-natural-language-supported", "en-us");
+        WriteAttributeInt(ms, 0x23, "operations-supported", 0x0002); // Print-Job
+        WriteAttributeInt(ms, 0x23, "operations-supported", 0x0004); // Validate-Job
+        WriteAttributeInt(ms, 0x23, "operations-supported", 0x0005); // Create-Job
+        WriteAttributeInt(ms, 0x23, "operations-supported", 0x0006); // Send-Document
+        WriteAttributeInt(ms, 0x23, "operations-supported", 0x000B); // Get-Printer-Attributes
         WriteAttribute(ms, 0x42, "printer-name", PrinterName);
+        WriteAttribute(ms, 0x42, "printer-info", "Remote Print Manager virtual IPP queue");
+        WriteAttribute(ms, 0x42, "printer-make-and-model", "Remote Print Manager IPP Class Queue");
         WriteAttributeInt(ms, 0x23, "printer-state", 3); // 3 = idle / ready
         WriteAttribute(ms, 0x44, "printer-state-reasons", "none");
+        WriteAttributeBool(ms, "printer-is-accepting-jobs", true);
+        WriteAttributeInt(ms, 0x21, "queued-job-count", 0);
         WriteAttribute(ms, 0x49, "document-format-supported", "application/octet-stream");
+        WriteAttribute(ms, 0x49, "document-format-supported", "application/pdf");
         WriteAttribute(ms, 0x49, "document-format-supported", "application/postscript");
 
         ms.WriteByte(0x03); // end of attributes
         return ms.ToArray();
     }
+
+    private string GetPrinterUri() => $"http://127.0.0.1:{Port}/printers/rpm";
 
     private byte[] CreatePrintJobResponse(byte major, byte minor, int reqId, int jobId)
     {
@@ -422,6 +458,18 @@ public class LocalIppServer : IDisposable
         ms.WriteByte((byte)(value >> 16));
         ms.WriteByte((byte)(value >> 8));
         ms.WriteByte((byte)(value & 0xFF));
+    }
+
+    private void WriteAttributeBool(MemoryStream ms, string name, bool value)
+    {
+        byte[] nameBytes = Encoding.ASCII.GetBytes(name);
+        ms.WriteByte(0x22);
+        ms.WriteByte((byte)(nameBytes.Length >> 8));
+        ms.WriteByte((byte)(nameBytes.Length & 0xFF));
+        ms.Write(nameBytes, 0, nameBytes.Length);
+        ms.WriteByte(0x00);
+        ms.WriteByte(0x01);
+        ms.WriteByte(value ? (byte)1 : (byte)0);
     }
 
     public void Dispose()

@@ -64,6 +64,7 @@ public class ClientService : IDisposable, IAsyncDisposable
     public string ConnectionStatusSecondaryDisplay => ConnectionStatusInfo.SecondaryText ?? string.Empty;
     public string ActivationStatusDisplay => ConnectionStatusResolver.GetActivationText(_cloud.ActivationStatus);
     public string GeofenceStatusDisplay { get; private set; } = "Chưa xác minh vị trí";
+    public string PrintQueueSetupMessage { get; private set; } = "Chưa kiểm tra hàng đợi Windows.";
     private bool RequiresBackendPrintAuthorization => _cloud.IsCustomerActivation;
 
     public event EventHandler<string>? OnLog;
@@ -175,20 +176,15 @@ public class ClientService : IDisposable, IAsyncDisposable
     {
         if (!_ippServer.IsRunning)
         {
-            OnLog?.Invoke(this, "[IPP] Không thể mở cổng nhận lệnh in cục bộ; Ctrl + P chưa sẵn sàng.");
+            PrintQueueSetupMessage = "Không thể mở Local IPP Server; Ctrl + P chưa sẵn sàng. Kiểm tra cổng IPP hoặc quyền truy cập localhost.";
+            OnLog?.Invoke(this, $"[IPP] {PrintQueueSetupMessage}");
             return;
         }
 
         if (IsRemotePrinterInstalled)
         {
+            PrintQueueSetupMessage = "Hàng đợi 'Remote Print Manager' đã sẵn sàng cho Ctrl + P.";
             OnLog?.Invoke(this, "[IPP] Hàng đợi 'Remote Print Manager' đã sẵn sàng cho Ctrl + P.");
-            return;
-        }
-
-        if (VirtualPrinterManager.IsVirtualPrinterInstalled(VirtualPrinterManager.DefaultPrinterName))
-        {
-            _remotePrinterInstalled = false;
-            OnLog?.Invoke(this, $"[IPP] Hàng đợi 'Remote Print Manager' đang trỏ sai cổng; cần cấu hình lại cổng 127.0.0.1:{_settings.LocalIppPort}.");
             return;
         }
 
@@ -200,11 +196,12 @@ public class ClientService : IDisposable, IAsyncDisposable
                 VirtualPrinterManager.FindPrinterBoundToLocalIpp(_settings.LocalIppPort),
                 VirtualPrinterManager.DefaultPrinterName,
                 StringComparison.OrdinalIgnoreCase);
-        OnLog?.Invoke(this, result.Success
+        PrintQueueSetupMessage = result.Success
             ? _remotePrinterInstalled
                 ? "[IPP] Đã chuẩn bị hàng đợi 'Remote Print Manager'. Trong cửa sổ Ctrl + P, hãy chọn đúng hàng đợi này."
                 : "[IPP] Windows đã tạo hàng đợi nhưng chưa xác nhận đúng cổng IPP; Ctrl + P chưa được coi là sẵn sàng."
-            : $"[IPP] Chưa chuẩn bị được hàng đợi Ctrl + P: {result.Message}");
+            : $"[IPP] Chưa chuẩn bị được hàng đợi Ctrl + P: {result.Message}";
+        OnLog?.Invoke(this, PrintQueueSetupMessage);
     }
 
     public async Task<bool> PrepareWindowsPrintQueueAsync()

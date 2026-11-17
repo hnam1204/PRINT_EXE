@@ -979,6 +979,145 @@ public class RPMTests
     }
 
     [Fact]
+    public void VirtualPrinter_UsesNativeIppInstallationWithoutCreatingLegacyPort()
+    {
+        string script = VirtualPrinterManager.BuildNativeIppInstallScript("Remote Print Manager", 9199);
+
+        Assert.Contains("-IppURL", script, StringComparison.Ordinal);
+        Assert.Contains("http://127.0.0.1:9199/printers/rpm", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("Add-PrinterPort", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Get-Printer -Name", script, StringComparison.Ordinal);
+        Assert.Contains("FullyQualifiedErrorId", script, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("http://127.0.0.1:9199/printers/rpm", 9199, true)]
+    [InlineData("http://localhost:9199/printers/rpm/", 9199, true)]
+    [InlineData("http://192.168.1.8:9199/printers/rpm", 9199, false)]
+    [InlineData("http://127.0.0.1:9199/other", 9199, false)]
+    [InlineData("https://127.0.0.1:9199/printers/rpm", 9199, false)]
+    public void VirtualPrinter_RecognizesOnlyConfiguredLocalIppPort(string portName, int port, bool expected)
+    {
+        Assert.Equal(expected, VirtualPrinterManager.IsMatchingIppPort(portName, port));
+    }
+
+    [Fact]
+    public void NativeIppInstallScript_IsValidWindowsPowerShellSyntax()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        string scriptPath = Path.Combine(Path.GetTempPath(), $"rpm-ipp-script-{Guid.NewGuid():N}.ps1");
+        File.WriteAllText(scriptPath, VirtualPrinterManager.BuildNativeIppInstallScript("Remote Print Manager", 9199), new UTF8Encoding(true));
+
+        try
+        {
+            string escapedPath = scriptPath.Replace("'", "''", StringComparison.Ordinal);
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -NonInteractive -Command \"[void][scriptblock]::Create((Get-Content -Raw -LiteralPath '{escapedPath}'))\"",
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = System.Diagnostics.Process.Start(psi);
+            Assert.NotNull(process);
+            string error = process!.StandardError.ReadToEnd();
+            process.WaitForExit(10_000);
+
+            Assert.True(process.ExitCode == 0, error);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            try { File.Delete(scriptPath); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task IppServer_RespondsToGetPrinterAttributesWithIppCapabilities()
+    {
+        int ippPort = 9889;
+        using var ippServer = new LocalIppServer();
+        ippServer.Start(ippPort);
+
+        try
+        {
+            using var packet = new MemoryStream();
+            packet.Write([1, 1, 0, 11, 0, 0, 0, 7]);
+            packet.WriteByte(0x01);
+            WriteIppAttribute(packet, 0x47, "attributes-charset", "utf-8");
+            WriteIppAttribute(packet, 0x48, "attributes-natural-language", "en-us");
+            WriteIppAttribute(packet, 0x45, "printer-uri", $"http://127.0.0.1:{ippPort}/printers/rpm");
+            packet.WriteByte(0x03);
+
+            using var http = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{ippPort}/printers/rpm")
+            {
+                Content = new ByteArrayContent(packet.ToArray())
+            };
+            request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/ipp");
+            var response = await http.SendAsync(request);
+            byte[] body = await response.Content.ReadAsByteArrayAsync();
+
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+            string bodyText = Encoding.UTF8.GetString(body);
+            Assert.Contains("printer-uri-supported", bodyText, StringComparison.Ordinal);
+            Assert.Contains("operations-supported", bodyText, StringComparison.Ordinal);
+            Assert.Contains("document-format-supported", bodyText, StringComparison.Ordinal);
+        }
+        finally
+        {
+            ippServer.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task IppServer_DoesNotTreatDelimiterByteInsideAttributeValueAsDocumentStart()
+    {
+        int ippPort = 9888;
+        using var ippServer = new LocalIppServer();
+        var received = new TaskCompletionSource<PrintJobReceivedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ippServer.OnJobReceived += (_, args) => received.TrySetResult(args);
+        ippServer.Start(ippPort);
+
+        try
+        {
+            byte[] payload = Encoding.ASCII.GetBytes("PAYLOAD-AFTER-IPP-ATTRIBUTES");
+            using var packet = new MemoryStream();
+            packet.Write([1, 1, 0, 2, 0, 0, 0, 3]);
+            packet.WriteByte(0x01);
+            WriteIppAttribute(packet, 0x47, "attributes-charset", "utf-8");
+            WriteIppAttribute(packet, 0x48, "attributes-natural-language", "en-us");
+            WriteIppAttribute(packet, 0x49, "document-format", "application/postscript");
+            WriteIppAttribute(packet, 0x42, "job-name", "name\u0003with-delimiter-byte");
+            packet.WriteByte(0x03);
+            int documentOffset = (int)packet.Position;
+            packet.Write(payload);
+
+            using var http = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{ippPort}/printers/rpm")
+            {
+                Content = new ByteArrayContent(packet.ToArray())
+            };
+            request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/ipp");
+            var response = await http.SendAsync(request);
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+
+            var completed = await Task.WhenAny(received.Task, Task.Delay(3000));
+            Assert.Same(received.Task, completed);
+            var captured = await received.Task;
+            Assert.Equal(documentOffset, captured.DataOffset);
+            Assert.Equal(payload, captured.Data);
+        }
+        finally
+        {
+            ippServer.Stop();
+        }
+    }
+
+    [Fact]
     public async Task IppServer_SpoolsLargePayloadToBoundedTempFile()
     {
         int ippPort = 9887;

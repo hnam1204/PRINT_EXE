@@ -387,7 +387,7 @@ public partial class MainDashboardView : UserControl
             MessageBox.Show(
                 ready
                     ? "Hàng đợi 'Remote Print Manager' đã sẵn sàng. Khi bấm Ctrl + P, hãy chọn đúng hàng đợi này."
-                    : "Chưa thiết lập được hàng đợi Remote Print Manager. Kiểm tra Windows IPP Class Driver và quyền quản trị.",
+                    : _clientService.PrintQueueSetupMessage,
                 ready ? "Đã sẵn sàng" : "Chưa sẵn sàng",
                 MessageBoxButton.OK,
                 ready ? MessageBoxImage.Information : MessageBoxImage.Warning);
